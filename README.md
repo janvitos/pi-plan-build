@@ -29,13 +29,19 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
 
 ## Install
 
-Install directly from GitHub:
+Install the npm package with Pi's package manager:
+
+```bash
+pi install npm:@janvitos/pi-plan-build
+```
+
+Pi stores npm packages under `~/.pi/agent/npm/`; `~/.pi/agent/extensions/` is reserved for directly auto-discovered extension files and directories. Start a new Pi process after installation, or run `/reload` in an existing session.
+
+### Install from GitHub
 
 ```bash
 pi install git:github.com/janvitos/pi-plan-build
 ```
-
-Then start a new Pi process, or run `/reload` in an existing session.
 
 ### Local development install
 
@@ -44,7 +50,7 @@ git clone https://github.com/janvitos/pi-plan-build.git ~/src/pi-plan-build
 ln -s ~/src/pi-plan-build ~/.pi/agent/extensions/pi-plan-build
 ```
 
-Do not install both the Git package and the local symlink at the same time; that would load the extension twice and cause command/flag conflicts.
+Do not install more than one npm, Git, or local copy at the same time; duplicate extension loads cause command and flag conflicts.
 
 ## Usage
 
@@ -94,9 +100,21 @@ The Plan workflow uses Pi's native exploration tools directly and does not bundl
 
 ```bash
 npm test
+npm pack --dry-run
 ```
 
 The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, complete plan rendering, approval decisions, stop behavior, fresh-session handoff content, and question formatting.
+
+### Publishing
+
+After authenticating an npm account with access to the `@janvitos` scope, validate and publish the public package:
+
+```bash
+npm publish --dry-run
+npm publish
+```
+
+The `prepublishOnly` hook runs the test suite before either command publishes a package.
 
 ## License
 

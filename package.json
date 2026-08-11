@@ -1,5 +1,5 @@
 {
-  "name": "pi-plan-build",
+  "name": "@janvitos/pi-plan-build",
   "version": "0.1.0",
   "description": "Plan safely, approve explicitly, then implement here or in a clean session.",
   "type": "module",
@@ -7,7 +7,7 @@
   "author": "janvitos",
   "repository": {
     "type": "git",
-    "url": "https://github.com/janvitos/pi-plan-build.git"
+    "url": "git+https://github.com/janvitos/pi-plan-build.git"
   },
   "keywords": [
     "pi-package",
@@ -19,8 +19,18 @@
   "engines": {
     "node": ">=22.6"
   },
+  "files": [
+    "index.ts",
+    "prompts.ts",
+    "question-ui.ts",
+    "utils.ts"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
-    "test": "node --experimental-strip-types --test utils.test.ts"
+    "test": "node --experimental-strip-types --test utils.test.ts",
+    "prepublishOnly": "npm test"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
