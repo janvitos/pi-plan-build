@@ -1,0 +1,35 @@
+{
+  "name": "pi-plan-build",
+  "version": "0.1.0",
+  "description": "Plan safely, approve explicitly, then implement here or in a clean session.",
+  "type": "module",
+  "license": "MIT",
+  "author": "janvitos",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/janvitos/pi-plan-build.git"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "plan-mode",
+    "build-mode",
+    "developer-tools"
+  ],
+  "engines": {
+    "node": ">=22.6"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test utils.test.ts"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./index.ts"
+    ]
+  }
+}

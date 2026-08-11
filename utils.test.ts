@@ -1,0 +1,118 @@
+import assert from "node:assert/strict";
+import os from "node:os";
+import path from "node:path";
+import test from "node:test";
+import {
+	applyManualSelection,
+	buildFreshImplementationHandoff,
+	buildPlanExitFreshResult,
+	buildPlanExitStayResult,
+	buildPlanReviewMessage,
+	classifyPlanExitChoice,
+	decodeModeState,
+	formatQuestionAnswers,
+	isAllowedPlanMutation,
+	makePlanPath,
+	nextMode,
+	PLAN_EXIT_APPROVE_CHOICE,
+	PLAN_EXIT_FRESH_CHOICE,
+	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
+	PLAN_EXIT_STAY_CHOICE,
+	sanitizeSessionId,
+} from "./utils.ts";
+
+test("mode state decodes current and legacy shapes safely", () => {
+	assert.deepEqual(decodeModeState({ version: 1, selectedMode: "plan" }), { version: 1, selectedMode: "plan" });
+	assert.deepEqual(decodeModeState({ mode: "build" }), { version: 1, selectedMode: "build" });
+	assert.equal(decodeModeState({ selectedMode: "danger" }), undefined);
+	assert.equal(decodeModeState(null), undefined);
+});
+
+test("session ids produce stable paths inside the plan root", () => {
+	const root = path.join(os.tmpdir(), "pi-plans");
+	const first = makePlanPath(root, "session/../../escape");
+	assert.equal(path.dirname(first), path.resolve(root));
+	assert.equal(first, makePlanPath(root, "session/../../escape"));
+	assert.equal(sanitizeSessionId("../"), "ephemeral");
+});
+
+test("only the exact plan path can be mutated", () => {
+	const cwd = path.resolve("/tmp/project");
+	const plan = path.resolve(cwd, ".pi/plans/session.md");
+	assert.equal(isAllowedPlanMutation(cwd, ".pi/plans/session.md", plan), true);
+	assert.equal(isAllowedPlanMutation(cwd, "./.pi/plans/../plans/session.md", plan), true);
+	assert.equal(isAllowedPlanMutation(cwd, "@.pi/plans/session.md", plan), true);
+	assert.equal(isAllowedPlanMutation(cwd, ".pi/plans/other.md", plan), false);
+	assert.equal(isAllowedPlanMutation(cwd, "../../etc/passwd", plan), false);
+});
+
+test("manual changes defer run mode while busy", () => {
+	assert.deepEqual(applyManualSelection("plan", "build", false), { selectedMode: "plan", runMode: "build" });
+	assert.deepEqual(applyManualSelection("plan", undefined, true), { selectedMode: "plan", runMode: "plan" });
+	assert.equal(nextMode("build"), "plan");
+	assert.equal(nextMode("plan"), "build");
+});
+
+test("plan review preserves the complete plan without truncation", () => {
+	const plan = `${"section line\n".repeat(500)}FINAL LINE`;
+	const review = buildPlanReviewMessage(plan);
+	assert.equal(review, `# Plan for Review\n\n${plan}`);
+	assert.equal(review.endsWith("FINAL LINE"), true);
+	assert.equal(review.includes("truncated"), false);
+});
+
+test("stay acknowledgement is stable and actionable", () => {
+	assert.equal(
+		PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
+		"Staying in Plan mode. Let me know when you’re ready to revise or implement the plan.",
+	);
+});
+
+test("declining plan exit stays in Plan mode and terminates the run", () => {
+	const declined = buildPlanExitStayResult("/tmp/plan.md", false);
+	assert.equal(declined.terminate, true);
+	assert.deepEqual(declined.details, {
+		approved: false,
+		mode: "plan",
+		planPath: "/tmp/plan.md",
+		cancelled: false,
+	});
+	assert.match(declined.content[0].text, /Stop now and wait for their next message/);
+
+	const cancelled = buildPlanExitStayResult("/tmp/plan.md", true);
+	assert.equal(cancelled.terminate, true);
+	assert.equal(cancelled.details.cancelled, true);
+});
+
+test("plan exit classifies all three choices and fails safe", () => {
+	assert.equal(classifyPlanExitChoice(PLAN_EXIT_APPROVE_CHOICE), "implement-here");
+	assert.equal(classifyPlanExitChoice(PLAN_EXIT_FRESH_CHOICE), "implement-fresh");
+	assert.equal(classifyPlanExitChoice(PLAN_EXIT_STAY_CHOICE), "stay");
+	assert.equal(classifyPlanExitChoice(undefined), "stay");
+	assert.equal(classifyPlanExitChoice("unexpected value"), "stay");
+});
+
+test("fresh implementation selection terminates and preserves the handoff", () => {
+	const result = buildPlanExitFreshResult("/tmp/plan.md");
+	assert.equal(result.terminate, true);
+	assert.deepEqual(result.details, {
+		approved: true,
+		action: "implement-fresh",
+		mode: "plan",
+		planPath: "/tmp/plan.md",
+	});
+	const plan = "first line\nlast line";
+	const handoff = buildFreshImplementationHandoff(plan);
+	assert.match(handoff, /Full tool access is restored/);
+	assert.equal(handoff.endsWith(plan), true);
+});
+
+test("question answers use stable model-visible formatting", () => {
+	assert.equal(
+		formatQuestionAnswers([
+			{ question: "Backend?", header: "Backend", answers: ["SQLite", "Redis"], custom: false },
+			{ question: "Name?", header: "Name", answers: ["custom"], custom: true },
+		]),
+		'"Backend?"="SQLite, Redis", "Name?"="custom"',
+	);
+});
