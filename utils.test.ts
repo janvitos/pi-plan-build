@@ -55,18 +55,16 @@ test("manual changes defer run mode while busy", () => {
 	assert.equal(nextMode("plan"), "build");
 });
 
-test("mode statuses use footer-dim brackets and bold colored labels", () => {
+test("mode statuses use border-colored brackets and bold colored labels", () => {
 	const theme = {
-		fg(color: "dim", text: string) {
-			assert.equal(color, "dim");
-			return `\x1b[38;2;128;128;128m${text}\x1b[0m`;
-		},
 		bold(text: string) {
 			return `\x1b[1m${text}\x1b[22m`;
 		},
 	};
-	const plan = formatModeStatus("plan", theme);
-	const build = formatModeStatus("build", theme);
+	const mutedBorder = (text: string) => `\x1b[38;2;128;128;128m${text}\x1b[0m`;
+	const highEffortBorder = (text: string) => `\x1b[38;2;255;0;255m${text}\x1b[0m`;
+	const plan = formatModeStatus("plan", theme, mutedBorder);
+	const build = formatModeStatus("build", theme, mutedBorder);
 	assert.equal(
 		plan,
 		"\x1b[38;2;128;128;128m[\x1b[0m\x1b[38;2;255;215;0m\x1b[1mplan\x1b[22m\x1b[0m\x1b[38;2;128;128;128m]\x1b[0m",
@@ -76,8 +74,15 @@ test("mode statuses use footer-dim brackets and bold colored labels", () => {
 		"\x1b[38;2;128;128;128m[\x1b[0m\x1b[38;2;59;130;246m\x1b[1mbuild\x1b[22m\x1b[0m\x1b[38;2;128;128;128m]\x1b[0m",
 	);
 
+	const highEffortPlan = formatModeStatus("plan", theme, highEffortBorder);
+	assert.equal(
+		highEffortPlan,
+		"\x1b[38;2;255;0;255m[\x1b[0m\x1b[38;2;255;215;0m\x1b[1mplan\x1b[22m\x1b[0m\x1b[38;2;255;0;255m]\x1b[0m",
+	);
+
 	const stripAnsi = (status: string) => status.replaceAll(/\x1b\[[0-9;]*m/g, "");
 	assert.equal(stripAnsi(plan), "[plan]");
+	assert.equal(stripAnsi(highEffortPlan), "[plan]");
 	assert.equal(stripAnsi(build), "[build]");
 	assert.equal(stripAnsi(plan).length, 6);
 	assert.equal(stripAnsi(build).length, 7);
