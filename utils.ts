@@ -3,17 +3,20 @@ import path from "node:path";
 export type Mode = "build" | "plan";
 
 const ANSI_RESET = "\x1b[0m";
-const BOLD_BLACK_FOREGROUND = "1;38;2;0;0;0";
-const MODE_BADGES: Record<Mode, { background: string; text: string; reservedSpace: string }> = {
-	// A trailing reset keeps Pi's status sanitizer from trimming the uncolored reserved cell.
-	plan: { background: "48;2;255;215;0", text: " PLAN ", reservedSpace: "\u00a0" },
-	build: { background: "48;2;59;130;246", text: " BUILD ", reservedSpace: "" },
+const MODE_LABELS: Record<Mode, { color: string; text: string }> = {
+	plan: { color: "38;2;255;215;0", text: "plan" },
+	build: { color: "38;2;59;130;246", text: "build" },
 };
 
-export function formatModeStatus(mode: Mode): string {
-	const badge = MODE_BADGES[mode];
-	const reservedSuffix = badge.reservedSpace ? `${badge.reservedSpace}${ANSI_RESET}` : "";
-	return `\x1b[${BOLD_BLACK_FOREGROUND};${badge.background}m${badge.text}${ANSI_RESET}${reservedSuffix}`;
+export interface ModeStatusTheme {
+	fg(color: "dim", text: string): string;
+	bold(text: string): string;
+}
+
+export function formatModeStatus(mode: Mode, theme: ModeStatusTheme): string {
+	const label = MODE_LABELS[mode];
+	const modeText = `\x1b[${label.color}m${theme.bold(label.text)}${ANSI_RESET}`;
+	return theme.fg("dim", "[") + modeText + theme.fg("dim", "]");
 }
 
 export const PLAN_EXIT_APPROVE_CHOICE = "Switch to Build and implement here";

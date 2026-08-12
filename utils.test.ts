@@ -55,23 +55,36 @@ test("manual changes defer run mode while busy", () => {
 	assert.equal(nextMode("plan"), "build");
 });
 
-test("mode statuses use bold, symmetric badges with fixed total width", () => {
-	const plan = formatModeStatus("plan");
-	const build = formatModeStatus("build");
-	assert.equal(plan, "\x1b[1;38;2;0;0;0;48;2;255;215;0m PLAN \x1b[0m\u00a0\x1b[0m");
-	assert.equal(build, "\x1b[1;38;2;0;0;0;48;2;59;130;246m BUILD \x1b[0m");
+test("mode statuses use dim brackets and bold colored labels", () => {
+	const theme = {
+		fg(color: "dim", text: string) {
+			assert.equal(color, "dim");
+			return `\x1b[38;2;128;128;128m${text}\x1b[0m`;
+		},
+		bold(text: string) {
+			return `\x1b[1m${text}\x1b[22m`;
+		},
+	};
+	const plan = formatModeStatus("plan", theme);
+	const build = formatModeStatus("build", theme);
+	assert.equal(
+		plan,
+		"\x1b[38;2;128;128;128m[\x1b[0m\x1b[38;2;255;215;0m\x1b[1mplan\x1b[22m\x1b[0m\x1b[38;2;128;128;128m]\x1b[0m",
+	);
+	assert.equal(
+		build,
+		"\x1b[38;2;128;128;128m[\x1b[0m\x1b[38;2;59;130;246m\x1b[1mbuild\x1b[22m\x1b[0m\x1b[38;2;128;128;128m]\x1b[0m",
+	);
 
-	// Match Pi's footer sanitization before checking what occupies terminal cells.
-	const sanitizeStatus = (status: string) => status.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
 	const stripAnsi = (status: string) => status.replaceAll(/\x1b\[[0-9;]*m/g, "");
-	assert.equal(stripAnsi(sanitizeStatus(plan)), " PLAN \u00a0");
-	assert.equal(stripAnsi(sanitizeStatus(build)), " BUILD ");
-	assert.equal(stripAnsi(sanitizeStatus(plan)).length, 7);
-	assert.equal(stripAnsi(sanitizeStatus(build)).length, 7);
-	assert.match(plan, /m PLAN \x1b\[0m/);
-	assert.match(build, /m BUILD \x1b\[0m/);
-	assert.equal(plan.endsWith("\x1b[0m"), true);
-	assert.equal(build.endsWith("\x1b[0m"), true);
+	assert.equal(stripAnsi(plan), "[plan]");
+	assert.equal(stripAnsi(build), "[build]");
+	assert.equal(stripAnsi(plan).length, 6);
+	assert.equal(stripAnsi(build).length, 7);
+	assert.doesNotMatch(plan, /\x1b\[48;/);
+	assert.doesNotMatch(build, /\x1b\[48;/);
+	assert.equal(plan.includes("\u00a0"), false);
+	assert.equal(build.includes("\u00a0"), false);
 });
 
 test("plan review preserves the complete plan without truncation", () => {

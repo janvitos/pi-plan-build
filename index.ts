@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CustomEditor, getAgentDir, getMarkdownTheme, type EntryRenderer, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Key, Markdown, matchesKey, Text } from "@earendil-works/pi-tui";
+import { Key, Markdown, matchesKey, Text, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerQuestionTool } from "./question-ui.ts";
 import {
@@ -64,6 +64,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let planPath = "";
 	let toolsBeforeModes: string[] = [];
 	let currentContext: ExtensionContext | undefined;
+	let requestEditorRender: (() => void) | undefined;
 	let freshImplementationPlan: string | undefined;
 
 	pi.registerFlag("plan", {
@@ -94,8 +95,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		pi.appendEntry(STATE_TYPE, stateData());
 	}
 
-	function updateStatus(ctx: ExtensionContext): void {
-		ctx.ui.setStatus(STATUS_KEY, formatModeStatus(selectedMode));
+	function updateModeIndicator(ctx: ExtensionContext): void {
+		// Clear the legacy footer status; the mode is now rendered inside the editor.
+		ctx.ui.setStatus(STATUS_KEY, undefined);
+		requestEditorRender?.();
 	}
 
 	function discoverUnmanagedTools(): void {
@@ -134,7 +137,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			pendingReminder = undefined;
 			applyTools(mode);
 		}
-		updateStatus(ctx);
+		updateModeIndicator(ctx);
 		persist();
 	}
 
@@ -360,7 +363,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.on("agent_settled", async (_event, ctx) => {
 		runMode = undefined;
 		applyTools(selectedMode);
-		updateStatus(ctx);
+		updateModeIndicator(ctx);
 	});
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -383,11 +386,31 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		planPath = makePlanPath(path.join(getAgentDir(), "plans"), ctx.sessionManager.getSessionId());
 		if (selectedMode === "plan") await ensurePlanDirectory();
 		applyTools(selectedMode);
-		updateStatus(ctx);
+		updateModeIndicator(ctx);
 
 		if (ctx.mode === "tui") {
 			class ModeEditor extends CustomEditor {
 				onCycle?: () => void;
+
+				requestModeRender(): void {
+					this.tui.requestRender();
+				}
+
+				override render(width: number): string[] {
+					const badge = formatModeStatus(selectedMode, ctx.ui.theme);
+					const prompt = `${badge} `;
+					const promptWidth = visibleWidth(prompt);
+					const paddingWidth = Math.min(promptWidth, Math.max(0, Math.floor((width - 1) / 2)));
+					if (this.getPaddingX() !== paddingWidth) this.setPaddingX(paddingWidth);
+
+					const lines = super.render(width);
+					const reservedPrefix = " ".repeat(paddingWidth);
+					if (paddingWidth === promptWidth && lines[1]?.startsWith(reservedPrefix)) {
+						lines[1] = prompt + lines[1].slice(reservedPrefix.length);
+					}
+					return lines;
+				}
+
 				override handleInput(data: string): void {
 					if (matchesKey(data, Key.tab)) {
 						this.onCycle?.();
@@ -398,6 +421,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			}
 			ctx.ui.setEditorComponent((tui, theme, keybindings) => {
 				const editor = new ModeEditor(tui, theme, keybindings);
+				requestEditorRender = () => editor.requestModeRender();
 				editor.onCycle = () => {
 					if (currentContext) void selectMode(nextMode(selectedMode), currentContext, "manual");
 				};
@@ -409,6 +433,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.on("session_shutdown", async (_event, ctx) => {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		ctx.ui.setEditorComponent(undefined);
+		requestEditorRender = undefined;
 		currentContext = undefined;
 	});
 }
