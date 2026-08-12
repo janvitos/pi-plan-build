@@ -121,6 +121,34 @@ export function formatQuestionAnswers(answers: QuestionAnswerData[]): string {
 	return answers.map((answer) => `"${answer.question}"="${answer.answers.length ? answer.answers.join(", ") : "Unanswered"}"`).join(", ");
 }
 
+export function extractPromptHistory(entries: readonly unknown[], limit = 100): string[] {
+	const prompts: string[] = [];
+	for (const entry of entries) {
+		if (!entry || typeof entry !== "object") continue;
+		const candidate = entry as {
+			type?: unknown;
+			message?: { role?: unknown; content?: unknown };
+		};
+		if (candidate.type !== "message" || candidate.message?.role !== "user") continue;
+
+		const content = candidate.message.content;
+		const text = typeof content === "string"
+			? content
+			: Array.isArray(content)
+				? content
+					.filter((block): block is { type: "text"; text: string } =>
+						!!block && typeof block === "object" && (block as { type?: unknown }).type === "text" && typeof (block as { text?: unknown }).text === "string")
+					.map((block) => block.text)
+					.join("")
+				: "";
+		const trimmed = text.trim();
+		if (!trimmed || prompts.at(-1) === trimmed) continue;
+		prompts.push(trimmed);
+	}
+	const maxEntries = Math.max(0, Math.floor(limit));
+	return maxEntries === 0 ? [] : prompts.slice(-maxEntries);
+}
+
 export function nextMode(mode: Mode): Mode {
 	return mode === "build" ? "plan" : "build";
 }

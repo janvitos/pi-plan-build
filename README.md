@@ -21,6 +21,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
   - **Stay in Plan mode**
 - Staying in Plan mode produces a durable acknowledgement and stops the run until the user responds.
 - Mode state survives reloads, resumes, and forks.
+- When Pi recreates the custom editor, the latest 100 user prompts from the active session branch are restored for Up/Down history navigation.
 
 ## Requirements
 
@@ -110,7 +111,7 @@ npm test
 npm pack --dry-run
 ```
 
-The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, complete plan rendering, approval decisions, stop behavior, fresh-session handoff content, and question formatting.
+The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode rendering, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session handoff content, and question formatting.
 
 ### Publishing
 

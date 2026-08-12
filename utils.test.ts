@@ -11,6 +11,7 @@ import {
 	buildPlanReviewMessage,
 	classifyPlanExitChoice,
 	decodeModeState,
+	extractPromptHistory,
 	formatModeStatus,
 	formatQuestionAnswers,
 	isAllowedPlanMutation,
@@ -155,6 +156,41 @@ test("plan guidance answers informational questions without creating a plan", ()
 	assert.match(reminder, /Do not call plan_exit/);
 	assert.match(reminder, /Plan mode remains active for future requests/);
 	assert.match(PLAN_EXIT_DESCRIPTION, /After directly answering an informational question/);
+});
+
+test("prompt history restores normalized user text in chronological order", () => {
+	const entries = [
+		{ type: "message", message: { role: "assistant", content: [{ type: "text", text: "ignore" }] } },
+		{ type: "message", message: { role: "user", content: "  first prompt  " } },
+		{ type: "custom_message", content: "ignore injected context" },
+		{
+			type: "message",
+			message: {
+				role: "user",
+				content: [
+					{ type: "text", text: "second " },
+					{ type: "image", data: "...", mimeType: "image/png" },
+					{ type: "text", text: "prompt" },
+				],
+			},
+		},
+		{ type: "message", message: { role: "user", content: "second prompt" } },
+		{ type: "message", message: { role: "user", content: [{ type: "image", data: "..." }] } },
+	];
+	assert.deepEqual(extractPromptHistory(entries), ["first prompt", "second prompt"]);
+});
+
+test("prompt history keeps the latest 100 entries", () => {
+	const entries = Array.from({ length: 105 }, (_, index) => ({
+		type: "message",
+		message: { role: "user", content: `prompt ${index}` },
+	}));
+	const history = extractPromptHistory(entries);
+	assert.equal(history.length, 100);
+	assert.equal(history[0], "prompt 5");
+	assert.equal(history.at(-1), "prompt 104");
+	assert.deepEqual(extractPromptHistory(entries, 2), ["prompt 103", "prompt 104"]);
+	assert.deepEqual(extractPromptHistory(entries, 0), []);
 });
 
 test("question answers use stable model-visible formatting", () => {

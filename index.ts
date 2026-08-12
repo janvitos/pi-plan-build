@@ -19,6 +19,7 @@ import {
 	buildPlanReviewMessage,
 	classifyPlanExitChoice,
 	decodeModeState,
+	extractPromptHistory,
 	formatModeStatus,
 	isAllowedPlanMutation,
 	makePlanPath,
@@ -366,7 +367,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		updateModeIndicator(ctx);
 	});
 
-	pi.on("session_start", async (_event, ctx) => {
+	pi.on("session_start", async (event, ctx) => {
 		currentContext = ctx;
 		const entries = ctx.sessionManager.getEntries();
 		const latest = entries
@@ -389,6 +390,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		updateModeIndicator(ctx);
 
 		if (ctx.mode === "tui") {
+			// Startup history is populated after session_start; replacement flows recreate the editor after that step.
+			const promptHistory = event.reason === "startup" ? [] : extractPromptHistory(ctx.sessionManager.getBranch());
 			class ModeEditor extends CustomEditor {
 				onCycle?: () => void;
 
@@ -421,6 +424,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			}
 			ctx.ui.setEditorComponent((tui, theme, keybindings) => {
 				const editor = new ModeEditor(tui, theme, keybindings);
+				for (const prompt of promptHistory) editor.addToHistory(prompt);
 				requestEditorRender = () => editor.requestModeRender();
 				editor.onCycle = () => {
 					if (currentContext) void selectMode(nextMode(selectedMode), currentContext, "manual");
