@@ -138,7 +138,6 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		}
 		updateStatus(ctx);
 		persist();
-		ctx.ui.notify(`${mode === "plan" ? "Plan" : "Build"} mode selected`, "info");
 	}
 
 	pi.registerCommand("plan", {
