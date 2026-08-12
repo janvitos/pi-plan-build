@@ -9,13 +9,14 @@ const MODE_LABELS: Record<Mode, { color: string; text: string }> = {
 };
 
 export interface ModeStatusTheme {
+	fg(color: "dim", text: string): string;
 	bold(text: string): string;
 }
 
-export function formatModeStatus(mode: Mode, theme: ModeStatusTheme, borderColor: (text: string) => string): string {
+export function formatModeStatus(mode: Mode, theme: ModeStatusTheme): string {
 	const label = MODE_LABELS[mode];
 	const modeText = `\x1b[${label.color}m${theme.bold(label.text)}${ANSI_RESET}`;
-	return borderColor("[") + modeText + borderColor("]");
+	return theme.fg("dim", "[") + modeText + theme.fg("dim", "]");
 }
 
 export const PLAN_EXIT_APPROVE_CHOICE = "Switch to Build and implement here";

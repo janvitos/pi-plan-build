@@ -397,7 +397,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				}
 
 				override render(width: number): string[] {
-					const badge = formatModeStatus(selectedMode, ctx.ui.theme, this.borderColor);
+					const badge = formatModeStatus(selectedMode, ctx.ui.theme);
 					const prompt = `${badge} `;
 					const promptWidth = visibleWidth(prompt);
 					const paddingWidth = Math.min(promptWidth, Math.max(0, Math.floor((width - 1) / 2)));
@@ -412,7 +412,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				}
 
 				override handleInput(data: string): void {
-					if (matchesKey(data, Key.tab)) {
+					if (matchesKey(data, Key.tab) && !this.isShowingAutocomplete()) {
 						this.onCycle?.();
 						return;
 					}

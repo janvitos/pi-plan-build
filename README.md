@@ -7,7 +7,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
 ## Features
 
 - New sessions start in **Build** mode.
-- Bare `Tab` cycles **Build → Plan → Build** and replaces normal Tab autocomplete.
+- Bare `Tab` cycles **Build → Plan → Build**, while active autocomplete dropdowns retain Pi's normal Tab completion.
 - Bracketed **build** (blue) and **plan** (yellow) indicators rendered as bold prompt prefixes inside Pi's text input box.
 - `/plan`, `/build`, and the `--plan` startup flag.
 - Per-session plans at `~/.pi/agent/plans/<session-id>.md`.
@@ -57,7 +57,7 @@ Do not install more than one npm, Git, or local copy at the same time; duplicate
 
 | Action | Result |
 | --- | --- |
-| `Tab` | Cycle Build and Plan |
+| `Tab` | Cycle Build and Plan, or accept an active autocomplete selection |
 | `/plan` | Select Plan mode |
 | `/build` | Select Build mode |
 | `pi --plan` | Start a new session in Plan mode |
