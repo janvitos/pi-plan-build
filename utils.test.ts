@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { buildPlanReminder, PLAN_EXIT_DESCRIPTION } from "./prompts.ts";
 import {
 	applyManualSelection,
 	buildFreshImplementationHandoff,
@@ -105,6 +106,17 @@ test("fresh implementation selection terminates and preserves the handoff", () =
 	const handoff = buildFreshImplementationHandoff(plan);
 	assert.match(handoff, /Full tool access is restored/);
 	assert.equal(handoff.endsWith(plan), true);
+});
+
+test("plan guidance answers informational questions without creating a plan", () => {
+	const reminder = buildPlanReminder("No plan file exists yet.");
+	assert.match(reminder, /Only when the current request requires an implementation plan/);
+	assert.match(reminder, /answer the question directly instead of starting the workflow below/);
+	assert.match(reminder, /You may use read-only tools to inspect the project/);
+	assert.match(reminder, /Do not create or update the plan file/);
+	assert.match(reminder, /Do not call plan_exit/);
+	assert.match(reminder, /Plan mode remains active for future requests/);
+	assert.match(PLAN_EXIT_DESCRIPTION, /After directly answering an informational question/);
 });
 
 test("question answers use stable model-visible formatting", () => {

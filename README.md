@@ -13,6 +13,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
 - Per-session plans at `~/.pi/agent/plans/<session-id>.md`.
 - In Plan mode, built-in `edit` and `write` are restricted to the exact plan file.
 - Interactive `question`, `plan_enter`, and `plan_exit` tools.
+- Informational questions are answered directly in Plan mode, with read-only inspection when needed and no plan or approval ceremony.
 - The complete saved plan is rendered in the transcript before approval—without the built-in write preview's truncation.
 - Three approval actions:
   - **Switch to Build and implement here**
@@ -89,6 +90,12 @@ Normal tools remain visible so the model can inspect the project. While a Plan r
 - bash is not restricted at the permission layer, but the Plan prompt explicitly permits read-only exploration only.
 
 This mirrors the intended permission-oriented workflow rather than hiding normal tool schemas.
+
+### Informational questions
+
+Plan mode distinguishes informational Q&A from implementation planning. If a request only asks for an explanation or information, the agent answers directly and ends normally. It may inspect the project with read-only tools when the answer depends on local context, but it does not create or update a plan, ask planning questions unnecessarily, or call `plan_exit`. Plan mode remains selected for the next request.
+
+Requests to change code or produce an implementation plan continue through the normal plan-file and approval workflow.
 
 ## Design and attribution
 
