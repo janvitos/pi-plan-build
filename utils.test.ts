@@ -11,6 +11,7 @@ import {
 	buildPlanReviewMessage,
 	classifyPlanExitChoice,
 	decodeModeState,
+	formatModeStatus,
 	formatQuestionAnswers,
 	isAllowedPlanMutation,
 	makePlanPath,
@@ -52,6 +53,25 @@ test("manual changes defer run mode while busy", () => {
 	assert.deepEqual(applyManualSelection("plan", undefined, true), { selectedMode: "plan", runMode: "plan" });
 	assert.equal(nextMode("build"), "plan");
 	assert.equal(nextMode("plan"), "build");
+});
+
+test("mode statuses use bold, symmetric badges with fixed total width", () => {
+	const plan = formatModeStatus("plan");
+	const build = formatModeStatus("build");
+	assert.equal(plan, "\x1b[1;38;2;0;0;0;48;2;255;215;0m PLAN \x1b[0m\u00a0\x1b[0m");
+	assert.equal(build, "\x1b[1;38;2;0;0;0;48;2;59;130;246m BUILD \x1b[0m");
+
+	// Match Pi's footer sanitization before checking what occupies terminal cells.
+	const sanitizeStatus = (status: string) => status.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim();
+	const stripAnsi = (status: string) => status.replaceAll(/\x1b\[[0-9;]*m/g, "");
+	assert.equal(stripAnsi(sanitizeStatus(plan)), " PLAN \u00a0");
+	assert.equal(stripAnsi(sanitizeStatus(build)), " BUILD ");
+	assert.equal(stripAnsi(sanitizeStatus(plan)).length, 7);
+	assert.equal(stripAnsi(sanitizeStatus(build)).length, 7);
+	assert.match(plan, /m PLAN \x1b\[0m/);
+	assert.match(build, /m BUILD \x1b\[0m/);
+	assert.equal(plan.endsWith("\x1b[0m"), true);
+	assert.equal(build.endsWith("\x1b[0m"), true);
 });
 
 test("plan review preserves the complete plan without truncation", () => {

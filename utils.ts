@@ -2,6 +2,20 @@ import path from "node:path";
 
 export type Mode = "build" | "plan";
 
+const ANSI_RESET = "\x1b[0m";
+const BOLD_BLACK_FOREGROUND = "1;38;2;0;0;0";
+const MODE_BADGES: Record<Mode, { background: string; text: string; reservedSpace: string }> = {
+	// A trailing reset keeps Pi's status sanitizer from trimming the uncolored reserved cell.
+	plan: { background: "48;2;255;215;0", text: " PLAN ", reservedSpace: "\u00a0" },
+	build: { background: "48;2;59;130;246", text: " BUILD ", reservedSpace: "" },
+};
+
+export function formatModeStatus(mode: Mode): string {
+	const badge = MODE_BADGES[mode];
+	const reservedSuffix = badge.reservedSpace ? `${badge.reservedSpace}${ANSI_RESET}` : "";
+	return `\x1b[${BOLD_BLACK_FOREGROUND};${badge.background}m${badge.text}${ANSI_RESET}${reservedSuffix}`;
+}
+
 export const PLAN_EXIT_APPROVE_CHOICE = "Switch to Build and implement here";
 export const PLAN_EXIT_FRESH_CHOICE = "Start fresh and implement";
 export const PLAN_EXIT_STAY_CHOICE = "Stay in Plan mode";

@@ -19,6 +19,7 @@ import {
 	buildPlanReviewMessage,
 	classifyPlanExitChoice,
 	decodeModeState,
+	formatModeStatus,
 	isAllowedPlanMutation,
 	makePlanPath,
 	nextMode,
@@ -94,10 +95,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	}
 
 	function updateStatus(ctx: ExtensionContext): void {
-		const label = selectedMode === "plan"
-			? ctx.ui.theme.fg("warning", "Plan")
-			: ctx.ui.theme.fg("border", "Build");
-		ctx.ui.setStatus(STATUS_KEY, `[${label}]`);
+		ctx.ui.setStatus(STATUS_KEY, formatModeStatus(selectedMode));
 	}
 
 	function discoverUnmanagedTools(): void {
