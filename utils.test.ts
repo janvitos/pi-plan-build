@@ -86,9 +86,8 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 		formatModeMetadata("build", "medium", theme, thinkingColor, {
 			modelName: "gpt-5.6-sol",
 			modelProvider: "openai",
-			modelColor: (text) => `\x1b[38;2;96;96;96m${text}\x1b[39m`,
 		}),
-		"\x1b[38;2;92;156;245m│\x1b[0m \x1b[38;2;92;156;245m\x1b[1mbuild\x1b[22m\x1b[0m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;96;96;96mgpt-5.6-sol\x1b[39m\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
+		"\x1b[38;2;92;156;245m│\x1b[0m \x1b[38;2;92;156;245m\x1b[1mbuild\x1b[22m\x1b[0m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
 	);
 });
 

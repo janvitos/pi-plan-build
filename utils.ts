@@ -16,7 +16,6 @@ export interface ModeStatusTheme {
 export interface PromptMetadataOptions {
 	modelName: string;
 	modelProvider?: string;
-	modelColor: (text: string) => string;
 }
 
 function formatModeColor(mode: Mode, text: string): string {
@@ -42,7 +41,7 @@ export function formatModeMetadata(
 	const label = MODE_LABELS[mode];
 	const modeText = `\x1b[${label.color}m${theme.bold(label.text)}${ANSI_RESET}`;
 	const modelText = options
-		? `${theme.fg("dim", " • ")}${options.modelColor(options.modelName)}${
+		? `${theme.fg("dim", " • ")}${options.modelName}${
 			options.modelProvider ? theme.fg("dim", ` [${options.modelProvider}]`) : ""
 		}`
 		: "";
