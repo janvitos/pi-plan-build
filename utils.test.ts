@@ -77,7 +77,8 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 	const buildRail = formatModeRail("build");
 	assert.equal(planRail, "\x1b[38;2;245;167;66m│\x1b[0m");
 	assert.equal(buildRail, "\x1b[38;2;92;156;245m│\x1b[0m");
-	assert.equal(formatModeRail("build", "┆"), "\x1b[38;2;92;156;245m┆\x1b[0m");
+	assert.equal(formatModeRail("plan", "┆"), "\x1b[38;2;245;167;66m┆\x1b[0m");
+	assert.equal(formatModeRail("build", "┇"), "\x1b[38;2;92;156;245m┇\x1b[0m");
 	assert.equal(
 		formatModeTopBorder("plan", 4, "\x1b[2m╮\x1b[22m"),
 		"\x1b[38;2;245;167;66m╭─╌\x1b[0m\x1b[2m╮\x1b[22m",
