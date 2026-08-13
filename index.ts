@@ -496,7 +496,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					const leftRail = `${formatModeRail(selectedMode)} `;
 					const rightRail = this.borderColor("│");
 					const topRightVerticalTransition = this.borderColor("┆");
-					const bottomLeftVerticalTransition = formatModeRail(selectedMode, "┆");
+					const bottomLeftVerticalTransition = formatModeRail(selectedMode, "┇");
 					const metadata = truncateToWidth(
 						formatModeMetadata(selectedMode, pi.getThinkingLevel(), ctx.ui.theme, this.borderColor, {
 							modelName: ctx.model?.id ?? "no-model",

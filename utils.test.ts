@@ -88,9 +88,9 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 		formatModeMetadata("build", "medium", theme, thinkingColor, {
 			modelName: "gpt-5.6-sol",
 			modelProvider: "openai",
-			rail: formatModeRail("build", "┆"),
+			rail: formatModeRail("build", "┇"),
 		}),
-		"\x1b[38;2;92;156;245m┆\x1b[0m \x1b[38;2;92;156;245mbuild\x1b[0m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
+		"\x1b[38;2;92;156;245m┇\x1b[0m \x1b[38;2;92;156;245mbuild\x1b[0m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
 	);
 });
 
@@ -119,13 +119,13 @@ test("mode composer joins border colors with dashed transitions and dim corners"
 		measure: (line: string) => line.replace(ansiPattern, "").length,
 	};
 	const lines = ["top border", "  first", "  second", "────────────────", "  autocomplete"];
-	assert.deepEqual(renderModeComposer(lines, "╭─────────────╌╮", "│ ", "│", "┆", "┆ plan · high", "╰", 2, 16, lineWidth), [
+	assert.deepEqual(renderModeComposer(lines, "╭─────────────╌╮", "│ ", "│", "┆", "┇ plan · high", "╰", 2, 16, lineWidth), [
 		"╭─────────────╌╮",
 		"│              ┆",
 		"│ first        │",
 		"│ second       │",
 		"│              │",
-		"┆ plan · high  │",
+		"┇ plan · high  │",
 		"╰╌─────────────╯",
 		"",
 		"  autocomplete",
@@ -139,7 +139,7 @@ test("mode composer joins border colors with dashed transitions and dim corners"
 		"│ ",
 		"│",
 		"┆",
-		"┆ metadata",
+		"┇ metadata",
 		"╰",
 		2,
 		16,
@@ -156,13 +156,13 @@ test("mode composer joins border colors with dashed transitions and dim corners"
 			"│ ",
 			"│",
 			"┆",
-			"┆ metadata",
+			"┇ metadata",
 			"╰",
 			2,
 			4,
 			lineWidth,
 		),
-		["╭─╌╮", "│  ┆", "│ p│", "│  │", "┆ m│", "╰\x1b[38;2;128;128;128m╌─╯\x1b[0m", ""],
+		["╭─╌╮", "│  ┆", "│ p│", "│  │", "┇ m│", "╰\x1b[38;2;128;128;128m╌─╯\x1b[0m", ""],
 	);
 	assert.deepEqual(renderModeComposer(lines, "top", "│ ", "│", "┆", "metadata", "╰", 0, 16, lineWidth), lines);
 });
