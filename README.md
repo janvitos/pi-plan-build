@@ -8,7 +8,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
 
 - New sessions start in **Build** mode.
 - Bare `Tab` cycles **Build → Plan → Build**, while active autocomplete dropdowns retain Pi's normal Tab completion.
-- The composer uses OpenCode prompt-inspired blue/orange mode colors on a rounded `╭─` top border and `│` rail, plus a mode/model/thinking metadata row and Pi's bottom border. The footer keeps the remaining path and usage stats without duplicating model metadata.
+- The composer uses OpenCode prompt-inspired blue/orange mode colors on a rounded `╭─` top border and `│` rail, plus a mode/model/thinking metadata row and Pi's bottom border. The model is shown as `model-id [provider]` (for example, `gpt-5.6-luna [openai]`), with the provider in the footer's dim text color. The footer keeps the remaining path and usage stats without duplicating model metadata.
 - `/plan`, `/build`, and the `--plan` startup flag.
 - Per-session plans at `~/.pi/agent/plans/<session-id>.md`.
 - In Plan mode, built-in `edit` and `write` are restricted to the exact plan file.
@@ -111,18 +111,18 @@ npm test
 npm pack --dry-run
 ```
 
-The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode rendering, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session handoff content, and question formatting.
+The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode and provider rendering, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session handoff content, and question formatting.
 
 ### Publishing
 
-After authenticating an npm account with access to the `@janvitos` scope, validate and publish the public package:
+Releases are published through `.github/workflows/publish.yml`. Bump the version in `package.json`, commit the release, and push a matching semantic-version tag:
 
 ```bash
-npm publish --dry-run
-npm publish
+git tag vX.Y.Z
+git push origin main vX.Y.Z
 ```
 
-The `prepublishOnly` hook runs the test suite before either command publishes a package.
+The tag triggers GitHub Actions to publish the public package to npm with trusted publishing and provenance. The `prepublishOnly` hook runs the test suite before publication.
 
 ## License
 
