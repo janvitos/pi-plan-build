@@ -494,6 +494,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					const metadata = truncateToWidth(
 						formatModeMetadata(selectedMode, pi.getThinkingLevel(), ctx.ui.theme, this.borderColor, {
 							modelName: ctx.model?.id ?? "no-model",
+							modelProvider: ctx.model?.provider,
 							modelColor: (text) => ctx.ui.theme.fg("text", text),
 						}),
 						width,

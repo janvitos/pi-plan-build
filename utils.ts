@@ -15,6 +15,7 @@ export interface ModeStatusTheme {
 
 export interface PromptMetadataOptions {
 	modelName: string;
+	modelProvider?: string;
 	modelColor: (text: string) => string;
 }
 
@@ -41,7 +42,9 @@ export function formatModeMetadata(
 	const label = MODE_LABELS[mode];
 	const modeText = `\x1b[${label.color}m${theme.bold(label.text)}${ANSI_RESET}`;
 	const modelText = options
-		? `${theme.fg("dim", " • ")}${options.modelColor(options.modelName)}`
+		? `${theme.fg("dim", " • ")}${options.modelColor(options.modelName)}${
+			options.modelProvider ? theme.fg("dim", ` [${options.modelProvider}]`) : ""
+		}`
 		: "";
 	const thinkingSeparator = options ? " • " : " · ";
 	return `${formatModeRail(mode)} ${modeText}${modelText}${theme.fg("dim", thinkingSeparator)}${thinkingColor(thinkingLevel)}`;
