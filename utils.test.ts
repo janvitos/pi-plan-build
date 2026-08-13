@@ -64,6 +64,9 @@ test("manual changes defer run mode while busy", () => {
 
 test("mode composer uses colored rails and mode/thinking metadata", () => {
 	const theme = {
+		bold(text: string) {
+			return `\x1b[1m${text}\x1b[22m`;
+		},
 		fg(color: "dim", text: string) {
 			assert.equal(color, "dim");
 			return `\x1b[38;2;128;128;128m${text}\x1b[39m`;
@@ -82,7 +85,7 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 	assert.equal(formatModeTopBorder("build", 2, "\x1b[2m╮\x1b[22m"), "");
 	assert.equal(
 		formatModeMetadata("plan", "high", theme, thinkingColor),
-		"\x1b[38;2;245;167;66m│\x1b[0m \x1b[38;2;245;167;66mplan\x1b[0m\x1b[38;2;128;128;128m · \x1b[39m\x1b[38;2;0;255;0mhigh\x1b[39m",
+		"\x1b[38;2;245;167;66m│\x1b[0m \x1b[38;2;245;167;66m\x1b[1mplan\x1b[22m\x1b[0m\x1b[38;2;128;128;128m · \x1b[39m\x1b[38;2;0;255;0mhigh\x1b[39m",
 	);
 	assert.equal(
 		formatModeMetadata("build", "medium", theme, thinkingColor, {
@@ -90,7 +93,7 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 			modelProvider: "openai",
 			rail: formatModeRail("build", "┇"),
 		}),
-		"\x1b[38;2;92;156;245m┇\x1b[0m \x1b[38;2;92;156;245mbuild\x1b[0m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
+		"\x1b[38;2;92;156;245m┇\x1b[0m \x1b[38;2;92;156;245m\x1b[1mbuild\x1b[22m\x1b[0m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
 	);
 });
 

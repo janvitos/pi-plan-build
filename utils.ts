@@ -9,6 +9,7 @@ const MODE_LABELS: Record<Mode, { color: string; text: string }> = {
 };
 
 export interface ModeStatusTheme {
+	bold(text: string): string;
 	fg(color: "dim", text: string): string;
 }
 
@@ -56,7 +57,7 @@ export function formatModeMetadata(
 	options?: PromptMetadataOptions,
 ): string {
 	const label = MODE_LABELS[mode];
-	const modeText = `\x1b[${label.color}m${label.text}${ANSI_RESET}`;
+	const modeText = `\x1b[${label.color}m${theme.bold(label.text)}${ANSI_RESET}`;
 	const modelText = options
 		? `${theme.fg("dim", " • ")}${options.modelName}${
 			options.modelProvider ? theme.fg("dim", ` [${options.modelProvider}]`) : ""
