@@ -44,7 +44,7 @@ export function formatModeRail(mode: Mode): string {
 
 export function formatModeTopBorder(mode: Mode, width: number): string {
 	if (width <= 1) return "";
-	return formatModeColor(mode, `╭${"─".repeat(width - 2)}╮`);
+	return formatModeColor(mode, `╭${"─".repeat(width - 2)}`);
 }
 
 export function formatModeMetadata(
@@ -112,7 +112,7 @@ export function renderModeComposer(
 		.slice(1, bottomBorderIndex)
 		.map((line) => addRightRail(leftRailPrefix + line.slice(reservedPrefix.length)));
 	const bottomBorder = lineWidth.truncate(lines[bottomBorderIndex]!, width)
-		.replace(/^((?:\x1b\[[0-?]*[ -/]*[@-~])*)./u, "$1╰")
+		.replace(/^((?:\x1b\[[0-?]*[ -/]*[@-~])*)./u, "$1 ")
 		.replace(/.(?=(?:\x1b\[[0-?]*[ -/]*[@-~])*$)/u, "╯");
 	return [
 		topBorder,
