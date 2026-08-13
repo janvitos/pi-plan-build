@@ -1,4 +1,4 @@
-import path from "node:path";
+import path, { isAbsolute, relative, resolve, sep } from "node:path";
 
 export type Mode = "build" | "plan";
 
@@ -11,6 +11,11 @@ const MODE_LABELS: Record<Mode, { color: string; text: string }> = {
 export interface ModeStatusTheme {
 	bold(text: string): string;
 	fg(color: "dim", text: string): string;
+}
+
+export interface PromptMetadataOptions {
+	modelName: string;
+	modelColor: (text: string) => string;
 }
 
 function formatModeColor(mode: Mode, text: string): string {
@@ -31,10 +36,34 @@ export function formatModeMetadata(
 	thinkingLevel: string,
 	theme: ModeStatusTheme,
 	thinkingColor: (text: string) => string,
+	options?: PromptMetadataOptions,
 ): string {
 	const label = MODE_LABELS[mode];
 	const modeText = `\x1b[${label.color}m${theme.bold(label.text)}${ANSI_RESET}`;
-	return `${formatModeRail(mode)} ${modeText}${theme.fg("dim", " · ")}${thinkingColor(thinkingLevel)}`;
+	const modelText = options
+		? `${theme.fg("dim", " • ")}${options.modelColor(options.modelName)}`
+		: "";
+	const thinkingSeparator = options ? " • " : " · ";
+	return `${formatModeRail(mode)} ${modeText}${modelText}${theme.fg("dim", thinkingSeparator)}${thinkingColor(thinkingLevel)}`;
+}
+
+export function formatTokens(count: number): string {
+	if (count < 1000) return count.toString();
+	if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
+	if (count < 1000000) return `${Math.round(count / 1000)}k`;
+	if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
+	return `${Math.round(count / 1000000)}M`;
+}
+
+export function formatFooterCwd(cwd: string, home: string | undefined): string {
+	if (!home) return cwd;
+	const resolvedCwd = resolve(cwd);
+	const relativeToHome = relative(resolve(home), resolvedCwd);
+	const isInsideHome =
+		relativeToHome === "" ||
+		(relativeToHome !== ".." && !relativeToHome.startsWith(`..${sep}`) && !isAbsolute(relativeToHome));
+	if (!isInsideHome) return cwd;
+	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
 }
 
 export function renderModeComposer(

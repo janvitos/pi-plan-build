@@ -20,9 +20,11 @@ import {
 	classifyPlanExitChoice,
 	decodeModeState,
 	extractPromptHistory,
+	formatFooterCwd,
 	formatModeMetadata,
 	formatModeRail,
 	formatModeTopBorder,
+	formatTokens,
 	isAllowedPlanMutation,
 	makePlanPath,
 	nextMode,
@@ -393,6 +395,84 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		updateModeIndicator(ctx);
 
 		if (ctx.mode === "tui") {
+			ctx.ui.setFooter((tui, theme, footerData) => {
+				const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
+				return {
+					dispose: unsubscribe,
+					invalidate() {},
+					render(width: number): string[] {
+						let input = 0;
+						let output = 0;
+						let cacheRead = 0;
+						let cacheWrite = 0;
+						let cost = 0;
+						let latestCacheHitRate: number | undefined;
+						for (const entry of ctx.sessionManager.getEntries()) {
+							const usage =
+								entry.type === "message" &&
+								(entry.message.role === "assistant" || entry.message.role === "toolResult")
+									? entry.message.usage
+									: (entry.type === "branch_summary" || entry.type === "compaction")
+										? entry.usage
+										: undefined;
+							if (!usage) continue;
+							input += usage.input;
+							output += usage.output;
+							cacheRead += usage.cacheRead;
+							cacheWrite += usage.cacheWrite;
+							cost += usage.cost.total;
+							if (entry.type === "message" && entry.message.role === "assistant") {
+								const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
+								latestCacheHitRate = promptTokens > 0 ? (usage.cacheRead / promptTokens) * 100 : undefined;
+							}
+						}
+
+						let cwd = formatFooterCwd(ctx.sessionManager.getCwd(), process.env.HOME || process.env.USERPROFILE);
+						const branch = footerData.getGitBranch();
+						if (branch) cwd += ` (${branch})`;
+						const sessionName = ctx.sessionManager.getSessionName();
+						if (sessionName) cwd += ` • ${sessionName}`;
+
+						const stats: string[] = [];
+						if (input) stats.push(`↑${formatTokens(input)}`);
+						if (output) stats.push(`↓${formatTokens(output)}`);
+						if (cacheRead) stats.push(`R${formatTokens(cacheRead)}`);
+						if (cacheWrite) stats.push(`W${formatTokens(cacheWrite)}`);
+						if ((cacheRead || cacheWrite) && latestCacheHitRate !== undefined) {
+							stats.push(`CH${latestCacheHitRate.toFixed(1)}%`);
+						}
+						const usingSubscription = ctx.model
+							? ctx.model.provider === "kimi-coding" || ctx.modelRegistry.isUsingOAuth(ctx.model)
+							: false;
+						if (cost || usingSubscription) {
+							stats.push(`$${cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
+						}
+
+						const contextUsage = ctx.getContextUsage();
+						const contextWindow = contextUsage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
+						const contextPercent = contextUsage?.percent;
+						const contextText = `${contextPercent === null || contextPercent === undefined ? "?" : `${contextPercent.toFixed(1)}%`}/${formatTokens(contextWindow)} (auto)`;
+						stats.push(
+							contextPercent !== null && contextPercent !== undefined && contextPercent > 90
+								? theme.fg("error", contextText)
+								: contextPercent !== null && contextPercent !== undefined && contextPercent > 70
+									? theme.fg("warning", contextText)
+									: contextText,
+						);
+
+						const lines = [
+							truncateToWidth(theme.fg("dim", cwd), width, theme.fg("dim", "...")),
+							truncateToWidth(theme.fg("dim", stats.join(" ")), width, theme.fg("dim", "...")),
+						];
+						const statuses = Array.from(footerData.getExtensionStatuses().entries())
+							.sort(([a], [b]) => a.localeCompare(b))
+							.map(([, text]) => text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim());
+						if (statuses.length) lines.push(truncateToWidth(statuses.join(" "), width, theme.fg("dim", "...")));
+						return lines;
+					},
+				};
+			});
+
 			// Startup history is populated after session_start; replacement flows recreate the editor after that step.
 			const promptHistory = event.reason === "startup" ? [] : extractPromptHistory(ctx.sessionManager.getBranch());
 			class ModeEditor extends CustomEditor {
@@ -412,7 +492,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 
 					const rail = `${formatModeRail(selectedMode)} `;
 					const metadata = truncateToWidth(
-						formatModeMetadata(selectedMode, pi.getThinkingLevel(), ctx.ui.theme, this.borderColor),
+						formatModeMetadata(selectedMode, pi.getThinkingLevel(), ctx.ui.theme, this.borderColor, {
+							modelName: ctx.model?.id ?? "no-model",
+							modelColor: (text) => ctx.ui.theme.fg("dim", text),
+						}),
 						width,
 						"",
 					);
@@ -442,6 +525,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 
 	pi.on("session_shutdown", async (_event, ctx) => {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
+		ctx.ui.setFooter(undefined);
 		ctx.ui.setEditorComponent(undefined);
 		requestEditorRender = undefined;
 		currentContext = undefined;

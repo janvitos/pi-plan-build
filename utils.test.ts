@@ -12,10 +12,12 @@ import {
 	classifyPlanExitChoice,
 	decodeModeState,
 	extractPromptHistory,
+	formatFooterCwd,
 	formatModeMetadata,
 	formatModeRail,
 	formatModeTopBorder,
 	formatQuestionAnswers,
+	formatTokens,
 	isAllowedPlanMutation,
 	makePlanPath,
 	nextMode,
@@ -80,6 +82,22 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 		formatModeMetadata("plan", "high", theme, thinkingColor),
 		"\x1b[38;2;245;167;66m│\x1b[0m \x1b[38;2;245;167;66m\x1b[1mplan\x1b[22m\x1b[0m\x1b[38;2;128;128;128m · \x1b[39m\x1b[38;2;0;255;0mhigh\x1b[39m",
 	);
+	assert.equal(
+		formatModeMetadata("build", "medium", theme, thinkingColor, {
+			modelName: "gpt-5.6-sol",
+			modelColor: (text) => `\x1b[38;2;96;96;96m${text}\x1b[39m`,
+		}),
+		"\x1b[38;2;92;156;245m│\x1b[0m \x1b[38;2;92;156;245m\x1b[1mbuild\x1b[22m\x1b[0m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;96;96;96mgpt-5.6-sol\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
+	);
+});
+
+test("footer helpers preserve compact counts and safe home-relative paths", () => {
+	assert.equal(formatTokens(999), "999");
+	assert.equal(formatTokens(1500), "1.5k");
+	assert.equal(formatTokens(15000), "15k");
+	assert.equal(formatTokens(1_500_000), "1.5M");
+	assert.equal(formatFooterCwd("/home/user/project", "/home/user"), `~${path.sep}project`);
+	assert.equal(formatFooterCwd("/home/username/project", "/home/user"), "/home/username/project");
 });
 
 test("mode composer preserves borders, rail spacing, metadata, and autocomplete", () => {
