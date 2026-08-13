@@ -116,7 +116,7 @@ test("footer helpers preserve compact counts and safe home-relative paths", () =
 	assert.equal(formatFooterCwd("/home/username/project", "/home/user"), "/home/username/project");
 });
 
-test("mode composer joins border colors with dashed transitions and dim corners", () => {
+test("mode composer joins border colors with dashed transitions and rail-colored corners", () => {
 	const ansiPattern = /\x1b\[[0-?]*[ -/]*[@-~]/gu;
 	const lineWidth = {
 		truncate: (line: string, width: number) => line.replace(ansiPattern, "").length <= width ? line : line.slice(0, width),

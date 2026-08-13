@@ -506,7 +506,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 						width - 1,
 						"",
 					);
-					const topBorder = formatModeTopBorder(selectedMode, width, ctx.ui.theme.fg("dim", "╮"));
+					const topBorder = formatModeTopBorder(selectedMode, width, this.borderColor("╮"));
 					return renderModeComposer(
 						lines,
 						topBorder,
@@ -514,7 +514,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 						rightRail,
 						topRightVerticalTransition,
 						metadata,
-						ctx.ui.theme.fg("dim", "╰"),
+						formatModeRail(selectedMode, "╰"),
 						railWidth,
 						width,
 						{
