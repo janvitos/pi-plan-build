@@ -21,6 +21,7 @@ import {
 	isAllowedPlanMutation,
 	makePlanPath,
 	nextMode,
+	nextThinkingLevel,
 	PLAN_EXIT_APPROVE_CHOICE,
 	PLAN_EXIT_FRESH_CHOICE,
 	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
@@ -86,6 +87,15 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 		}),
 		"\x1b[38;2;92;156;245m│\x1b[0m \x1b[38;2;92;156;245mbuild\x1b[0m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
 	);
+});
+
+test("thinking levels cycle through only the levels supported by the model", () => {
+	assert.equal(nextThinkingLevel("medium", { reasoning: true }), "high");
+	assert.equal(nextThinkingLevel("high", { reasoning: true }), "off");
+	assert.equal(nextThinkingLevel("high", { reasoning: true, thinkingLevelMap: { xhigh: "xhigh" } }), "xhigh");
+	assert.equal(nextThinkingLevel("high", { reasoning: true, thinkingLevelMap: { off: null } }), "minimal");
+	assert.equal(nextThinkingLevel("medium", { reasoning: false }), undefined);
+	assert.equal(nextThinkingLevel("medium", undefined), undefined);
 });
 
 test("footer helpers preserve compact counts and safe home-relative paths", () => {

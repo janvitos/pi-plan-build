@@ -17,6 +17,23 @@ export interface PromptMetadataOptions {
 	modelProvider?: string;
 }
 
+export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
+const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+export function nextThinkingLevel(
+	current: ThinkingLevel,
+	model: { reasoning: boolean; thinkingLevelMap?: Partial<Record<ThinkingLevel, unknown>> } | undefined,
+): ThinkingLevel | undefined {
+	if (!model?.reasoning) return undefined;
+	const available = THINKING_LEVELS.filter((level) => {
+		const mapped = model.thinkingLevelMap?.[level];
+		if (mapped === null) return false;
+		return level !== "xhigh" && level !== "max" || mapped !== undefined;
+	});
+	const currentIndex = available.indexOf(current);
+	return available[(currentIndex + 1) % available.length];
+}
+
 function formatModeColor(mode: Mode, text: string): string {
 	return `\x1b[${MODE_LABELS[mode].color}m${text}${ANSI_RESET}`;
 }

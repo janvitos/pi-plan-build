@@ -28,6 +28,7 @@ import {
 	isAllowedPlanMutation,
 	makePlanPath,
 	nextMode,
+	nextThinkingLevel,
 	PLAN_EXIT_APPROVE_CHOICE,
 	PLAN_EXIT_FRESH_CHOICE,
 	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
@@ -477,6 +478,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const promptHistory = event.reason === "startup" ? [] : extractPromptHistory(ctx.sessionManager.getBranch());
 			class ModeEditor extends CustomEditor {
 				onCycle?: () => void;
+				onCycleThinking?: () => void;
+				matchesThinkingCycle?: (data: string) => boolean;
 
 				requestModeRender(): void {
 					this.tui.requestRender();
@@ -508,6 +511,11 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				}
 
 				override handleInput(data: string): void {
+					if (this.matchesThinkingCycle?.(data)) {
+						if (this.onExtensionShortcut?.(data)) return;
+						this.onCycleThinking?.();
+						return;
+					}
 					if (matchesKey(data, Key.tab) && !this.isShowingAutocomplete()) {
 						this.onCycle?.();
 						return;
@@ -521,6 +529,15 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				requestEditorRender = () => editor.requestModeRender();
 				editor.onCycle = () => {
 					if (currentContext) void selectMode(nextMode(selectedMode), currentContext, "manual");
+				};
+				editor.matchesThinkingCycle = (data) =>
+					keybindings.matches(data, "app.thinking.cycle") &&
+					!keybindings.matches(data, "tui.editor.historyPrevious") &&
+					!keybindings.matches(data, "tui.editor.historyNext");
+				editor.onCycleThinking = () => {
+					const level = nextThinkingLevel(pi.getThinkingLevel(), ctx.model);
+					if (level) pi.setThinkingLevel(level);
+					editor.requestModeRender();
 				};
 				return editor;
 			});

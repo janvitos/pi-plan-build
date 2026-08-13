@@ -1,6 +1,6 @@
 {
   "name": "@janvitos/pi-plan-build",
-  "version": "0.1.14",
+  "version": "0.1.15",
   "description": "Plan safely, approve explicitly, then implement here or in a clean session.",
   "type": "module",
   "license": "MIT",
