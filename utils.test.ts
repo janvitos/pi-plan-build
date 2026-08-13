@@ -63,9 +63,6 @@ test("manual changes defer run mode while busy", () => {
 
 test("mode composer uses colored rails and mode/thinking metadata", () => {
 	const theme = {
-		bold(text: string) {
-			return `\x1b[1m${text}\x1b[22m`;
-		},
 		fg(color: "dim", text: string) {
 			assert.equal(color, "dim");
 			return `\x1b[38;2;128;128;128m${text}\x1b[39m`;
@@ -76,18 +73,18 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 	const buildRail = formatModeRail("build");
 	assert.equal(planRail, "\x1b[38;2;245;167;66m│\x1b[0m");
 	assert.equal(buildRail, "\x1b[38;2;92;156;245m│\x1b[0m");
-	assert.equal(formatModeTopBorder("plan", 4), "\x1b[38;2;245;167;66m╭───\x1b[0m");
-	assert.equal(formatModeTopBorder("build", 0), "");
+	assert.equal(formatModeTopBorder("plan", 4), "\x1b[38;2;245;167;66m╭──╮\x1b[0m");
+	assert.equal(formatModeTopBorder("build", 1), "");
 	assert.equal(
 		formatModeMetadata("plan", "high", theme, thinkingColor),
-		"\x1b[38;2;245;167;66m│\x1b[0m \x1b[38;2;245;167;66m\x1b[1mplan\x1b[22m\x1b[0m\x1b[38;2;128;128;128m · \x1b[39m\x1b[38;2;0;255;0mhigh\x1b[39m",
+		"\x1b[38;2;245;167;66m│\x1b[0m \x1b[38;2;245;167;66mplan\x1b[0m\x1b[38;2;128;128;128m · \x1b[39m\x1b[38;2;0;255;0mhigh\x1b[39m",
 	);
 	assert.equal(
 		formatModeMetadata("build", "medium", theme, thinkingColor, {
 			modelName: "gpt-5.6-sol",
 			modelProvider: "openai",
 		}),
-		"\x1b[38;2;92;156;245m│\x1b[0m \x1b[38;2;92;156;245m\x1b[1mbuild\x1b[22m\x1b[0m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
+		"\x1b[38;2;92;156;245m│\x1b[0m \x1b[38;2;92;156;245mbuild\x1b[0m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
 	);
 });
 
@@ -100,29 +97,37 @@ test("footer helpers preserve compact counts and safe home-relative paths", () =
 	assert.equal(formatFooterCwd("/home/username/project", "/home/user"), "/home/username/project");
 });
 
-test("mode composer preserves borders, rail spacing, metadata, and autocomplete", () => {
-	const lines = ["top border", "  first", "  second", "bottom border", "  autocomplete"];
-	assert.deepEqual(renderModeComposer(lines, "╭──────────", "│ ", "│ plan · high", 2), [
-		"╭──────────",
-		"│ first",
-		"│ second",
-		"│ ",
-		"│ plan · high",
-		" ottom border",
+test("mode composer completes the frame with rounded corners", () => {
+	const ansiPattern = /\x1b\[[0-?]*[ -/]*[@-~]/gu;
+	const lineWidth = {
+		truncate: (line: string, width: number) => line.replace(ansiPattern, "").length <= width ? line : line.slice(0, width),
+		measure: (line: string) => line.replace(ansiPattern, "").length,
+	};
+	const lines = ["top border", "  first", "  second", "────────────────", "  autocomplete"];
+	assert.deepEqual(renderModeComposer(lines, "╭──────────────╮", "│ ", "│", "│ plan · high", 2, 16, lineWidth), [
+		"╭──────────────╮",
+		"│ first        │",
+		"│ second       │",
+		"│              │",
+		"│ plan · high  │",
+		"╰──────────────╯",
 		"",
 		"  autocomplete",
 	]);
 	assert.deepEqual(
 		renderModeComposer(
 			["top", "  prompt", "\x1b[38;2;128;128;128m────\x1b[0m"],
-			"╭───",
+			"╭──╮",
 			"│ ",
+			"│",
 			"metadata",
 			2,
+			4,
+			lineWidth,
 		),
-		["╭───", "│ prompt", "│ ", "metadata", "\x1b[38;2;128;128;128m ───\x1b[0m", ""],
+		["╭──╮", "│ p│", "│  │", "met│", "\x1b[38;2;128;128;128m╰──╯\x1b[0m", ""],
 	);
-	assert.deepEqual(renderModeComposer(lines, "top", "│ ", "metadata", 0), lines);
+	assert.deepEqual(renderModeComposer(lines, "top", "│ ", "│", "metadata", 0, 16, lineWidth), lines);
 });
 
 test("plan review preserves the complete plan without truncation", () => {

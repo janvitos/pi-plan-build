@@ -8,7 +8,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
 
 - New sessions start in **Build** mode.
 - Bare `Tab` cycles **Build → Plan → Build**, while active autocomplete dropdowns retain Pi's normal Tab completion.
-- The composer uses OpenCode prompt-inspired blue/orange mode colors on a rounded `╭─` top border and `│` rail, plus a mode/model/thinking metadata row and Pi's bottom border. The model is shown as `model-id [provider]` (for example, `gpt-5.6-luna [openai]`), with the model ID inheriting the terminal foreground like unselected entries in `/model` and the provider using the footer's dim text color. The footer keeps the remaining path and usage stats without duplicating model metadata.
+- The composer uses OpenCode prompt-inspired blue/orange mode colors on the top and left borders, complemented by Pi's border color on the right and bottom borders; rounded corners close the frame while matching their adjoining horizontal border colors. It also includes a mode/model/thinking metadata row. The model is shown as `model-id [provider]` (for example, `gpt-5.6-luna [openai]`), with the model ID inheriting the terminal foreground like unselected entries in `/model` and the provider using the footer's dim text color. The footer keeps the remaining path and usage stats without duplicating model metadata.
 - `/plan`, `/build`, and the `--plan` startup flag.
 - Per-session plans at `~/.pi/agent/plans/<session-id>.md`.
 - In Plan mode, built-in `edit` and `write` are restricted to the exact plan file.

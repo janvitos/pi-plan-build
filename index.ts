@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CustomEditor, getAgentDir, getMarkdownTheme, type EntryRenderer, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Key, Markdown, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { Key, Markdown, matchesKey, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerQuestionTool } from "./question-ui.ts";
 import {
@@ -490,17 +490,21 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					const lines = super.render(width);
 					if (paddingWidth !== railWidth) return lines;
 
-					const rail = `${formatModeRail(selectedMode)} `;
+					const leftRail = `${formatModeRail(selectedMode)} `;
+					const rightRail = this.borderColor("│");
 					const metadata = truncateToWidth(
 						formatModeMetadata(selectedMode, pi.getThinkingLevel(), ctx.ui.theme, this.borderColor, {
 							modelName: ctx.model?.id ?? "no-model",
 							modelProvider: ctx.model?.provider,
 						}),
-						width,
+						width - 1,
 						"",
 					);
 					const topBorder = formatModeTopBorder(selectedMode, width);
-					return renderModeComposer(lines, topBorder, rail, metadata, railWidth);
+					return renderModeComposer(lines, topBorder, leftRail, rightRail, metadata, railWidth, width, {
+						truncate: (line, maxWidth) => truncateToWidth(line, maxWidth, ""),
+						measure: visibleWidth,
+					});
 				}
 
 				override handleInput(data: string): void {

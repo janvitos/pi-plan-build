@@ -9,7 +9,6 @@ const MODE_LABELS: Record<Mode, { color: string; text: string }> = {
 };
 
 export interface ModeStatusTheme {
-	bold(text: string): string;
 	fg(color: "dim", text: string): string;
 }
 
@@ -27,8 +26,8 @@ export function formatModeRail(mode: Mode): string {
 }
 
 export function formatModeTopBorder(mode: Mode, width: number): string {
-	if (width <= 0) return "";
-	return formatModeColor(mode, `╭${"─".repeat(width - 1)}`);
+	if (width <= 1) return "";
+	return formatModeColor(mode, `╭${"─".repeat(width - 2)}╮`);
 }
 
 export function formatModeMetadata(
@@ -39,7 +38,7 @@ export function formatModeMetadata(
 	options?: PromptMetadataOptions,
 ): string {
 	const label = MODE_LABELS[mode];
-	const modeText = `\x1b[${label.color}m${theme.bold(label.text)}${ANSI_RESET}`;
+	const modeText = `\x1b[${label.color}m${label.text}${ANSI_RESET}`;
 	const modelText = options
 		? `${theme.fg("dim", " • ")}${options.modelName}${
 			options.modelProvider ? theme.fg("dim", ` [${options.modelProvider}]`) : ""
@@ -68,29 +67,41 @@ export function formatFooterCwd(cwd: string, home: string | undefined): string {
 	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
 }
 
+export interface LineWidthTools {
+	truncate(line: string, width: number): string;
+	measure(line: string): number;
+}
+
 export function renderModeComposer(
 	lines: string[],
 	topBorder: string,
-	railPrefix: string,
+	leftRailPrefix: string,
+	rightRail: string,
 	metadata: string,
 	reservedWidth: number,
+	width: number,
+	lineWidth: LineWidthTools,
 ): string[] {
-	if (reservedWidth <= 0 || lines.length < 3) return lines;
+	if (reservedWidth <= 0 || width <= 1 || lines.length < 3) return lines;
 	const reservedPrefix = " ".repeat(reservedWidth);
 	const bottomBorderIndex = lines.findIndex((line, index) => index > 0 && !line.startsWith(reservedPrefix));
 	if (bottomBorderIndex < 2) return lines;
+
+	const addRightRail = (line: string): string => {
+		const content = lineWidth.truncate(line, width - 1);
+		return `${content}${" ".repeat(Math.max(0, width - 1 - lineWidth.measure(content)))}${rightRail}`;
+	};
 	const promptLines = lines
 		.slice(1, bottomBorderIndex)
-		.map((line) => railPrefix + line.slice(reservedPrefix.length));
-	const bottomBorder = lines[bottomBorderIndex]!.replace(
-		/^((?:\x1b\[[0-?]*[ -/]*[@-~])*)./u,
-		"$1 ",
-	);
+		.map((line) => addRightRail(leftRailPrefix + line.slice(reservedPrefix.length)));
+	const bottomBorder = lineWidth.truncate(lines[bottomBorderIndex]!, width)
+		.replace(/^((?:\x1b\[[0-?]*[ -/]*[@-~])*)./u, "$1╰")
+		.replace(/.(?=(?:\x1b\[[0-?]*[ -/]*[@-~])*$)/u, "╯");
 	return [
 		topBorder,
 		...promptLines,
-		railPrefix,
-		metadata,
+		addRightRail(leftRailPrefix),
+		addRightRail(metadata),
 		bottomBorder,
 		"",
 		...lines.slice(bottomBorderIndex + 1),
