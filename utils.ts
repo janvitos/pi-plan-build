@@ -63,7 +63,7 @@ export function formatModeMetadata(
 			options.modelProvider ? theme.fg("dim", ` [${options.modelProvider}]`) : ""
 		}`
 		: "";
-	const thinkingSeparator = options ? " • " : " · ";
+	const thinkingSeparator = " • ";
 	return `${options?.rail ?? formatModeRail(mode)} ${modeText}${modelText}${theme.fg("dim", thinkingSeparator)}${thinkingColor(thinkingLevel)}`;
 }
 
