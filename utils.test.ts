@@ -74,9 +74,10 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 	const buildRail = formatModeRail("build");
 	assert.equal(planRail, "\x1b[38;2;245;167;66m│\x1b[0m");
 	assert.equal(buildRail, "\x1b[38;2;92;156;245m│\x1b[0m");
+	assert.equal(formatModeRail("build", "┆"), "\x1b[38;2;92;156;245m┆\x1b[0m");
 	assert.equal(
 		formatModeTopBorder("plan", 4, "\x1b[2m╮\x1b[22m"),
-		"\x1b[38;2;245;167;66m╭─┄\x1b[0m\x1b[2m╮\x1b[22m",
+		"\x1b[38;2;245;167;66m╭─╌\x1b[0m\x1b[2m╮\x1b[22m",
 	);
 	assert.equal(formatModeTopBorder("build", 2, "\x1b[2m╮\x1b[22m"), "");
 	assert.equal(
@@ -87,8 +88,9 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 		formatModeMetadata("build", "medium", theme, thinkingColor, {
 			modelName: "gpt-5.6-sol",
 			modelProvider: "openai",
+			rail: formatModeRail("build", "┆"),
 		}),
-		"\x1b[38;2;92;156;245m│\x1b[0m \x1b[38;2;92;156;245mbuild\x1b[0m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
+		"\x1b[38;2;92;156;245m┆\x1b[0m \x1b[38;2;92;156;245mbuild\x1b[0m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
 	);
 });
 
@@ -117,14 +119,14 @@ test("mode composer joins border colors with dashed transitions and dim corners"
 		measure: (line: string) => line.replace(ansiPattern, "").length,
 	};
 	const lines = ["top border", "  first", "  second", "────────────────", "  autocomplete"];
-	assert.deepEqual(renderModeComposer(lines, "╭─────────────┄╮", "│ ", "│", "│ plan · high", "╰", 2, 16, lineWidth), [
-		"╭─────────────┄╮",
-		"│              │",
+	assert.deepEqual(renderModeComposer(lines, "╭─────────────╌╮", "│ ", "│", "┆", "┆ plan · high", "╰", 2, 16, lineWidth), [
+		"╭─────────────╌╮",
+		"│              ┆",
 		"│ first        │",
 		"│ second       │",
 		"│              │",
-		"│ plan · high  │",
-		"╰┄─────────────╯",
+		"┆ plan · high  │",
+		"╰╌─────────────╯",
 		"",
 		"  autocomplete",
 	]);
@@ -133,34 +135,36 @@ test("mode composer joins border colors with dashed transitions and dim corners"
 	const realisticLines = ["top", "  prompt", styledGlyph.repeat(16)];
 	const realisticResult = renderModeComposer(
 		realisticLines,
-		"╭─────────────┄╮",
+		"╭─────────────╌╮",
 		"│ ",
 		"│",
-		"metadata",
+		"┆",
+		"┆ metadata",
 		"╰",
 		2,
 		16,
 		lineWidth,
 	);
 	assert.equal(realisticResult.every((line) => lineWidth.measure(line) <= 16), true);
-	assert.equal(realisticResult[5]?.replace(ansiPattern, ""), "╰┄─────────────╯");
+	assert.equal(realisticResult[5]?.replace(ansiPattern, ""), "╰╌─────────────╯");
 	assert.equal(realisticResult[5]?.replace(ansiPattern, "").includes("[39m"), false);
 
 	assert.deepEqual(
 		renderModeComposer(
 			["top", "  prompt", "\x1b[38;2;128;128;128m────\x1b[0m"],
-			"╭─┄╮",
+			"╭─╌╮",
 			"│ ",
 			"│",
-			"metadata",
+			"┆",
+			"┆ metadata",
 			"╰",
 			2,
 			4,
 			lineWidth,
 		),
-		["╭─┄╮", "│  │", "│ p│", "│  │", "met│", "╰\x1b[38;2;128;128;128m┄─╯\x1b[0m", ""],
+		["╭─╌╮", "│  ┆", "│ p│", "│  │", "┆ m│", "╰\x1b[38;2;128;128;128m╌─╯\x1b[0m", ""],
 	);
-	assert.deepEqual(renderModeComposer(lines, "top", "│ ", "│", "metadata", "╰", 0, 16, lineWidth), lines);
+	assert.deepEqual(renderModeComposer(lines, "top", "│ ", "│", "┆", "metadata", "╰", 0, 16, lineWidth), lines);
 });
 
 test("plan review preserves the complete plan without truncation", () => {

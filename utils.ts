@@ -15,6 +15,7 @@ export interface ModeStatusTheme {
 export interface PromptMetadataOptions {
 	modelName: string;
 	modelProvider?: string;
+	rail?: string;
 }
 
 export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
@@ -38,13 +39,13 @@ function formatModeColor(mode: Mode, text: string): string {
 	return `\x1b[${MODE_LABELS[mode].color}m${text}${ANSI_RESET}`;
 }
 
-export function formatModeRail(mode: Mode): string {
-	return formatModeColor(mode, "│");
+export function formatModeRail(mode: Mode, glyph = "│"): string {
+	return formatModeColor(mode, glyph);
 }
 
 export function formatModeTopBorder(mode: Mode, width: number, topRightCorner: string): string {
 	if (width <= 2) return "";
-	return `${formatModeColor(mode, `╭${"─".repeat(width - 3)}┄`)}${topRightCorner}`;
+	return `${formatModeColor(mode, `╭${"─".repeat(width - 3)}╌`)}${topRightCorner}`;
 }
 
 export function formatModeMetadata(
@@ -62,7 +63,7 @@ export function formatModeMetadata(
 		}`
 		: "";
 	const thinkingSeparator = options ? " • " : " · ";
-	return `${formatModeRail(mode)} ${modeText}${modelText}${theme.fg("dim", thinkingSeparator)}${thinkingColor(thinkingLevel)}`;
+	return `${options?.rail ?? formatModeRail(mode)} ${modeText}${modelText}${theme.fg("dim", thinkingSeparator)}${thinkingColor(thinkingLevel)}`;
 }
 
 export function formatTokens(count: number): string {
@@ -94,6 +95,7 @@ export function renderModeComposer(
 	topBorder: string,
 	leftRailPrefix: string,
 	rightRail: string,
+	topRightRail: string,
 	metadata: string,
 	bottomLeftCorner: string,
 	reservedWidth: number,
@@ -105,20 +107,20 @@ export function renderModeComposer(
 	const bottomBorderIndex = lines.findIndex((line, index) => index > 0 && !line.startsWith(reservedPrefix));
 	if (bottomBorderIndex < 2) return lines;
 
-	const addRightRail = (line: string): string => {
+	const addRightRail = (line: string, rail = rightRail): string => {
 		const content = lineWidth.truncate(line, width - 1);
-		return `${content}${" ".repeat(Math.max(0, width - 1 - lineWidth.measure(content)))}${rightRail}`;
+		return `${content}${" ".repeat(Math.max(0, width - 1 - lineWidth.measure(content)))}${rail}`;
 	};
 	const promptLines = lines
 		.slice(1, bottomBorderIndex)
 		.map((line) => addRightRail(leftRailPrefix + line.slice(reservedPrefix.length)));
 	const ansiSequence = "(?:\\x1b\\[[0-?]*[ -/]*[@-~])*";
 	const bottomBorder = bottomLeftCorner + lineWidth.truncate(lines[bottomBorderIndex]!, width)
-		.replace(new RegExp(`^(${ansiSequence}).${ansiSequence}.`, "u"), "$1┄")
+		.replace(new RegExp(`^(${ansiSequence}).${ansiSequence}.`, "u"), "$1╌")
 		.replace(/.(?=(?:\x1b\[[0-?]*[ -/]*[@-~])*$)/u, "╯");
 	return [
 		topBorder,
-		addRightRail(leftRailPrefix),
+		addRightRail(leftRailPrefix, topRightRail),
 		...promptLines,
 		addRightRail(leftRailPrefix),
 		addRightRail(metadata),
