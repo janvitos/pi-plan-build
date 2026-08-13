@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CustomEditor, getAgentDir, getMarkdownTheme, type EntryRenderer, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Key, Markdown, matchesKey, Text, visibleWidth } from "@earendil-works/pi-tui";
+import { Key, Markdown, matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerQuestionTool } from "./question-ui.ts";
 import {
@@ -20,7 +20,9 @@ import {
 	classifyPlanExitChoice,
 	decodeModeState,
 	extractPromptHistory,
-	formatModeStatus,
+	formatModeMetadata,
+	formatModeRail,
+	formatModeTopBorder,
 	isAllowedPlanMutation,
 	makePlanPath,
 	nextMode,
@@ -28,6 +30,7 @@ import {
 	PLAN_EXIT_FRESH_CHOICE,
 	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
 	PLAN_EXIT_STAY_CHOICE,
+	renderModeComposer,
 	type Mode,
 	unique,
 } from "./utils.ts";
@@ -400,18 +403,21 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				}
 
 				override render(width: number): string[] {
-					const badge = formatModeStatus(selectedMode, ctx.ui.theme, this.borderColor);
-					const prompt = `${badge} `;
-					const promptWidth = visibleWidth(prompt);
-					const paddingWidth = Math.min(promptWidth, Math.max(0, Math.floor((width - 1) / 2)));
-					if (this.getPaddingX() !== paddingWidth) this.setPaddingX(paddingWidth);
+					const railWidth = 2;
+					const paddingWidth = Math.min(railWidth, Math.max(0, Math.floor((width - 1) / 2)));
+					if (this.getPaddingX() !== railWidth) this.setPaddingX(railWidth);
 
 					const lines = super.render(width);
-					const reservedPrefix = " ".repeat(paddingWidth);
-					if (paddingWidth === promptWidth && lines[1]?.startsWith(reservedPrefix)) {
-						lines[1] = prompt + lines[1].slice(reservedPrefix.length);
-					}
-					return lines;
+					if (paddingWidth !== railWidth) return lines;
+
+					const rail = `${formatModeRail(selectedMode)} `;
+					const metadata = truncateToWidth(
+						formatModeMetadata(selectedMode, pi.getThinkingLevel(), ctx.ui.theme, this.borderColor),
+						width,
+						"",
+					);
+					const topBorder = formatModeTopBorder(selectedMode, width);
+					return renderModeComposer(lines, topBorder, rail, metadata, railWidth);
 				}
 
 				override handleInput(data: string): void {

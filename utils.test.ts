@@ -12,7 +12,9 @@ import {
 	classifyPlanExitChoice,
 	decodeModeState,
 	extractPromptHistory,
-	formatModeStatus,
+	formatModeMetadata,
+	formatModeRail,
+	formatModeTopBorder,
 	formatQuestionAnswers,
 	isAllowedPlanMutation,
 	makePlanPath,
@@ -21,6 +23,7 @@ import {
 	PLAN_EXIT_FRESH_CHOICE,
 	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
 	PLAN_EXIT_STAY_CHOICE,
+	renderModeComposer,
 	sanitizeSessionId,
 } from "./utils.ts";
 
@@ -56,41 +59,52 @@ test("manual changes defer run mode while busy", () => {
 	assert.equal(nextMode("plan"), "build");
 });
 
-test("mode statuses use border-colored brackets and bold colored labels", () => {
+test("mode composer uses colored rails and mode/thinking metadata", () => {
 	const theme = {
 		bold(text: string) {
 			return `\x1b[1m${text}\x1b[22m`;
 		},
+		fg(color: "dim", text: string) {
+			assert.equal(color, "dim");
+			return `\x1b[38;2;128;128;128m${text}\x1b[39m`;
+		},
 	};
-	const mutedBorder = (text: string) => `\x1b[38;2;128;128;128m${text}\x1b[0m`;
-	const highEffortBorder = (text: string) => `\x1b[38;2;255;0;255m${text}\x1b[0m`;
-	const plan = formatModeStatus("plan", theme, mutedBorder);
-	const build = formatModeStatus("build", theme, mutedBorder);
+	const thinkingColor = (text: string) => `\x1b[38;2;0;255;0m${text}\x1b[39m`;
+	const planRail = formatModeRail("plan");
+	const buildRail = formatModeRail("build");
+	assert.equal(planRail, "\x1b[38;2;245;167;66m│\x1b[0m");
+	assert.equal(buildRail, "\x1b[38;2;92;156;245m│\x1b[0m");
+	assert.equal(formatModeTopBorder("plan", 4), "\x1b[38;2;245;167;66m╭───\x1b[0m");
+	assert.equal(formatModeTopBorder("build", 0), "");
 	assert.equal(
-		plan,
-		"\x1b[38;2;128;128;128m[\x1b[0m\x1b[38;2;255;215;0m\x1b[1mplan\x1b[22m\x1b[0m\x1b[38;2;128;128;128m]\x1b[0m",
+		formatModeMetadata("plan", "high", theme, thinkingColor),
+		"\x1b[38;2;245;167;66m│\x1b[0m \x1b[38;2;245;167;66m\x1b[1mplan\x1b[22m\x1b[0m\x1b[38;2;128;128;128m · \x1b[39m\x1b[38;2;0;255;0mhigh\x1b[39m",
 	);
-	assert.equal(
-		build,
-		"\x1b[38;2;128;128;128m[\x1b[0m\x1b[38;2;59;130;246m\x1b[1mbuild\x1b[22m\x1b[0m\x1b[38;2;128;128;128m]\x1b[0m",
-	);
+});
 
-	const highEffortPlan = formatModeStatus("plan", theme, highEffortBorder);
-	assert.equal(
-		highEffortPlan,
-		"\x1b[38;2;255;0;255m[\x1b[0m\x1b[38;2;255;215;0m\x1b[1mplan\x1b[22m\x1b[0m\x1b[38;2;255;0;255m]\x1b[0m",
+test("mode composer preserves borders, rail spacing, metadata, and autocomplete", () => {
+	const lines = ["top border", "  first", "  second", "bottom border", "  autocomplete"];
+	assert.deepEqual(renderModeComposer(lines, "╭──────────", "│ ", "│ plan · high", 2), [
+		"╭──────────",
+		"│ first",
+		"│ second",
+		"│ ",
+		"│ plan · high",
+		" ottom border",
+		"",
+		"  autocomplete",
+	]);
+	assert.deepEqual(
+		renderModeComposer(
+			["top", "  prompt", "\x1b[38;2;128;128;128m────\x1b[0m"],
+			"╭───",
+			"│ ",
+			"metadata",
+			2,
+		),
+		["╭───", "│ prompt", "│ ", "metadata", "\x1b[38;2;128;128;128m ───\x1b[0m", ""],
 	);
-
-	const stripAnsi = (status: string) => status.replaceAll(/\x1b\[[0-9;]*m/g, "");
-	assert.equal(stripAnsi(plan), "[plan]");
-	assert.equal(stripAnsi(highEffortPlan), "[plan]");
-	assert.equal(stripAnsi(build), "[build]");
-	assert.equal(stripAnsi(plan).length, 6);
-	assert.equal(stripAnsi(build).length, 7);
-	assert.doesNotMatch(plan, /\x1b\[48;/);
-	assert.doesNotMatch(build, /\x1b\[48;/);
-	assert.equal(plan.includes("\u00a0"), false);
-	assert.equal(build.includes("\u00a0"), false);
+	assert.deepEqual(renderModeComposer(lines, "top", "│ ", "metadata", 0), lines);
 });
 
 test("plan review preserves the complete plan without truncation", () => {

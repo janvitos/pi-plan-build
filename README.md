@@ -8,7 +8,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
 
 - New sessions start in **Build** mode.
 - Bare `Tab` cycles **Build → Plan → Build**, while active autocomplete dropdowns retain Pi's normal Tab completion.
-- Bracketed **build** (blue) and **plan** (yellow) indicators rendered as bold prompt prefixes inside Pi's text input box.
+- The composer uses OpenCode prompt-inspired blue/orange mode colors on a rounded `╭─` top border and `│` rail, plus a mode/thinking metadata row and Pi's bottom border.
 - `/plan`, `/build`, and the `--plan` startup flag.
 - Per-session plans at `~/.pi/agent/plans/<session-id>.md`.
 - In Plan mode, built-in `edit` and `write` are restricted to the exact plan file.

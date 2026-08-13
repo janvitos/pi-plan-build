@@ -4,18 +4,66 @@ export type Mode = "build" | "plan";
 
 const ANSI_RESET = "\x1b[0m";
 const MODE_LABELS: Record<Mode, { color: string; text: string }> = {
-	plan: { color: "38;2;255;215;0", text: "plan" },
-	build: { color: "38;2;59;130;246", text: "build" },
+	plan: { color: "38;2;245;167;66", text: "plan" },
+	build: { color: "38;2;92;156;245", text: "build" },
 };
 
 export interface ModeStatusTheme {
 	bold(text: string): string;
+	fg(color: "dim", text: string): string;
 }
 
-export function formatModeStatus(mode: Mode, theme: ModeStatusTheme, borderColor: (text: string) => string): string {
+function formatModeColor(mode: Mode, text: string): string {
+	return `\x1b[${MODE_LABELS[mode].color}m${text}${ANSI_RESET}`;
+}
+
+export function formatModeRail(mode: Mode): string {
+	return formatModeColor(mode, "│");
+}
+
+export function formatModeTopBorder(mode: Mode, width: number): string {
+	if (width <= 0) return "";
+	return formatModeColor(mode, `╭${"─".repeat(width - 1)}`);
+}
+
+export function formatModeMetadata(
+	mode: Mode,
+	thinkingLevel: string,
+	theme: ModeStatusTheme,
+	thinkingColor: (text: string) => string,
+): string {
 	const label = MODE_LABELS[mode];
 	const modeText = `\x1b[${label.color}m${theme.bold(label.text)}${ANSI_RESET}`;
-	return borderColor("[") + modeText + borderColor("]");
+	return `${formatModeRail(mode)} ${modeText}${theme.fg("dim", " · ")}${thinkingColor(thinkingLevel)}`;
+}
+
+export function renderModeComposer(
+	lines: string[],
+	topBorder: string,
+	railPrefix: string,
+	metadata: string,
+	reservedWidth: number,
+): string[] {
+	if (reservedWidth <= 0 || lines.length < 3) return lines;
+	const reservedPrefix = " ".repeat(reservedWidth);
+	const bottomBorderIndex = lines.findIndex((line, index) => index > 0 && !line.startsWith(reservedPrefix));
+	if (bottomBorderIndex < 2) return lines;
+	const promptLines = lines
+		.slice(1, bottomBorderIndex)
+		.map((line) => railPrefix + line.slice(reservedPrefix.length));
+	const bottomBorder = lines[bottomBorderIndex]!.replace(
+		/^((?:\x1b\[[0-?]*[ -/]*[@-~])*)./u,
+		"$1 ",
+	);
+	return [
+		topBorder,
+		...promptLines,
+		railPrefix,
+		metadata,
+		bottomBorder,
+		"",
+		...lines.slice(bottomBorderIndex + 1),
+	];
 }
 
 export const PLAN_EXIT_APPROVE_CHOICE = "Switch to Build and implement here";
