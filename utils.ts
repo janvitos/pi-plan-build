@@ -45,7 +45,7 @@ export function formatModeRail(mode: Mode, glyph = "│"): string {
 
 export function formatModeTopBorder(mode: Mode, width: number, topRightCorner: string): string {
 	if (width <= 2) return "";
-	return `${formatModeColor(mode, `╭${"─".repeat(width - 3)}╌`)}${topRightCorner}`;
+	return `${formatModeColor(mode, `╭${"─".repeat(width - 3)}╍`)}${topRightCorner}`;
 }
 
 export function formatModeMetadata(
@@ -116,7 +116,7 @@ export function renderModeComposer(
 		.map((line) => addRightRail(leftRailPrefix + line.slice(reservedPrefix.length)));
 	const ansiSequence = "(?:\\x1b\\[[0-?]*[ -/]*[@-~])*";
 	const bottomBorder = bottomLeftCorner + lineWidth.truncate(lines[bottomBorderIndex]!, width)
-		.replace(new RegExp(`^(${ansiSequence}).${ansiSequence}.`, "u"), "$1╌")
+		.replace(new RegExp(`^(${ansiSequence}).${ansiSequence}.`, "u"), "$1╍")
 		.replace(/.(?=(?:\x1b\[[0-?]*[ -/]*[@-~])*$)/u, "╯");
 	return [
 		topBorder,
