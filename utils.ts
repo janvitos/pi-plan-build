@@ -42,9 +42,9 @@ export function formatModeRail(mode: Mode): string {
 	return formatModeColor(mode, "│");
 }
 
-export function formatModeTopBorder(mode: Mode, width: number): string {
-	if (width <= 1) return "";
-	return formatModeColor(mode, `╭${"─".repeat(width - 2)}`);
+export function formatModeTopBorder(mode: Mode, width: number, topRightCorner: string): string {
+	if (width <= 2) return "";
+	return `${formatModeColor(mode, `╭${"─".repeat(width - 3)}┄`)}${topRightCorner}`;
 }
 
 export function formatModeMetadata(
@@ -95,6 +95,7 @@ export function renderModeComposer(
 	leftRailPrefix: string,
 	rightRail: string,
 	metadata: string,
+	bottomLeftCorner: string,
 	reservedWidth: number,
 	width: number,
 	lineWidth: LineWidthTools,
@@ -111,11 +112,13 @@ export function renderModeComposer(
 	const promptLines = lines
 		.slice(1, bottomBorderIndex)
 		.map((line) => addRightRail(leftRailPrefix + line.slice(reservedPrefix.length)));
-	const bottomBorder = lineWidth.truncate(lines[bottomBorderIndex]!, width)
-		.replace(/^((?:\x1b\[[0-?]*[ -/]*[@-~])*)./u, "$1 ")
+	const ansiSequence = "(?:\\x1b\\[[0-?]*[ -/]*[@-~])*";
+	const bottomBorder = bottomLeftCorner + lineWidth.truncate(lines[bottomBorderIndex]!, width)
+		.replace(new RegExp(`^(${ansiSequence}).${ansiSequence}.`, "u"), "$1┄")
 		.replace(/.(?=(?:\x1b\[[0-?]*[ -/]*[@-~])*$)/u, "╯");
 	return [
 		topBorder,
+		addRightRail(leftRailPrefix),
 		...promptLines,
 		addRightRail(leftRailPrefix),
 		addRightRail(metadata),

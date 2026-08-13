@@ -74,8 +74,11 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 	const buildRail = formatModeRail("build");
 	assert.equal(planRail, "\x1b[38;2;245;167;66m│\x1b[0m");
 	assert.equal(buildRail, "\x1b[38;2;92;156;245m│\x1b[0m");
-	assert.equal(formatModeTopBorder("plan", 4), "\x1b[38;2;245;167;66m╭──\x1b[0m");
-	assert.equal(formatModeTopBorder("build", 1), "");
+	assert.equal(
+		formatModeTopBorder("plan", 4, "\x1b[2m╮\x1b[22m"),
+		"\x1b[38;2;245;167;66m╭─┄\x1b[0m\x1b[2m╮\x1b[22m",
+	);
+	assert.equal(formatModeTopBorder("build", 2, "\x1b[2m╮\x1b[22m"), "");
 	assert.equal(
 		formatModeMetadata("plan", "high", theme, thinkingColor),
 		"\x1b[38;2;245;167;66m│\x1b[0m \x1b[38;2;245;167;66mplan\x1b[0m\x1b[38;2;128;128;128m · \x1b[39m\x1b[38;2;0;255;0mhigh\x1b[39m",
@@ -107,37 +110,57 @@ test("footer helpers preserve compact counts and safe home-relative paths", () =
 	assert.equal(formatFooterCwd("/home/username/project", "/home/user"), "/home/username/project");
 });
 
-test("mode composer completes the right and lower borders while preserving corner gaps", () => {
+test("mode composer joins border colors with dashed transitions and dim corners", () => {
 	const ansiPattern = /\x1b\[[0-?]*[ -/]*[@-~]/gu;
 	const lineWidth = {
 		truncate: (line: string, width: number) => line.replace(ansiPattern, "").length <= width ? line : line.slice(0, width),
 		measure: (line: string) => line.replace(ansiPattern, "").length,
 	};
 	const lines = ["top border", "  first", "  second", "────────────────", "  autocomplete"];
-	assert.deepEqual(renderModeComposer(lines, "╭──────────────", "│ ", "│", "│ plan · high", 2, 16, lineWidth), [
-		"╭──────────────",
+	assert.deepEqual(renderModeComposer(lines, "╭─────────────┄╮", "│ ", "│", "│ plan · high", "╰", 2, 16, lineWidth), [
+		"╭─────────────┄╮",
+		"│              │",
 		"│ first        │",
 		"│ second       │",
 		"│              │",
 		"│ plan · high  │",
-		" ──────────────╯",
+		"╰┄─────────────╯",
 		"",
 		"  autocomplete",
 	]);
+
+	const styledGlyph = "\x1b[38;2;157;124;216m─\x1b[39m";
+	const realisticLines = ["top", "  prompt", styledGlyph.repeat(16)];
+	const realisticResult = renderModeComposer(
+		realisticLines,
+		"╭─────────────┄╮",
+		"│ ",
+		"│",
+		"metadata",
+		"╰",
+		2,
+		16,
+		lineWidth,
+	);
+	assert.equal(realisticResult.every((line) => lineWidth.measure(line) <= 16), true);
+	assert.equal(realisticResult[5]?.replace(ansiPattern, ""), "╰┄─────────────╯");
+	assert.equal(realisticResult[5]?.replace(ansiPattern, "").includes("[39m"), false);
+
 	assert.deepEqual(
 		renderModeComposer(
 			["top", "  prompt", "\x1b[38;2;128;128;128m────\x1b[0m"],
-			"╭──",
+			"╭─┄╮",
 			"│ ",
 			"│",
 			"metadata",
+			"╰",
 			2,
 			4,
 			lineWidth,
 		),
-		["╭──", "│ p│", "│  │", "met│", "\x1b[38;2;128;128;128m ──╯\x1b[0m", ""],
+		["╭─┄╮", "│  │", "│ p│", "│  │", "met│", "╰\x1b[38;2;128;128;128m┄─╯\x1b[0m", ""],
 	);
-	assert.deepEqual(renderModeComposer(lines, "top", "│ ", "│", "metadata", 0, 16, lineWidth), lines);
+	assert.deepEqual(renderModeComposer(lines, "top", "│ ", "│", "metadata", "╰", 0, 16, lineWidth), lines);
 });
 
 test("plan review preserves the complete plan without truncation", () => {

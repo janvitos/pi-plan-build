@@ -503,11 +503,21 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 						width - 1,
 						"",
 					);
-					const topBorder = formatModeTopBorder(selectedMode, width);
-					return renderModeComposer(lines, topBorder, leftRail, rightRail, metadata, railWidth, width, {
-						truncate: (line, maxWidth) => truncateToWidth(line, maxWidth, ""),
-						measure: visibleWidth,
-					});
+					const topBorder = formatModeTopBorder(selectedMode, width, ctx.ui.theme.fg("dim", "╮"));
+					return renderModeComposer(
+						lines,
+						topBorder,
+						leftRail,
+						rightRail,
+						metadata,
+						ctx.ui.theme.fg("dim", "╰"),
+						railWidth,
+						width,
+						{
+							truncate: (line, maxWidth) => truncateToWidth(line, maxWidth, ""),
+							measure: visibleWidth,
+						},
+					);
 				}
 
 				override handleInput(data: string): void {
