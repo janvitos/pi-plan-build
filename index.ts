@@ -29,6 +29,7 @@ import {
 	makePlanPath,
 	nextMode,
 	nextThinkingLevel,
+	normalizePlanExitChoice,
 	PLAN_EXIT_APPROVE_CHOICE,
 	PLAN_EXIT_FRESH_CHOICE,
 	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
@@ -289,15 +290,15 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (!plan.trim()) throw new Error("Cannot request plan approval because the plan file is empty");
 			pi.appendEntry(PLAN_REVIEW_ENTRY_TYPE, { plan, planPath });
 			const displayPath = shorten(planPath, ctx.cwd);
-			const choice = await ctx.ui.select(
+			const selection = normalizePlanExitChoice(await ctx.ui.select(
 				`Build Agent: Plan at ${displayPath} is complete. What would you like to do?`,
 				[PLAN_EXIT_APPROVE_CHOICE, PLAN_EXIT_FRESH_CHOICE, PLAN_EXIT_STAY_CHOICE],
-			);
-			const decision = classifyPlanExitChoice(choice);
+			));
+			const decision = classifyPlanExitChoice(selection.choice);
 			if (decision === "stay") {
 				freshImplementationPlan = undefined;
 				pi.appendEntry(MODE_NOTICE_ENTRY_TYPE, { message: PLAN_EXIT_STAY_ACKNOWLEDGEMENT });
-				return buildPlanExitStayResult(planPath, choice === undefined);
+				return buildPlanExitStayResult(planPath, selection.cancelled);
 			}
 			if (decision === "implement-fresh") {
 				freshImplementationPlan = plan;

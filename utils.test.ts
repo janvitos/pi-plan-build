@@ -22,6 +22,7 @@ import {
 	makePlanPath,
 	nextMode,
 	nextThinkingLevel,
+	normalizePlanExitChoice,
 	PLAN_EXIT_APPROVE_CHOICE,
 	PLAN_EXIT_FRESH_CHOICE,
 	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
@@ -202,11 +203,21 @@ test("declining plan exit stays in Plan mode and terminates the run", () => {
 	assert.equal(cancelled.details.cancelled, true);
 });
 
+test("plan exit normalizes Escape to the explicit Stay choice", () => {
+	assert.deepEqual(normalizePlanExitChoice(undefined), {
+		choice: PLAN_EXIT_STAY_CHOICE,
+		cancelled: true,
+	});
+	assert.deepEqual(normalizePlanExitChoice(PLAN_EXIT_STAY_CHOICE), {
+		choice: PLAN_EXIT_STAY_CHOICE,
+		cancelled: false,
+	});
+});
+
 test("plan exit classifies all three choices and fails safe", () => {
 	assert.equal(classifyPlanExitChoice(PLAN_EXIT_APPROVE_CHOICE), "implement-here");
 	assert.equal(classifyPlanExitChoice(PLAN_EXIT_FRESH_CHOICE), "implement-fresh");
 	assert.equal(classifyPlanExitChoice(PLAN_EXIT_STAY_CHOICE), "stay");
-	assert.equal(classifyPlanExitChoice(undefined), "stay");
 	assert.equal(classifyPlanExitChoice("unexpected value"), "stay");
 });
 

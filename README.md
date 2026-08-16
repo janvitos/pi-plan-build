@@ -19,7 +19,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
   - **Switch to Build and implement here**
   - **Start fresh and implement**
   - **Stay in Plan mode**
-- Staying in Plan mode produces a durable acknowledgement and stops the run until the user responds.
+- Staying in Plan mode—or pressing Escape in the approval dialog—produces a durable acknowledgement and stops the run until the user responds.
 - Mode state survives reloads, resumes, and forks.
 - When Pi recreates the custom editor, the latest 100 user prompts from the active session branch are restored for Up/Down history navigation.
 
@@ -76,11 +76,11 @@ When planning is complete, `plan_exit` displays the entire persisted plan and as
 
 Selecting **Start fresh and implement** stops the current run and pre-fills `/build-fresh`. Press Enter to confirm. Pi only exposes session creation to user-invoked command contexts, so this confirmation is required. The command creates a linked child session, copies the approved plan to its canonical plan file, switches it to Build, and starts implementation without transferring the planning conversation.
 
-Selecting **Stay in Plan mode** displays:
+Selecting **Stay in Plan mode**, or pressing Escape while the approval dialog is open, displays:
 
 > Staying in Plan mode. Let me know when you’re ready to revise or implement the plan.
 
-The agent then stops and waits for the next user message.
+Both actions leave Plan mode active, stop the agent, and wait for the next user message.
 
 ## Plan-mode permissions
 

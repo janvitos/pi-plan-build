@@ -139,7 +139,19 @@ export const PLAN_EXIT_STAY_ACKNOWLEDGEMENT =
 
 export type PlanExitDecision = "implement-here" | "implement-fresh" | "stay";
 
-export function classifyPlanExitChoice(choice: string | undefined): PlanExitDecision {
+export interface NormalizedPlanExitChoice {
+	choice: string;
+	cancelled: boolean;
+}
+
+export function normalizePlanExitChoice(choice: string | undefined): NormalizedPlanExitChoice {
+	return {
+		choice: choice ?? PLAN_EXIT_STAY_CHOICE,
+		cancelled: choice === undefined,
+	};
+}
+
+export function classifyPlanExitChoice(choice: string): PlanExitDecision {
 	if (choice === PLAN_EXIT_APPROVE_CHOICE) return "implement-here";
 	if (choice === PLAN_EXIT_FRESH_CHOICE) return "implement-fresh";
 	return "stay";
