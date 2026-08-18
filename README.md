@@ -74,7 +74,7 @@ When planning is complete, `plan_exit` displays the entire persisted plan and as
 2. start a clean linked implementation session; or
 3. stay in Plan mode.
 
-Selecting **Start fresh and implement** stops the current run and automatically dispatches `/build-fresh`. Pi 0.84.2 or newer is required for extension command dispatch from an injected user message. The command creates a linked child session, copies the approved plan to its canonical plan file, switches it to Build, and starts implementation without transferring the planning conversation.
+Selecting **Start fresh and implement** stops the current run and automatically dispatches `/build-fresh`. Pi 0.84.2 or newer is required for extension command dispatch from an injected user message. The command creates a linked child session, copies the approved plan to its canonical plan file, preserves the model and thinking level selected for the action, switches it to Build, and starts implementation without transferring the planning conversation.
 
 Selecting **Stay in Plan mode**, or pressing Escape while the approval dialog is open, displays:
 
@@ -111,7 +111,7 @@ npm test
 npm pack --dry-run
 ```
 
-The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode and provider rendering, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session handoff content, and question formatting.
+The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode and provider rendering, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session settings and handoff content, and question formatting.
 
 ### Publishing
 

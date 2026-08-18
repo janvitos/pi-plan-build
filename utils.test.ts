@@ -6,6 +6,7 @@ import { buildPlanReminder, PLAN_EXIT_DESCRIPTION } from "./prompts.ts";
 import {
 	applyManualSelection,
 	buildFreshImplementationHandoff,
+	buildFreshImplementationRequest,
 	buildPlanExitFreshResult,
 	buildPlanExitStayResult,
 	buildPlanReviewMessage,
@@ -219,6 +220,22 @@ test("plan exit classifies all three choices and fails safe", () => {
 	assert.equal(classifyPlanExitChoice(PLAN_EXIT_FRESH_CHOICE), "implement-fresh");
 	assert.equal(classifyPlanExitChoice(PLAN_EXIT_STAY_CHOICE), "stay");
 	assert.equal(classifyPlanExitChoice("unexpected value"), "stay");
+});
+
+test("fresh implementation captures the selected model and thinking level", () => {
+	assert.deepEqual(
+		buildFreshImplementationRequest("plan", { provider: "openai", id: "gpt-5.6" }, "high"),
+		{
+			plan: "plan",
+			model: { provider: "openai", id: "gpt-5.6" },
+			thinkingLevel: "high",
+		},
+	);
+	assert.deepEqual(buildFreshImplementationRequest("plan", undefined, "off"), {
+		plan: "plan",
+		model: undefined,
+		thinkingLevel: "off",
+	});
 });
 
 test("fresh implementation selection terminates and preserves the handoff", () => {

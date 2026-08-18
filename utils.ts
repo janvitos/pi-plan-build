@@ -174,6 +174,20 @@ export function buildPlanExitFreshResult(planPath: string) {
 	};
 }
 
+export interface FreshImplementationRequest {
+	plan: string;
+	model?: { provider: string; id: string };
+	thinkingLevel: string;
+}
+
+export function buildFreshImplementationRequest(
+	plan: string,
+	model: { provider: string; id: string } | undefined,
+	thinkingLevel: string,
+): FreshImplementationRequest {
+	return { plan, model, thinkingLevel };
+}
+
 export function buildFreshImplementationHandoff(plan: string): string {
 	return `Plan mode is now disabled. Full tool access is restored. Implement this approved plan now:\n\n${plan}`;
 }

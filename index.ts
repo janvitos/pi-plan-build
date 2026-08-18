@@ -14,10 +14,12 @@ import {
 import {
 	applyManualSelection,
 	buildFreshImplementationHandoff,
+	buildFreshImplementationRequest,
 	buildPlanExitFreshResult,
 	buildPlanExitStayResult,
 	buildPlanReviewMessage,
 	classifyPlanExitChoice,
+	type FreshImplementationRequest,
 	decodeModeState,
 	extractPromptHistory,
 	formatFooterCwd,
@@ -73,7 +75,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let toolsBeforeModes: string[] = [];
 	let currentContext: ExtensionContext | undefined;
 	let requestEditorRender: (() => void) | undefined;
-	let freshImplementationPlan: string | undefined;
+	let freshImplementationRequest: FreshImplementationRequest | undefined;
 
 	pi.registerFlag("plan", {
 		description: "Start in Plan mode",
@@ -160,28 +162,47 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerCommand("build-fresh", {
 		description: "Start a clean linked session and implement the plan selected in plan_exit",
 		handler: async (_args, ctx) => {
-			const plan = freshImplementationPlan;
-			if (!plan) {
+			const request = freshImplementationRequest;
+			if (!request) {
 				ctx.ui.notify("No fresh implementation is pending. Choose ‘Start fresh and implement’ from plan_exit first.", "warning");
 				return;
 			}
 			if (selectedMode !== "plan") {
-				freshImplementationPlan = undefined;
+				freshImplementationRequest = undefined;
 				ctx.ui.notify("Fresh implementation is no longer available because Plan mode is not active.", "warning");
 				return;
 			}
 			if (ctx.mode === "print" || ctx.mode === "json") {
 				throw new Error("Fresh implementation requires TUI or RPC mode");
 			}
-			if (!ctx.model) {
+			if (!request.model) {
 				ctx.ui.notify("Cannot start implementation because no model is selected.", "warning");
 				return;
 			}
+			const currentModel = ctx.model;
+			const implementationModel = ctx.modelRegistry.find(request.model.provider, request.model.id)
+				?? (currentModel?.provider === request.model.provider && currentModel.id === request.model.id ? currentModel : undefined);
+			if (!implementationModel) {
+				ctx.ui.notify(`Cannot start implementation because ${request.model.provider}/${request.model.id} is unavailable.`, "warning");
+				return;
+			}
+			try {
+				const modelSelected = await pi.setModel(implementationModel);
+				if (modelSelected === false) {
+					ctx.ui.notify(`Cannot start implementation because no API key is available for ${request.model.provider}/${request.model.id}.`, "warning");
+					return;
+				}
+				pi.setThinkingLevel(request.thinkingLevel);
+			} catch (error: unknown) {
+				const detail = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(`Cannot start implementation with ${request.model.provider}/${request.model.id}: ${detail}`, "warning");
+				return;
+			}
 
-			freshImplementationPlan = undefined;
+			freshImplementationRequest = undefined;
 			const parentSession = ctx.sessionManager.getSessionFile();
 			const sourceTools = [...toolsBeforeModes];
-			const handoff = buildFreshImplementationHandoff(plan);
+			const handoff = buildFreshImplementationHandoff(request.plan);
 			let destinationPlanPath = "";
 			let setupError: string | undefined;
 			let kickoffError: string | undefined;
@@ -195,7 +216,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 								sessionManager.getSessionId(),
 							);
 							await fs.promises.mkdir(path.dirname(destinationPlanPath), { recursive: true });
-							await fs.promises.writeFile(destinationPlanPath, plan, "utf8");
+							await fs.promises.writeFile(destinationPlanPath, request.plan, "utf8");
+							sessionManager.appendModelChange(request.model.provider, request.model.id);
+							sessionManager.appendThinkingLevelChange(request.thinkingLevel);
 							sessionManager.appendCustomEntry(STATE_TYPE, {
 								version: 1,
 								selectedMode: "build",
@@ -232,11 +255,11 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					},
 				});
 				if (result.cancelled) {
-					freshImplementationPlan = plan;
+					freshImplementationRequest = request;
 					ctx.ui.notify("Fresh implementation cancelled; the source plan remains available.", "info");
 				}
 			} catch (error: unknown) {
-				freshImplementationPlan = plan;
+				freshImplementationRequest = request;
 				const detail = error instanceof Error ? error.message : String(error);
 				try {
 					ctx.ui.notify(`Unable to start a fresh implementation session: ${detail}`, "error");
@@ -296,19 +319,23 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			));
 			const decision = classifyPlanExitChoice(selection.choice);
 			if (decision === "stay") {
-				freshImplementationPlan = undefined;
+				freshImplementationRequest = undefined;
 				pi.appendEntry(MODE_NOTICE_ENTRY_TYPE, { message: PLAN_EXIT_STAY_ACKNOWLEDGEMENT });
 				return buildPlanExitStayResult(planPath, selection.cancelled);
 			}
 			if (decision === "implement-fresh") {
-				freshImplementationPlan = plan;
+				freshImplementationRequest = buildFreshImplementationRequest(
+					plan,
+					ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined,
+					pi.getThinkingLevel(),
+				);
 				pi.sendUserMessage("/build-fresh", {
 					deliverAs: "followUp",
 					expandPromptTemplates: true,
 				});
 				return buildPlanExitFreshResult(planPath);
 			}
-			freshImplementationPlan = undefined;
+			freshImplementationRequest = undefined;
 			await selectMode("build", ctx, "tool");
 			return {
 				content: [
