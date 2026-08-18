@@ -1,6 +1,6 @@
 {
   "name": "@janvitos/pi-plan-build",
-  "version": "0.1.26",
+  "version": "0.1.27",
   "description": "Plan safely, approve explicitly, then implement here or in a clean session.",
   "type": "module",
   "license": "MIT",
@@ -33,7 +33,7 @@
     "prepublishOnly": "npm test"
   },
   "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-coding-agent": ">=0.84.2",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },

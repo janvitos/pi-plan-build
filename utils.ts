@@ -166,7 +166,7 @@ export function buildPlanExitFreshResult(planPath: string) {
 		content: [
 			{
 				type: "text" as const,
-				text: "The user selected clean-session implementation. Stop now; the /build-fresh command has been prepared for the user to submit.",
+				text: "The user selected clean-session implementation. Stop now; /build-fresh is starting automatically.",
 			},
 		],
 		details: { approved: true, action: "implement-fresh" as const, mode: "plan" as const, planPath },

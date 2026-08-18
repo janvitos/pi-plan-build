@@ -25,7 +25,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
 
 ## Requirements
 
-- Pi `0.84.1` or newer
+- Pi `0.84.2` or newer
 - Node.js `22.6` or newer for the test command
 - TUI or RPC UI support for interactive questions and approval dialogs
 
@@ -62,7 +62,7 @@ Do not install more than one npm, Git, or local copy at the same time; duplicate
 | `/plan` | Select Plan mode |
 | `/build` | Select Build mode |
 | `pi --plan` | Start a new session in Plan mode |
-| `/build-fresh` | Confirm a pending clean-session implementation |
+| `/build-fresh` | Start a pending clean-session implementation manually |
 
 The agent may also enter Plan mode with `plan_enter` when planning or investigation is safer than immediate execution.
 
@@ -71,10 +71,10 @@ The agent may also enter Plan mode with `plan_enter` when planning or investigat
 When planning is complete, `plan_exit` displays the entire persisted plan and asks whether to:
 
 1. implement in the current session;
-2. prepare a clean linked implementation session; or
+2. start a clean linked implementation session; or
 3. stay in Plan mode.
 
-Selecting **Start fresh and implement** stops the current run and pre-fills `/build-fresh`. Press Enter to confirm. Pi only exposes session creation to user-invoked command contexts, so this confirmation is required. The command creates a linked child session, copies the approved plan to its canonical plan file, switches it to Build, and starts implementation without transferring the planning conversation.
+Selecting **Start fresh and implement** stops the current run and automatically dispatches `/build-fresh`. Pi 0.84.2 or newer is required for extension command dispatch from an injected user message. The command creates a linked child session, copies the approved plan to its canonical plan file, switches it to Build, and starts implementation without transferring the planning conversation.
 
 Selecting **Stay in Plan mode**, or pressing Escape while the approval dialog is open, displays:
 

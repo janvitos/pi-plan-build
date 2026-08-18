@@ -302,7 +302,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			}
 			if (decision === "implement-fresh") {
 				freshImplementationPlan = plan;
-				ctx.ui.setEditorText("/build-fresh");
+				pi.sendUserMessage("/build-fresh", {
+					deliverAs: "followUp",
+					expandPromptTemplates: true,
+				});
 				return buildPlanExitFreshResult(planPath);
 			}
 			freshImplementationPlan = undefined;
@@ -324,7 +327,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const details = result.details as { approved?: boolean; action?: string } | undefined;
 			if (details?.action === "implement-fresh" && !context.isError) {
 				return new Text(
-					theme.fg("success", "Clean-session implementation selected — press Enter to run /build-fresh."),
+					theme.fg("success", "Clean-session implementation selected — starting automatically."),
 					0,
 					0,
 				);

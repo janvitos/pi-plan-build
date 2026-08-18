@@ -230,6 +230,7 @@ test("fresh implementation selection terminates and preserves the handoff", () =
 		mode: "plan",
 		planPath: "/tmp/plan.md",
 	});
+	assert.match(result.content[0].text, /starting automatically/);
 	const plan = "first line\nlast line";
 	const handoff = buildFreshImplementationHandoff(plan);
 	assert.match(handoff, /Full tool access is restored/);
