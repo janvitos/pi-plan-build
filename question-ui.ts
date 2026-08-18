@@ -22,6 +22,16 @@ export const QuestionParameters = Type.Object({
 
 export type QuestionAnswer = QuestionAnswerData;
 
+const QUESTION_NOTICE_ENTRY_TYPE = "pi-plan-build-question-notice";
+const QUESTION_CANCELLED_MESSAGE = "You chose not to answer the question(s). Awaiting your instructions.";
+
+class QuestionCancelledError extends Error {
+	constructor() {
+		super("User cancelled the question");
+		this.name = "QuestionCancelledError";
+	}
+}
+
 async function askOne(
 	ctx: any,
 	prompt: {
@@ -31,6 +41,7 @@ async function askOne(
 		multiple?: boolean;
 		custom?: boolean;
 	},
+	signal: AbortSignal | undefined,
 ): Promise<QuestionAnswer> {
 	const allowCustom = prompt.custom !== false;
 	const labels = prompt.options.map((option) =>
@@ -41,11 +52,11 @@ async function askOne(
 
 	if (!prompt.multiple) {
 		const choices = [...labels, ...(allowCustom ? ["Type your own answer"] : [])];
-		const choice = await ctx.ui.select(`${prompt.header}: ${prompt.question}`, choices);
-		if (!choice) throw new Error("User cancelled the question");
+		const choice = await ctx.ui.select(`${prompt.header}: ${prompt.question}`, choices, { signal });
+		if (!choice) throw new QuestionCancelledError();
 		if (allowCustom && choice === "Type your own answer") {
-			const custom = await ctx.ui.input(prompt.header, prompt.question);
-			if (!custom?.trim()) throw new Error("User cancelled the question");
+			const custom = await ctx.ui.input(prompt.header, prompt.question, { signal });
+			if (!custom?.trim()) throw new QuestionCancelledError();
 			selected.push(custom.trim());
 			usedCustom = true;
 		} else {
@@ -59,11 +70,11 @@ async function askOne(
 				...(allowCustom ? ["Add a custom answer"] : []),
 				...(selected.length ? [`Done (${selected.join(", ")})`] : []),
 			];
-			const choice = await ctx.ui.select(`${prompt.header}: ${prompt.question}`, choices);
-			if (!choice) throw new Error("User cancelled the question");
+			const choice = await ctx.ui.select(`${prompt.header}: ${prompt.question}`, choices, { signal });
+			if (!choice) throw new QuestionCancelledError();
 			if (choice.startsWith("Done (")) break;
 			if (choice === "Add a custom answer") {
-				const custom = await ctx.ui.input(prompt.header, prompt.question);
+				const custom = await ctx.ui.input(prompt.header, prompt.question, { signal });
 				if (custom?.trim()) {
 					selected.push(custom.trim());
 					usedCustom = true;
@@ -81,17 +92,31 @@ async function askOne(
 }
 
 export function registerQuestionTool(pi: ExtensionAPI): void {
+	pi.registerEntryRenderer<{ message: string }>(QUESTION_NOTICE_ENTRY_TYPE, (entry, _options, theme) => {
+		const message = typeof entry.data?.message === "string" ? entry.data.message : QUESTION_CANCELLED_MESSAGE;
+		return new Text(theme.fg("warning", message), 0, 0);
+	});
 	pi.registerTool({
 		name: "question",
 		label: "Question",
 		description: `Use this tool when you need to ask the user questions during execution. This allows you to gather preferences, clarify ambiguous instructions, get implementation decisions, or offer choices. When custom is enabled (default), do not add an Other option yourself. Put the recommended option first and suffix its label with "(Recommended)".`,
 		parameters: QuestionParameters,
 		executionMode: "sequential",
-		async execute(_toolCallId, params, _signal, _onUpdate, ctx) {
+		async execute(_toolCallId, params, signal, _onUpdate, ctx) {
 			if (!ctx.hasUI) throw new Error("The question tool requires an interactive TUI or RPC client");
 			if (params.questions.length === 0) throw new Error("At least one question is required");
 			const answers: QuestionAnswer[] = [];
-			for (const prompt of params.questions) answers.push(await askOne(ctx, prompt));
+			try {
+				for (const prompt of params.questions) answers.push(await askOne(ctx, prompt, signal));
+			} catch (error: unknown) {
+				if (!(error instanceof QuestionCancelledError)) throw error;
+				pi.appendEntry(QUESTION_NOTICE_ENTRY_TYPE, { message: QUESTION_CANCELLED_MESSAGE });
+				return {
+					content: [{ type: "text", text: QUESTION_CANCELLED_MESSAGE }],
+					details: { cancelled: true },
+					terminate: true,
+				};
+			}
 			const formatted = formatQuestionAnswers(answers);
 			return {
 				content: [{ type: "text", text: `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.` }],
@@ -103,7 +128,8 @@ export function registerQuestionTool(pi: ExtensionAPI): void {
 			return new Text(theme.fg("toolTitle", theme.bold(`question (${count})`)), 0, 0);
 		},
 		renderResult(result, _options, theme) {
-			const details = result.details as { answers?: QuestionAnswer[] } | undefined;
+			const details = result.details as { answers?: QuestionAnswer[]; cancelled?: boolean } | undefined;
+			if (details?.cancelled) return new Text(theme.fg("warning", "Question(s) skipped"), 0, 0);
 			if (!details?.answers) return new Text(theme.fg("warning", "Question cancelled"), 0, 0);
 			return new Text(details.answers.map((a) => `${theme.fg("success", "✓")} ${a.header}: ${a.answers.join(", ")}`).join("\n"), 0, 0);
 		},
