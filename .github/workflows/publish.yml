@@ -26,5 +26,8 @@ jobs:
       - name: Install current npm
         run: npm install --global npm@latest
 
+      - name: Install peer dependencies for prepublish tests
+        run: npm install --ignore-scripts --no-package-lock
+
       - name: Publish package
         run: npm publish --access public --provenance
