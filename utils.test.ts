@@ -254,15 +254,19 @@ test("fresh implementation selection terminates and preserves the handoff", () =
 	assert.equal(handoff.endsWith(plan), true);
 });
 
-test("plan guidance answers informational questions without creating a plan", () => {
-	const reminder = buildPlanReminder("No plan file exists yet.");
-	assert.match(reminder, /Only when the current request requires an implementation plan/);
-	assert.match(reminder, /answer the question directly instead of starting the workflow below/);
-	assert.match(reminder, /You may use read-only tools to inspect the project/);
+test("plan guidance supports conversation before persisted finalization", () => {
+	const reminder = buildPlanReminder("No plan file exists yet. Create it only when finalizing.");
+	assert.match(reminder, /Plan mode does not require every response to be a final plan/);
+	assert.match(reminder, /Answer informational questions and converse normally/);
 	assert.match(reminder, /Do not create or update the plan file/);
 	assert.match(reminder, /Do not call plan_exit/);
-	assert.match(reminder, /Plan mode remains active for future requests/);
-	assert.match(PLAN_EXIT_DESCRIPTION, /After directly answering an informational question/);
+	assert.match(reminder, /End your response normally when the conversation should continue/);
+	assert.match(reminder, /Do not assume that a plan file must be changed merely because Plan mode is active/);
+	assert.match(reminder, /Once you have enough information and are ready to present the final implementation plan/);
+	assert.match(reminder, /when the user explicitly asks you to finalize it/);
+	assert.match(reminder, /write the complete plan to the plan file and call plan_exit/);
+	assert.match(reminder, /only while finalizing the plan or explicitly revising an existing plan/);
+	assert.match(PLAN_EXIT_DESCRIPTION, /After you have written a complete plan to the plan file/);
 });
 
 test("prompt history restores normalized user text in chronological order", () => {

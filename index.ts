@@ -130,6 +130,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		await fs.promises.mkdir(path.dirname(planPath), { recursive: true });
 	}
 
+	function describePlanFile(): string {
+		return fs.existsSync(planPath)
+			? `A plan file already exists at ${planPath}. Read it when relevant, but leave it unchanged while discussing or researching. Use the edit tool only when finalizing or explicitly revising the plan.`
+			: `No plan file exists yet. When ready to finalize, create your plan at ${planPath} using the write tool.`;
+	}
+
 	async function selectMode(mode: Mode, ctx: ExtensionContext, source: "manual" | "tool"): Promise<void> {
 		if (mode === selectedMode && (source === "manual" || mode === runMode)) return;
 		const previous = selectedMode;
@@ -278,12 +284,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		executionMode: "sequential",
 		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
 			await selectMode("plan", ctx, "tool");
-			const exists = fs.existsSync(planPath);
-			const info = exists
-				? `A plan file already exists at ${planPath}. You can read it and make incremental edits using the edit tool.`
-				: `No plan file exists yet. You should create your plan at ${planPath} using the write tool.`;
 			return {
-				content: [{ type: "text", text: buildPlanReminder(info) }],
+				content: [{ type: "text", text: buildPlanReminder(describePlanFile()) }],
 				details: { mode: "plan", planPath },
 			};
 		},
@@ -382,12 +384,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		let content: string | undefined;
 		if (runMode === "plan") {
 			await ensurePlanDirectory();
-			const exists = fs.existsSync(planPath);
-			content = buildPlanReminder(
-				exists
-					? `A plan file already exists at ${planPath}. You can read it and make incremental edits using the edit tool.`
-					: `No plan file exists yet. You should create your plan at ${planPath} using the write tool.`,
-			);
+			content = buildPlanReminder(describePlanFile());
 		} else if (pendingReminder === "build") {
 			content = PLAN_TO_BUILD_REMINDER;
 			if (fs.existsSync(planPath)) content += `\n\nA plan file exists at ${planPath}. You should execute the plan defined within it.`;

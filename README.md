@@ -13,7 +13,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
 - Per-session plans at `~/.pi/agent/plans/<session-id>.md`.
 - In Plan mode, built-in `edit` and `write` are restricted to the exact plan file.
 - Interactive `question`, `plan_enter`, and `plan_exit` tools.
-- Informational questions are answered directly in Plan mode, with read-only inspection when needed and no plan or approval ceremony.
+- Plan mode supports read-only conversation and research across multiple turns, then persists the final plan when it is ready for approval.
 - The complete saved plan is rendered in the transcript before approval—without the built-in write preview's truncation.
 - Three approval actions:
   - **Switch to Build and implement here**
@@ -87,20 +87,21 @@ Both actions leave Plan mode active, stop the agent, and wait for the next user 
 Normal tools remain visible so the model can inspect the project. While a Plan run is active:
 
 - `edit` and `write` are permitted only for the canonical session plan file;
+- the Plan prompt reserves those mutations for finalizing or explicitly revising the plan, not ordinary conversation or research;
 - other `edit` and `write` calls are blocked by the extension;
 - bash is not restricted at the permission layer, but the Plan prompt explicitly permits read-only exploration only.
 
 This mirrors the intended permission-oriented workflow rather than hiding normal tool schemas.
 
-### Informational questions
+### Conversational planning
 
-Plan mode distinguishes informational Q&A from implementation planning. If a request only asks for an explanation or information, the agent answers directly and ends normally. It may inspect the project with read-only tools when the answer depends on local context, but it does not create or update a plan, ask planning questions unnecessarily, or call `plan_exit`. Plan mode remains selected for the next request.
+Plan mode follows OpenCode’s standard conversational lifecycle while retaining this extension’s persisted approval flow. The agent can answer informational questions, discuss requirements and tradeoffs, inspect the project with read-only tools, and ask follow-up questions across multiple turns. Ordinary conversation and research do not create or update the plan file and do not invoke `plan_exit`.
 
-Requests to change code or produce an implementation plan continue through the normal plan-file and approval workflow.
+Once the request is sufficiently understood and the agent is ready to present the final implementation plan—or the user explicitly asks it to finalize—the agent writes the complete canonical plan and calls `plan_exit`. An existing plan file does not trigger automatic edits during unrelated discussion.
 
 ## Design and attribution
 
-Pi Plan & Build is an independent extension with its own workflow and UI behavior. Its original mode prompts and transition semantics were informed by OpenCode 1.18.16, while clean-session implementation ideas were informed by the former `pi-plan-mode` extension. Those behaviors have since been adapted and extended for Pi; this project is not affiliated with either project.
+Pi Plan & Build is an independent extension with its own workflow and UI behavior. Its conversational read-only lifecycle follows OpenCode’s standard Plan agent, while persisted finalization and approval are adapted for Pi. Earlier prompt and transition semantics were informed by OpenCode 1.18.16, and clean-session implementation ideas were informed by the former `pi-plan-mode` extension. This project is not affiliated with either project.
 
 The Plan workflow uses Pi's native exploration tools directly and does not bundle or require subagents.
 
@@ -111,7 +112,7 @@ npm test
 npm pack --dry-run
 ```
 
-The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode and provider rendering, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session settings and handoff content, and question formatting.
+The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode and provider rendering, conversational Plan guidance, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session settings and handoff content, and question formatting and cancellation.
 
 ### Publishing
 

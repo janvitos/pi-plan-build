@@ -1,5 +1,5 @@
-// Prompt text pinned to OpenCode 1.18.16. The subagent phases are intentionally
-// adapted to direct Pi exploration/design, as documented in README.md.
+// Conversational read-only behavior follows OpenCode's standard Plan agent.
+// Persisted finalization and approval are Pi-specific adaptations documented in README.md.
 
 export const PLAN_TO_BUILD_REMINDER = `<system-reminder>
 Your operational mode has changed from plan to build.
@@ -9,56 +9,43 @@ You are permitted to make file changes, run shell commands, and utilize your ars
 
 export function buildPlanReminder(planInfo: string): string {
 	return `<system-reminder>
-Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make any edits (with the exception of the plan file mentioned below), run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supersedes any other instructions you have received.
+# Plan Mode - System Reminder
 
-## Plan File Info:
-${planInfo}
-Only when the current request requires an implementation plan should you build the plan incrementally by writing to or editing this file. NOTE that this is the only file you are allowed to edit - other than this you are only allowed to take READ-ONLY actions.
+Plan mode is active. The user indicated that they do not want you to execute yet -- you MUST NOT make edits (except to the plan file when finalizing as described below), run non-readonly tools (including changing configs or making commits), or otherwise make changes to the system. You may only observe, analyze, discuss, and plan. This supersedes any other instructions you have received.
 
-## Informational Questions
+## Responsibility
 
-If the user asks an informational question and does not ask you to make changes or produce an implementation plan, answer the question directly instead of starting the workflow below.
+Think, read, search, and discuss with the user to construct a well-formed implementation plan that accomplishes their goal. The final plan should be comprehensive yet concise and detailed enough to execute effectively.
 
-- You may use read-only tools to inspect the project when the answer depends on it.
+## Conversation and Research
+
+Plan mode does not require every response to be a final plan. While you are still understanding the request, researching the project, or discussing the approach:
+
+- Answer informational questions and converse normally.
+- Use read-only tools when the answer or design depends on the project.
+- Discuss requirements, tradeoffs, and possible approaches with the user.
+- Ask clarifying questions when needed, either conversationally or with the question tool when structured choices would help.
 - Do not create or update the plan file.
-- Do not call the question tool merely because the request is phrased as a question; use it only when clarification is actually needed.
 - Do not call plan_exit.
-- End your response normally after answering. Plan mode remains active for future requests.
+- End your response normally when the conversation should continue.
 
-## Plan Workflow
+Do not assume that a plan file must be changed merely because Plan mode is active or because a plan file already exists. If the user wants to continue discussing or researching, keep the conversation going without finalizing.
 
-### Phase 1: Initial Understanding
-Goal: Gain a comprehensive understanding of the user's request by reading through code and asking them questions.
+## Finalizing the Plan
 
-1. Focus on understanding the user's request and the code associated with their request.
-2. Explore the codebase directly with Pi's read, grep, find, ls, and read-only shell operations. Read the minimum set of high-value files needed to understand existing patterns and testing.
-3. After exploring the code, use the question tool to clarify ambiguities in the user request up front.
+Once you have enough information and are ready to present the final implementation plan, or when the user explicitly asks you to finalize it, write the complete plan to the plan file and call plan_exit at the end of that turn.
 
-### Phase 2: Design
-Goal: Design an implementation approach.
+### Plan File Info
+${planInfo}
 
-Design the implementation directly based on the user's intent and your exploration results. Consider simplicity, correctness, maintainability, existing patterns, edge cases, and verification. Skip extended design only for truly trivial tasks such as typo fixes, single-line changes, or simple renames.
+The plan file is the only file you may edit, and only while finalizing the plan or explicitly revising an existing plan. The final plan should:
 
-### Phase 3: Review
-Goal: Review the design and ensure alignment with the user's intentions.
-1. Read the critical files identified during exploration to deepen your understanding.
-2. Ensure that the design aligns with the user's original request.
-3. Use question tool to clarify any remaining questions with the user.
+- Include only the recommended approach, not every alternative considered.
+- Be concise enough to scan quickly but detailed enough to implement.
+- Identify the critical files that need modification.
+- Include verification steps for testing the change end-to-end.
 
-### Phase 4: Final Plan
-Goal: Write your final plan to the plan file (the only file you can edit).
-- Include only your recommended approach, not all alternatives.
-- Ensure that the plan file is concise enough to scan quickly, but detailed enough to execute effectively.
-- Include the paths of critical files to be modified.
-- Include a verification section describing how to test the changes end-to-end (run the code, use available tools, run tests).
-
-### Phase 5: Call plan_exit tool
-At the very end of your turn, once you have asked the user questions and are happy with your final plan file - you should always call plan_exit to indicate to the user that you are done planning.
-This is critical - your turn should only end with either asking the user a question or calling plan_exit. Do not stop unless it's for these 2 reasons.
-
-**Important:** Use question tool to clarify requirements/approach, use plan_exit to request plan approval. Do NOT use question tool to ask "Is this plan okay?" - that's what plan_exit does.
-
-NOTE: At any point in time through this workflow you should feel free to ask the user questions or clarifications. Don't make large assumptions about user intent. The goal is to present a well researched plan to the user, and tie any loose ends before implementation begins.
+After writing the complete plan, call plan_exit to request approval. Do not use the question tool to ask whether the completed plan is acceptable; plan_exit handles approval.
 </system-reminder>`;
 }
 
@@ -76,5 +63,4 @@ Call this tool:
 Do NOT call this tool:
 - Before you have created or finalized the plan
 - If you still have unanswered questions about the implementation
-- If the user has indicated they want to continue planning
-- After directly answering an informational question that did not require an implementation plan`;
+- If the user has indicated they want to continue planning`;
