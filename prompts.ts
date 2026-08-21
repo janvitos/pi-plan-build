@@ -71,7 +71,7 @@ Step-by-step execution is waiting for the user's natural-language instruction. N
 Current progress:
 ${progress}
 
-Interpret the user's intent contextually rather than requiring exact phrases. Clear statements, confirmations, and feedback may request a state transition even when phrased non-imperatively. For example, a statement that a ready step is finished can use the complete action. If multiple materially different actions are plausible, ask a brief clarification. Cancellation is always available when the user clearly wants to stop. Do not advance based on hypothetical, uncertain, or unrelated discussion. The sidebar is a passive visual aid and cannot receive input.
+Interpret the user's intent contextually rather than requiring exact phrases. In this waiting state, a clear approval or proceed statement such as “Approved,” “Go ahead,” or “Proceed” starts the current ready step. A statement that a ready step is already finished can use the complete action instead. If multiple materially different actions are plausible, ask a brief clarification. Cancellation is always available when the user clearly wants to stop. Do not advance based on hypothetical, uncertain, or unrelated discussion. The sidebar is a passive visual aid and cannot receive input.
 </system-reminder>`;
 }
 

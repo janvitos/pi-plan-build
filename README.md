@@ -93,7 +93,7 @@ When Pi uses `"tuiMode": "fullscreen"` and the saved plan contains top-level `- 
 
 The passive 64-column right panel reserves terminal columns, so the transcript and editor reflow instead of being covered. Long step instructions wrap across aligned continuation rows rather than being clipped. It never accepts focus or keyboard input and collapses below 132 terminal columns. The panel is a visual status aid only; all control happens through ordinary prompts. The agent interprets intent contextually, so these are examples rather than required commands:
 
-- “Implement the next step” or “Start step 2.”
+- “Implement the next step,” “Start step 2,” or simply “Approved” / “Go ahead.”
 - “Step 1 is complete,” “I verified that one,” or “I already handled this.”
 - “Change step 3 to …” or “Skip this step.”
 - “Pause the plan,” “hide the plan,” or “show the plan.”

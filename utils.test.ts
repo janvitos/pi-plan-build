@@ -281,6 +281,7 @@ test("step execution prompts constrain work to an approved active step", () => {
 	assert.match(waiting, /Do not modify the project/);
 	assert.match(waiting, /Interpret the user's intent contextually/);
 	assert.match(waiting, /complete action/);
+	assert.match(waiting, /“Approved,” “Go ahead,” or “Proceed” starts the current ready step/);
 	assert.match(waiting, /Cancellation is always available/);
 	assert.match(waiting, /passive visual aid/);
 });
