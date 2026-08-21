@@ -44,12 +44,38 @@ The plan file is the only file you may edit, and only while finalizing the plan 
 - Be concise enough to scan quickly but detailed enough to implement.
 - Identify the critical files that need modification.
 - Include verification steps for testing the change end-to-end.
+- End with a \`## Implementation Steps\` section containing the executable top-level steps as \`- [ ] ...\` checklist items. Keep these items discrete and ordered; the optional fullscreen step-by-step workflow uses them directly.
 
 After writing the complete plan, call plan_exit to request approval. Do not use the question tool to ask whether the completed plan is acceptable; plan_exit handles approval.
 </system-reminder>`;
 }
 
 export const PLAN_ENTER_DESCRIPTION = `Use this tool when the user asks you to plan, when a request needs investigation before implementation, or when switching to the plan agent is the safest next step. The tool changes the current continuation to Plan mode.`;
+
+export function buildPlanStepReminder(planPath: string, stepNumber: number, totalSteps: number, step: string): string {
+	return `<system-reminder>
+# Step-by-Step Plan Execution
+
+The approved plan is at ${planPath}. Implement only step ${stepNumber} of ${totalSteps}:
+
+${step}
+
+Do not begin any later plan step. Complete and verify this step, then call plan_step_complete with a concise result summary. If the user requests corrections, continue working only on this same step and submit it for review again.
+</system-reminder>`;
+}
+
+export function buildPlanStepWaitingReminder(progress: string): string {
+	return `<system-reminder>
+Step-by-step execution is waiting for the user's natural-language instruction. No plan step is currently approved for implementation. Do not modify the project or begin a pending step directly.
+
+Current progress:
+${progress}
+
+Interpret the user's intent contextually rather than requiring exact phrases. Clear statements, confirmations, and feedback may request a state transition even when phrased non-imperatively. For example, a statement that a ready step is finished can use the complete action, while a positive review of agent work can use accept. If multiple materially different actions are plausible, ask a brief clarification. Cancellation is always available when the user clearly wants to stop. Do not advance based on hypothetical, uncertain, or unrelated discussion. The sidebar is a passive visual aid and cannot receive input.
+</system-reminder>`;
+}
+
+export const PLAN_STEP_COMPLETE_DESCRIPTION = `Call this tool after implementing and verifying the currently active plan step. It stops execution and returns control to the user for review. Do not call it before the active step is complete, and never begin the next step yourself.`;
 
 export const PLAN_EXIT_DESCRIPTION = `Use this tool when you have completed the planning phase and are ready to exit plan agent.
 

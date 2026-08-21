@@ -15,10 +15,11 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
 - Interactive `question`, `plan_enter`, and `plan_exit` tools.
 - Plan mode supports read-only conversation and research across multiple turns, then persists the final plan when it is ready for approval.
 - The complete saved plan is rendered in the transcript before approval—without the built-in write preview's truncation.
-- Three approval actions:
+- Existing approval actions remain available:
   - **Switch to Build and implement here**
   - **Start fresh and implement**
   - **Stay in Plan mode**
+- **Experimental:** In fullscreen TUI, valid checklist plans also offer **Implement step by step**: a passive, non-overlapping docked right panel keeps the plan visible while natural-language prompts gate steps and return completed work for review. This feature is still under active development.
 - Staying in Plan mode—or pressing Escape in the approval dialog—produces a durable acknowledgement and stops the run until the user responds.
 - Mode state survives reloads, resumes, and forks.
 - When Pi recreates the custom editor, the latest 100 user prompts from the active session branch are restored for Up/Down history navigation.
@@ -28,6 +29,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
 - Pi `0.84.2` or newer
 - Node.js `22.6` or newer for the test command
 - TUI or RPC UI support for interactive questions and approval dialogs
+- Pi fullscreen TUI mode for the optional docked step-by-step plan panel; regular mode and all existing workflows remain supported
 
 ## Install
 
@@ -82,6 +84,33 @@ Selecting **Stay in Plan mode**, or pressing Escape while the approval dialog is
 
 Both actions leave Plan mode active, stop the agent, and wait for the next user message.
 
+### Step-by-step execution panel (Experimental)
+
+> **Experimental feature:** Step-by-step execution is still being developed. Expect UI and workflow changes, and please report issues or unexpected behavior.
+
+When Pi uses `"tuiMode": "fullscreen"` and the saved plan contains top-level `- [ ]` items under `## Implementation Steps`, `plan_exit` also offers **Implement step by step**. This is opt-in per plan; it does not replace either one-shot implementation option.
+
+The passive 72-column right panel reserves terminal columns, so the transcript and editor reflow instead of being covered. Long step instructions wrap across aligned continuation rows rather than being clipped. It never accepts focus or keyboard input and collapses below 132 terminal columns. Control the workflow entirely through natural-language prompts, for example:
+
+- “Implement the next step” or “Start step 2.”
+- “Step 1 is complete,” “I verified that one,” or “I already handled this.”
+- “Change step 3 to …” or “Skip this step.”
+- “Accept this result” or “Correct it by …”
+- “Pause the plan,” “hide the plan,” or “show the plan.”
+- “Cancel this plan” at any point to end step-by-step execution immediately.
+
+The extension exposes these actions to the agent through `plan_step_control`; project mutations remain blocked until the user clearly approves a ready step or explicitly indicates that it is already complete. The agent interprets intent contextually rather than requiring exact phrases, while the extension validates every resulting state transition. Cancelling removes the panel and execution guards immediately, restores the full-width layout, and preserves the saved plan file for reference. The agent implements only that step, calls `plan_step_complete`, and waits for the user's next prompt. Accepting a result makes the next step ready but never starts it automatically. Progress, revisions, summaries, and panel visibility survive reload/resume. If such a session is opened in regular mode, progress is retained but cannot advance until fullscreen mode is restored; no overlay fallback is used.
+
+Enable fullscreen in `~/.pi/agent/settings.json` and restart Pi:
+
+```json
+{
+  "tuiMode": "fullscreen"
+}
+```
+
+The integration uses Pi 0.84.2's public fullscreen layout primitives plus a guarded read of its runtime layout root because the current extension API exposes `setLayoutRoot()` but not a corresponding getter.
+
 ## Plan-mode permissions
 
 Normal tools remain visible so the model can inspect the project. While a Plan run is active:
@@ -112,7 +141,7 @@ npm test
 npm pack --dry-run
 ```
 
-The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode and provider rendering, conversational Plan guidance, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session settings and handoff content, and question formatting and cancellation.
+The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode and provider rendering, conversational Plan guidance, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session settings and handoff content, question formatting and cancellation, structured checklist parsing, step state transitions, safe instruction revisions, and responsive panel rendering.
 
 ### Publishing
 

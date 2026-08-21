@@ -2,15 +2,34 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CustomEditor, getAgentDir, getMarkdownTheme, type EntryRenderer, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { Key, Markdown, matchesKey, Text, truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
+import { HStack, Key, Markdown, matchesKey, Text, truncateToWidth, visibleWidth, isViewportTUI, type Component, type TUI, type ViewportTUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerQuestionTool } from "./question-ui.ts";
 import {
 	buildPlanReminder,
+	buildPlanStepReminder,
+	buildPlanStepWaitingReminder,
 	PLAN_ENTER_DESCRIPTION,
 	PLAN_EXIT_DESCRIPTION,
+	PLAN_STEP_COMPLETE_DESCRIPTION,
 	PLAN_TO_BUILD_REMINDER,
 } from "./prompts.ts";
+import {
+	acceptPlanStep,
+	activePlanStep,
+	completePlanStep,
+	createPlanExecution,
+	decodePlanExecution,
+	pausePlanExecution,
+	requestPlanStepCorrections,
+	revisePlanStep,
+	skipPlanStep,
+	startPlanStep,
+	submitPlanStepForReview,
+	updatePlanChecklistStep,
+	type PlanExecutionState,
+} from "./plan-execution.ts";
+import { PlanPanel } from "./plan-panel.ts";
 import {
 	applyManualSelection,
 	buildFreshImplementationHandoff,
@@ -48,7 +67,10 @@ const LEGACY_PLAN_REVIEW_ENTRY_TYPE = "opencode-plan-review";
 const MODE_NOTICE_ENTRY_TYPE = "pi-plan-build-notice";
 const LEGACY_MODE_NOTICE_ENTRY_TYPE = "opencode-mode-notice";
 const STATUS_KEY = "pi-plan-build-mode";
-const MANAGED_TOOLS = new Set(["question", "plan_enter", "plan_exit"]);
+const PLAN_STEP_CHOICE = "Implement step by step";
+const PANEL_WIDTH = 72;
+const PANEL_MIN_TERMINAL_WIDTH = 132;
+const MANAGED_TOOLS = new Set(["question", "plan_enter", "plan_exit", "plan_step_control", "plan_step_complete"]);
 const MODE_ADDED_TOOLS = new Set([...MANAGED_TOOLS, "edit", "write"]);
 const EMPTY_PARAMETERS = Type.Object({});
 
@@ -58,6 +80,7 @@ interface StoredState {
 	selectedMode: Mode;
 	pendingReminder?: "plan" | "build";
 	toolsBeforeModes?: string[];
+	execution?: PlanExecutionState;
 }
 
 function shorten(filePath: string, cwd: string): string {
@@ -76,6 +99,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let currentContext: ExtensionContext | undefined;
 	let requestEditorRender: (() => void) | undefined;
 	let freshImplementationRequest: FreshImplementationRequest | undefined;
+	let execution: PlanExecutionState | undefined;
+	let panel: PlanPanel | undefined;
+	let panelTui: (TUI & Partial<ViewportTUI>) | undefined;
+	let originalLayoutRoot: Component | undefined;
+	let panelLayoutRoot: Component | undefined;
+	let fullscreenPanelCapable = false;
 
 	pi.registerFlag("plan", {
 		description: "Start in Plan mode",
@@ -98,11 +127,55 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerEntryRenderer<{ message: string }>(LEGACY_MODE_NOTICE_ENTRY_TYPE, renderModeNotice);
 
 	function stateData(): StoredState {
-		return { version: 1, selectedMode, pendingReminder, toolsBeforeModes };
+		return { version: 1, selectedMode, pendingReminder, toolsBeforeModes, ...(execution ? { execution } : {}) };
 	}
 
 	function persist(): void {
 		pi.appendEntry(STATE_TYPE, stateData());
+	}
+
+	function updateExecution(next: PlanExecutionState): void {
+		execution = next;
+		panel?.setState(next);
+		persist();
+		panelTui?.requestRender();
+	}
+
+	function removePanelLayout(): void {
+		if (panelLayoutRoot && panelTui && originalLayoutRoot) panelTui.setLayoutRoot?.(originalLayoutRoot);
+		panelLayoutRoot = undefined;
+		panel = undefined;
+		panelTui?.requestRender();
+	}
+
+	function cancelPlanExecution(): void {
+		execution = undefined;
+		removePanelLayout();
+		persist();
+		applyTools("build");
+	}
+
+	function ensurePanelLayout(): boolean {
+		if (!execution || !fullscreenPanelCapable || !panelTui || !originalLayoutRoot || !currentContext) return false;
+		if (!panel) panel = new PlanPanel(execution, currentContext.ui.theme);
+		else panel.setState(execution);
+		if (!panelLayoutRoot) {
+			panelLayoutRoot = new HStack([
+				{ component: originalLayoutRoot, basis: 0, grow: 1, shrink: 1, minSize: 58 },
+				{
+					component: panel,
+					basis: PANEL_WIDTH,
+					grow: 0,
+					shrink: 0,
+					minSize: PANEL_WIDTH,
+					maxSize: PANEL_WIDTH,
+					visible: (viewport) => execution?.panelVisible !== false && viewport.width >= PANEL_MIN_TERMINAL_WIDTH,
+				},
+			]);
+			panelTui.setLayoutRoot?.(panelLayoutRoot);
+		}
+		panelTui.requestRender();
+		return true;
 	}
 
 	function updateModeIndicator(ctx: ExtensionContext): void {
@@ -122,7 +195,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		if (mode === "plan") {
 			pi.setActiveTools(unique([...base, "edit", "write", "question", "plan_exit"]));
 		} else {
-			pi.setActiveTools(unique([...base, "question", "plan_enter"]));
+			pi.setActiveTools(unique([
+				...base,
+				"question",
+				"plan_enter",
+				...(execution ? ["plan_step_control"] : []),
+				...(activePlanStep(execution) ? ["plan_step_complete"] : []),
+			]));
 		}
 	}
 
@@ -298,6 +377,128 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	pi.registerTool({
+		name: "plan_step_control",
+		label: "Control Plan Execution",
+		description: `Use this tool to translate the user's natural-language instructions into one step-by-step plan action. Available actions: start a ready step, complete a clearly finished ready or reviewed step, accept a reviewed step, request corrections, skip a ready step, revise an unimplemented instruction, pause/resume or cancel execution, or hide/show the visual plan panel. Interpret clear user intent semantically, including direct completion statements, but do not advance based on hypothetical, uncertain, or unrelated conversation.`,
+		parameters: Type.Object({
+			action: Type.Union([
+				Type.Literal("start"),
+				Type.Literal("complete"),
+				Type.Literal("accept"),
+				Type.Literal("correct"),
+				Type.Literal("skip"),
+				Type.Literal("revise"),
+				Type.Literal("pause"),
+				Type.Literal("resume"),
+				Type.Literal("cancel"),
+				Type.Literal("hide"),
+				Type.Literal("show"),
+			]),
+			step: Type.Optional(Type.Number({ description: "One-based step number; defaults to the current ready/review step", minimum: 1 })),
+			instruction: Type.Optional(Type.String({ description: "Replacement instruction required for revise" })),
+		}),
+		executionMode: "sequential",
+		async execute(_toolCallId, params) {
+			if (!execution) throw new Error("No step-by-step plan is active");
+			const target = params.step === undefined
+				? execution.steps.find((step) => step.status === "ready" || step.status === "review")
+				: execution.steps[Math.floor(params.step) - 1];
+			const finish = (message: string) => ({
+				content: [{ type: "text" as const, text: message }],
+				details: { action: params.action, stepId: target?.id },
+				terminate: true,
+			});
+
+			if (params.action === "cancel") {
+				cancelPlanExecution();
+				return finish("Step-by-step execution was cancelled. The panel and execution guards were removed; the saved plan file remains available.");
+			}
+			if (params.action === "hide" || params.action === "show") {
+				updateExecution({ ...execution, panelVisible: params.action === "show" });
+				if (params.action === "show") ensurePanelLayout();
+				return finish(`The visual plan panel is now ${params.action === "show" ? "visible" : "hidden"}. Progress is unchanged.`);
+			}
+			if (execution.status === "completed") throw new Error("The plan is complete; only hide or show actions remain available");
+			if (params.action === "pause" || params.action === "resume") {
+				if ((params.action === "pause") === (execution.status === "paused")) return finish(`Plan execution is already ${params.action === "pause" ? "paused" : "running"}.`);
+				updateExecution(pausePlanExecution(execution));
+				return finish(`Plan execution is now ${params.action === "pause" ? "paused" : "running"}.`);
+			}
+			if (!target) throw new Error("No matching plan step is available for that action");
+			if (params.action === "start") {
+				if (execution.status === "paused") throw new Error("Resume plan execution before starting a step");
+				updateExecution(startPlanStep(execution, target.id));
+				applyTools("build");
+				pi.sendUserMessage(`Implement plan step ${execution.steps.findIndex((step) => step.id === target.id) + 1}: ${target.text}`, { deliverAs: "followUp" });
+				return finish("The requested step is approved. Its implementation is starting in a follow-up turn.");
+			}
+			if (params.action === "complete") {
+				updateExecution(completePlanStep(execution, target.id));
+				return finish(execution.status === "completed" ? "The step was marked complete and the plan is complete." : "The step was marked complete. The next step is ready and awaits user instruction.");
+			}
+			if (params.action === "accept") {
+				updateExecution(acceptPlanStep(execution, target.id));
+				return finish(execution.status === "completed" ? "The reviewed step was accepted and the plan is complete." : "The reviewed step was accepted. The next step is ready and awaits user instruction.");
+			}
+			if (params.action === "correct") {
+				updateExecution(requestPlanStepCorrections(execution, target.id));
+				applyTools("build");
+				pi.sendUserMessage(`Apply the corrections requested in the user's preceding message to plan step ${execution.steps.findIndex((step) => step.id === target.id) + 1}.`, { deliverAs: "followUp" });
+				return finish("The reviewed step was reopened. The requested corrections are starting in a follow-up turn.");
+			}
+			if (params.action === "skip") {
+				updateExecution(skipPlanStep(execution, target.id));
+				return finish(execution.status === "completed" ? "The step was skipped and the plan is complete." : "The step was skipped. The next step awaits user instruction.");
+			}
+			if (!params.instruction?.trim()) throw new Error("Revising a step requires a replacement instruction");
+			const plan = await fs.promises.readFile(planPath, "utf8");
+			const updatedPlan = updatePlanChecklistStep(plan, target.sourceLine, params.instruction);
+			await fs.promises.writeFile(planPath, updatedPlan, "utf8");
+			updateExecution(revisePlanStep(execution, target.id, params.instruction, updatedPlan));
+			return finish("The plan step instruction was revised and is awaiting user approval.");
+		},
+		renderCall(args, theme) {
+			const requestedStep = typeof args.step === "number" && Number.isFinite(args.step) ? Math.max(1, Math.floor(args.step)) : undefined;
+			const inferredStep = requestedStep ?? (execution
+				? execution.steps.findIndex((step) => step.status === "ready" || step.status === "review") + 1
+				: 0);
+			const label = inferredStep > 0 ? `Step ${inferredStep}: ${args.action}` : `Plan: ${args.action}`;
+			return new Text(theme.fg("toolTitle", theme.bold(label)), 0, 0);
+		},
+		renderResult(result, _options, theme, context) {
+			const text = result.content.find((item) => item.type === "text")?.text ?? "Plan state updated";
+			return new Text(theme.fg(context.isError ? "error" : "success", text), 0, 0);
+		},
+	});
+
+	pi.registerTool({
+		name: "plan_step_complete",
+		label: "Complete Plan Step",
+		description: PLAN_STEP_COMPLETE_DESCRIPTION,
+		parameters: Type.Object({
+			summary: Type.String({ description: "Concise summary of what was implemented and verified" }),
+		}),
+		executionMode: "sequential",
+		async execute(_toolCallId, params) {
+			const step = activePlanStep(execution);
+			if (!execution || !step) throw new Error("No plan step is currently active");
+			updateExecution(submitPlanStepForReview(execution, step.id, params.summary));
+			applyTools("build");
+			return {
+				content: [{ type: "text", text: "The active plan step is awaiting user review. Stop now and do not begin another step." }],
+				details: { stepId: step.id, review: true },
+				terminate: true,
+			};
+		},
+		renderCall(_args, theme) {
+			return new Text(theme.fg("toolTitle", theme.bold("Submit plan step for review")), 0, 0);
+		},
+		renderResult(_result, _options, theme, context) {
+			return new Text(theme.fg(context.isError ? "error" : "success", context.isError ? "Plan step submission failed" : "Plan step ready for review"), 0, 0);
+		},
+	});
+
+	pi.registerTool({
 		name: "plan_exit",
 		label: "Exit Plan Mode",
 		description: PLAN_EXIT_DESCRIPTION,
@@ -315,10 +516,43 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (!plan.trim()) throw new Error("Cannot request plan approval because the plan file is empty");
 			pi.appendEntry(PLAN_REVIEW_ENTRY_TYPE, { plan, planPath });
 			const displayPath = shorten(planPath, ctx.cwd);
+			let stepExecution: PlanExecutionState | undefined;
+			let checklistError: string | undefined;
+			const panelAvailable = fullscreenPanelCapable && (panelTui?.terminal.columns ?? 0) >= PANEL_MIN_TERMINAL_WIDTH;
+			if (panelAvailable) {
+				try {
+					stepExecution = createPlanExecution(plan);
+				} catch (error: unknown) {
+					checklistError = error instanceof Error ? error.message : String(error);
+				}
+			}
+			const choices = [
+				PLAN_EXIT_APPROVE_CHOICE,
+				...(stepExecution ? [PLAN_STEP_CHOICE] : []),
+				PLAN_EXIT_FRESH_CHOICE,
+				PLAN_EXIT_STAY_CHOICE,
+			];
 			const selection = normalizePlanExitChoice(await ctx.ui.select(
 				`Build Agent: Plan at ${displayPath} is complete. What would you like to do?`,
-				[PLAN_EXIT_APPROVE_CHOICE, PLAN_EXIT_FRESH_CHOICE, PLAN_EXIT_STAY_CHOICE],
+				choices,
 			));
+			if (selection.choice === PLAN_STEP_CHOICE && stepExecution) {
+				freshImplementationRequest = undefined;
+				execution = stepExecution;
+				await selectMode("build", ctx, "tool");
+				updateExecution(stepExecution);
+				ensurePanelLayout();
+				return {
+					content: [{ type: "text", text: "Step-by-step execution is ready. Stop now and wait for the user's natural-language instruction in the composer; the plan panel is visual-only." }],
+					details: { approved: true, action: "step-by-step", mode: "build", planPath },
+					terminate: true,
+				};
+			}
+			if (panelAvailable && !stepExecution && checklistError) {
+				ctx.ui.notify(`Step-by-step execution is unavailable: ${checklistError}.`, "warning");
+			} else if (fullscreenPanelCapable && !panelAvailable) {
+				ctx.ui.notify(`Step-by-step execution requires a terminal at least ${PANEL_MIN_TERMINAL_WIDTH} columns wide.`, "warning");
+			}
 			const decision = classifyPlanExitChoice(selection.choice);
 			if (decision === "stay") {
 				freshImplementationRequest = undefined;
@@ -354,6 +588,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		},
 		renderResult(result, _options, theme, context) {
 			const details = result.details as { approved?: boolean; action?: string } | undefined;
+			if (details?.action === "step-by-step" && !context.isError) {
+				return new Text(theme.fg("success", "Step-by-step execution ready — waiting for your instruction."), 0, 0);
+			}
 			if (details?.action === "implement-fresh" && !context.isError) {
 				return new Text(
 					theme.fg("success", "Clean-session implementation selected — starting automatically."),
@@ -369,6 +606,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
+		if ((runMode ?? selectedMode) === "build" && execution && execution.status !== "completed" && !activePlanStep(execution) && (event.toolName === "edit" || event.toolName === "write" || event.toolName === "bash")) {
+			return {
+				block: true,
+				reason: "Step-by-step execution is waiting for an explicit natural-language instruction from the user; no step is approved for project mutations.",
+			};
+		}
 		if (runMode !== "plan" || (event.toolName !== "edit" && event.toolName !== "write")) return;
 		const inputPath = (event.input as { path?: unknown }).path;
 		if (isAllowedPlanMutation(ctx.cwd, inputPath, planPath)) return;
@@ -385,6 +628,11 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		if (runMode === "plan") {
 			await ensurePlanDirectory();
 			content = buildPlanReminder(describePlanFile());
+		} else if (activePlanStep(execution)) {
+			const step = activePlanStep(execution)!;
+			content = buildPlanStepReminder(planPath, execution!.steps.findIndex((item) => item.id === step.id) + 1, execution!.steps.length, step.text);
+		} else if (execution && execution.status !== "completed") {
+			content = buildPlanStepWaitingReminder(execution.steps.map((step, index) => `${index + 1}. [${step.status}] ${step.text}`).join("\n"));
 		} else if (pendingReminder === "build") {
 			content = PLAN_TO_BUILD_REMINDER;
 			if (fs.existsSync(planPath)) content += `\n\nA plan file exists at ${planPath}. You should execute the plan defined within it.`;
@@ -399,6 +647,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		runMode = undefined;
 		applyTools(selectedMode);
 		updateModeIndicator(ctx);
+		if (execution) ensurePanelLayout();
 	});
 
 	pi.on("session_start", async (event, ctx) => {
@@ -413,13 +662,15 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			.pop() as { data?: unknown } | undefined;
 		const decoded = decodeModeState(latest?.data);
 		const raw = latest?.data as StoredState | undefined;
+		execution = decodePlanExecution(raw?.execution);
 		selectedMode = decoded?.selectedMode ?? (pi.getFlag("plan") === true ? "plan" : "build");
 		pendingReminder = raw?.pendingReminder ?? (decoded ? undefined : pi.getFlag("plan") === true ? "plan" : undefined);
 		toolsBeforeModes = Array.isArray(raw?.toolsBeforeModes)
 			? raw.toolsBeforeModes.filter((name): name is string => typeof name === "string" && !MANAGED_TOOLS.has(name))
 			: pi.getActiveTools().filter((name) => !MANAGED_TOOLS.has(name));
 		planPath = makePlanPath(path.join(getAgentDir(), "plans"), ctx.sessionManager.getSessionId());
-		if (selectedMode === "plan") await ensurePlanDirectory();
+		if (selectedMode === "plan" || execution) await ensurePlanDirectory();
+		if (execution && !fs.existsSync(planPath)) await fs.promises.writeFile(planPath, execution.planMarkdown, "utf8");
 		applyTools(selectedMode);
 		updateModeIndicator(ctx);
 
@@ -569,6 +820,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				const editor = new ModeEditor(tui, theme, keybindings);
 				for (const prompt of promptHistory) editor.addToHistory(prompt);
 				requestEditorRender = () => editor.requestModeRender();
+				panelTui = tui;
+				fullscreenPanelCapable = isViewportTUI(tui) && typeof (tui as ViewportTUI).setLayoutRoot === "function";
+				if (fullscreenPanelCapable && !originalLayoutRoot) {
+					originalLayoutRoot = (tui as TUI & { layoutRoot?: Component }).layoutRoot;
+					fullscreenPanelCapable = originalLayoutRoot !== undefined;
+				}
+				if (execution) ensurePanelLayout();
 				editor.onCycle = () => {
 					if (currentContext) void selectMode(nextMode(selectedMode), currentContext, "manual");
 				};
@@ -583,14 +841,23 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				};
 				return editor;
 			});
+			if (execution && !fullscreenPanelCapable) {
+				ctx.ui.notify("Step-by-step progress was restored, but its plan panel requires fullscreen TUI mode. Progress is preserved.", "warning");
+			}
 		}
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		removePanelLayout();
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		ctx.ui.setFooter(undefined);
 		ctx.ui.setEditorComponent(undefined);
 		requestEditorRender = undefined;
+		panel = undefined;
+		panelTui = undefined;
+		panelLayoutRoot = undefined;
+		originalLayoutRoot = undefined;
+		fullscreenPanelCapable = false;
 		currentContext = undefined;
 	});
 }

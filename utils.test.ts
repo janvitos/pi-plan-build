@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildPlanReminder, PLAN_EXIT_DESCRIPTION } from "./prompts.ts";
+import { buildPlanReminder, buildPlanStepReminder, buildPlanStepWaitingReminder, PLAN_EXIT_DESCRIPTION } from "./prompts.ts";
 import {
 	applyManualSelection,
 	buildFreshImplementationHandoff,
@@ -267,6 +267,22 @@ test("plan guidance supports conversation before persisted finalization", () => 
 	assert.match(reminder, /write the complete plan to the plan file and call plan_exit/);
 	assert.match(reminder, /only while finalizing the plan or explicitly revising an existing plan/);
 	assert.match(PLAN_EXIT_DESCRIPTION, /After you have written a complete plan to the plan file/);
+	assert.match(reminder, /## Implementation Steps/);
+});
+
+test("step execution prompts constrain work to an approved active step", () => {
+	const reminder = buildPlanStepReminder("/tmp/plan.md", 2, 4, "Build the parser");
+	assert.match(reminder, /only step 2 of 4/);
+	assert.match(reminder, /Build the parser/);
+	assert.match(reminder, /Do not begin any later plan step/);
+	assert.match(reminder, /plan_step_complete/);
+	const waiting = buildPlanStepWaitingReminder("1. [ready] Build parser");
+	assert.match(waiting, /No plan step is currently approved/);
+	assert.match(waiting, /Do not modify the project/);
+	assert.match(waiting, /Interpret the user's intent contextually/);
+	assert.match(waiting, /complete action/);
+	assert.match(waiting, /Cancellation is always available/);
+	assert.match(waiting, /passive visual aid/);
 });
 
 test("prompt history restores normalized user text in chronological order", () => {
