@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleWidth } from "@earendil-works/pi-tui";
-import { createPlanExecution, startPlanStep, submitPlanStepForReview } from "./plan-execution.ts";
+import { completePlanStep, createPlanExecution, startPlanStep } from "./plan-execution.ts";
 import { PlanPanel } from "./plan-panel.ts";
 
 const theme = {
@@ -41,11 +41,12 @@ test("wraps long step instructions instead of truncating them", () => {
 	assert.equal(output.includes("…"), false);
 });
 
-test("passive panel reflects review state and result summaries", () => {
+test("passive panel reflects direct completion without review controls", () => {
 	const initial = makeState();
-	const review = submitPlanStepForReview(startPlanStep(initial, "step-1"), "step-1", "Created and verified the parser");
-	const panel = new PlanPanel(review, theme);
+	const completed = completePlanStep(startPlanStep(initial, "step-1"), "step-1", "Created and verified the parser");
+	const panel = new PlanPanel(completed, theme);
 	const output = panel.render(72).join("\n");
-	assert.match(output, /Created and verified the parser/);
-	assert.match(output, /Tell the agent to accept, correct, or cancel the plan/);
+	assert.match(output, /1\. First detailed implementation step/);
+	assert.match(output, /Tell the agent to implement, complete, edit, skip, cancel/);
+	assert.doesNotMatch(output, /accept|correct|review/);
 });

@@ -1,16 +1,14 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-	acceptPlanStep,
 	completePlanStep,
 	createPlanExecution,
 	decodePlanExecution,
+	formatPlanCompletionSummary,
 	pausePlanExecution,
-	requestPlanStepCorrections,
 	revisePlanStep,
 	skipPlanStep,
 	startPlanStep,
-	submitPlanStepForReview,
 	updatePlanChecklistStep,
 } from "./plan-execution.ts";
 
@@ -44,24 +42,19 @@ test("rejects missing, empty, and duplicate implementation lists", () => {
 	assert.throws(() => createPlanExecution("## Implementation Steps\n- [ ] Same\n- [ ] same"), /Duplicate/);
 });
 
-test("gates every step before implementation and after completion", () => {
+test("completes active steps directly and gates the next step", () => {
 	let state = createPlanExecution(plan);
 	state = startPlanStep(state, "step-1");
 	assert.equal(state.steps[0]?.status, "active");
 	assert.throws(() => startPlanStep(state, "step-2"), /ready/);
-	state = submitPlanStepForReview(state, "step-1", "Parser added and tested");
-	assert.equal(state.steps[0]?.status, "review");
-	state = requestPlanStepCorrections(state, "step-1");
-	assert.equal(state.steps[0]?.status, "active");
-	state = submitPlanStepForReview(state, "step-1", "Corrections complete");
-	state = acceptPlanStep(state, "step-1");
+	state = completePlanStep(state, "step-1", "Parser added and tested");
 	assert.equal(state.steps[0]?.status, "completed");
+	assert.equal(state.steps[0]?.summary, "Parser added and tested");
 	assert.equal(state.steps[1]?.status, "ready");
 	state = skipPlanStep(state, "step-2");
 	assert.equal(state.steps[2]?.status, "ready");
 	state = startPlanStep(state, "step-3");
-	state = submitPlanStepForReview(state, "step-3", "Verified");
-	state = acceptPlanStep(state, "step-3");
+	state = completePlanStep(state, "step-3", "Verified");
 	assert.equal(state.status, "completed");
 });
 
@@ -70,9 +63,23 @@ test("allows clear manual completion of ready steps but preserves transition gua
 	state = completePlanStep(state, "step-1");
 	assert.equal(state.steps[0]?.status, "completed");
 	assert.equal(state.steps[1]?.status, "ready");
-	assert.throws(() => completePlanStep(state, "step-1"), /ready or reviewed/);
+	assert.throws(() => completePlanStep(state, "step-1"), /ready or active/);
 	state = startPlanStep(state, "step-2");
-	assert.throws(() => completePlanStep(state, "step-2"), /ready or reviewed/);
+	state = completePlanStep(state, "step-2");
+	assert.equal(state.steps[1]?.status, "completed");
+	assert.throws(() => completePlanStep(state, "step-2"), /ready or active/);
+});
+
+test("formats a completion summary for the main window", () => {
+	let state = createPlanExecution(plan);
+	state = completePlanStep(state, "step-1", "Parser added and tested");
+	state = skipPlanStep(state, "step-2");
+	state = completePlanStep(state, "step-3", "Workflow verified");
+	const summary = formatPlanCompletionSummary(state);
+	assert.match(summary, /Plan complete/);
+	assert.match(summary, /1\. Completed: Add parser\n   Parser added and tested/);
+	assert.match(summary, /2\. Skipped: Build panel/);
+	assert.match(summary, /3\. Completed: Verify workflow\n   Workflow verified/);
 });
 
 test("edits only unimplemented steps and updates the canonical checklist safely", () => {
@@ -92,5 +99,9 @@ test("pause toggles without losing state and persisted state decodes defensively
 	assert.equal(paused.status, "paused");
 	assert.equal(pausePlanExecution(paused).status, "running");
 	assert.deepEqual(decodePlanExecution(JSON.parse(JSON.stringify(paused))), paused);
+	const legacy = { ...paused, selectedStepId: "step-1", steps: paused.steps.map((step, index) => index === 0 ? { ...step, status: "review" } : step) };
+	const migrated = decodePlanExecution(legacy);
+	assert.equal(migrated?.steps[0]?.status, "completed");
+	assert.equal(migrated?.steps[1]?.status, "ready");
 	assert.equal(decodePlanExecution({ version: 1, status: "running", steps: [] }), undefined);
 });

@@ -60,7 +60,7 @@ The approved plan is at ${planPath}. Implement only step ${stepNumber} of ${tota
 
 ${step}
 
-Do not begin any later plan step. Complete and verify this step, then call plan_step_complete with a concise result summary. If the user requests corrections, continue working only on this same step and submit it for review again.
+Do not begin any later plan step. Complete and verify this step, then call plan_step_complete with a concise result summary. The step will be marked completed immediately; do not ask the user to review or accept it.
 </system-reminder>`;
 }
 
@@ -71,11 +71,11 @@ Step-by-step execution is waiting for the user's natural-language instruction. N
 Current progress:
 ${progress}
 
-Interpret the user's intent contextually rather than requiring exact phrases. Clear statements, confirmations, and feedback may request a state transition even when phrased non-imperatively. For example, a statement that a ready step is finished can use the complete action, while a positive review of agent work can use accept. If multiple materially different actions are plausible, ask a brief clarification. Cancellation is always available when the user clearly wants to stop. Do not advance based on hypothetical, uncertain, or unrelated discussion. The sidebar is a passive visual aid and cannot receive input.
+Interpret the user's intent contextually rather than requiring exact phrases. Clear statements, confirmations, and feedback may request a state transition even when phrased non-imperatively. For example, a statement that a ready step is finished can use the complete action. If multiple materially different actions are plausible, ask a brief clarification. Cancellation is always available when the user clearly wants to stop. Do not advance based on hypothetical, uncertain, or unrelated discussion. The sidebar is a passive visual aid and cannot receive input.
 </system-reminder>`;
 }
 
-export const PLAN_STEP_COMPLETE_DESCRIPTION = `Call this tool after implementing and verifying the currently active plan step. It stops execution and returns control to the user for review. Do not call it before the active step is complete, and never begin the next step yourself.`;
+export const PLAN_STEP_COMPLETE_DESCRIPTION = `Call this tool after implementing and verifying the currently active plan step. It marks the step completed immediately and returns control to the user before any next step begins. Do not call it before the active step is complete, and never begin the next step yourself.`;
 
 export const PLAN_EXIT_DESCRIPTION = `Use this tool when you have completed the planning phase and are ready to exit plan agent.
 

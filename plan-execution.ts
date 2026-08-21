@@ -1,4 +1,4 @@
-export type PlanStepStatus = "pending" | "ready" | "active" | "review" | "completed" | "skipped";
+export type PlanStepStatus = "pending" | "ready" | "active" | "completed" | "skipped";
 
 export interface PlanStep {
 	id: string;
@@ -55,21 +55,36 @@ export function decodePlanExecution(value: unknown): PlanExecutionState | undefi
 	const candidate = value as Partial<PlanExecutionState>;
 	if (candidate.version !== 1 || !["running", "paused", "completed"].includes(candidate.status ?? "")) return undefined;
 	if (!Array.isArray(candidate.steps) || candidate.steps.length === 0 || typeof candidate.planMarkdown !== "string") return undefined;
-	const validStatuses = new Set<PlanStepStatus>(["pending", "ready", "active", "review", "completed", "skipped"]);
+	const validStatuses = new Set<PlanStepStatus>(["pending", "ready", "active", "completed", "skipped"]);
 	const steps: PlanStep[] = [];
+	let legacyReviewIndex = -1;
 	for (const raw of candidate.steps) {
 		if (!raw || typeof raw !== "object") return undefined;
-		const step = raw as Partial<PlanStep>;
-		if (typeof step.id !== "string" || typeof step.text !== "string" || !validStatuses.has(step.status as PlanStepStatus)) return undefined;
+		const step = raw as Partial<PlanStep> & { status?: string };
+		const status = step.status === "review" ? "completed" : step.status;
+		if (step.status === "review") legacyReviewIndex = steps.length;
+		if (typeof step.id !== "string" || typeof step.text !== "string" || !validStatuses.has(status as PlanStepStatus)) return undefined;
 		if (!Number.isInteger(step.sourceLine) || (step.sourceLine ?? -1) < 0) return undefined;
-		steps.push({ id: step.id, text: step.text, status: step.status as PlanStepStatus, sourceLine: step.sourceLine!, ...(typeof step.summary === "string" ? { summary: step.summary } : {}) });
+		steps.push({ id: step.id, text: step.text, status: status as PlanStepStatus, sourceLine: step.sourceLine!, ...(typeof step.summary === "string" ? { summary: step.summary } : {}) });
+	}
+	let selectedStepId = typeof candidate.selectedStepId === "string" ? candidate.selectedStepId : undefined;
+	let status = candidate.status!;
+	if (legacyReviewIndex >= 0) {
+		const next = steps.slice(legacyReviewIndex + 1).find((step) => step.status === "pending");
+		if (next) {
+			next.status = "ready";
+			selectedStepId = next.id;
+		} else if (steps.every((step) => step.status === "completed" || step.status === "skipped")) {
+			status = "completed";
+			selectedStepId = undefined;
+		}
 	}
 	return {
 		version: 1,
-		status: candidate.status!,
+		status,
 		steps,
 		planMarkdown: candidate.planMarkdown,
-		selectedStepId: typeof candidate.selectedStepId === "string" ? candidate.selectedStepId : undefined,
+		selectedStepId,
 		panelVisible: candidate.panelVisible !== false,
 	};
 }
@@ -98,6 +113,16 @@ function makeNextReady(state: PlanExecutionState, afterId: string): void {
 	}
 }
 
+export function formatPlanCompletionSummary(state: PlanExecutionState): string {
+	const lines = ["Plan complete.", "", "Summary:"];
+	for (const [index, step] of state.steps.entries()) {
+		const outcome = step.status === "skipped" ? "Skipped" : "Completed";
+		lines.push(`${index + 1}. ${outcome}: ${step.text}`);
+		if (step.summary?.trim()) lines.push(`   ${step.summary.trim()}`);
+	}
+	return lines.join("\n");
+}
+
 export function startPlanStep(state: PlanExecutionState, id: string): PlanExecutionState {
 	const next = clone(state);
 	if (next.status === "completed") throw new Error("The plan is already complete");
@@ -109,39 +134,15 @@ export function startPlanStep(state: PlanExecutionState, id: string): PlanExecut
 	return next;
 }
 
-export function submitPlanStepForReview(state: PlanExecutionState, id: string, summary: string): PlanExecutionState {
+export function completePlanStep(state: PlanExecutionState, id: string, summary?: string): PlanExecutionState {
 	const next = clone(state);
 	const step = findStep(next, id);
-	if (step.status !== "active") throw new Error("Only the active step can be submitted for review");
-	step.status = "review";
-	step.summary = summary.trim();
-	next.selectedStepId = id;
-	return next;
-}
-
-export function completePlanStep(state: PlanExecutionState, id: string): PlanExecutionState {
-	const next = clone(state);
-	const step = findStep(next, id);
-	if (step.status !== "ready" && step.status !== "review") {
-		throw new Error("Only a ready or reviewed step can be marked complete");
+	if (step.status !== "ready" && step.status !== "active") {
+		throw new Error("Only a ready or active step can be marked complete");
 	}
+	if (summary?.trim()) step.summary = summary.trim();
 	step.status = "completed";
 	makeNextReady(next, id);
-	return next;
-}
-
-export function acceptPlanStep(state: PlanExecutionState, id: string): PlanExecutionState {
-	const step = findStep(state, id);
-	if (step.status !== "review") throw new Error("Only a step awaiting review can be accepted");
-	return completePlanStep(state, id);
-}
-
-export function requestPlanStepCorrections(state: PlanExecutionState, id: string): PlanExecutionState {
-	const next = clone(state);
-	const step = findStep(next, id);
-	if (step.status !== "review") throw new Error("Only a step awaiting review can receive corrections");
-	step.status = "active";
-	next.selectedStepId = id;
 	return next;
 }
 

@@ -15,17 +15,15 @@ import {
 	PLAN_TO_BUILD_REMINDER,
 } from "./prompts.ts";
 import {
-	acceptPlanStep,
 	activePlanStep,
 	completePlanStep,
 	createPlanExecution,
 	decodePlanExecution,
+	formatPlanCompletionSummary,
 	pausePlanExecution,
-	requestPlanStepCorrections,
 	revisePlanStep,
 	skipPlanStep,
 	startPlanStep,
-	submitPlanStepForReview,
 	updatePlanChecklistStep,
 	type PlanExecutionState,
 } from "./plan-execution.ts";
@@ -155,6 +153,19 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		applyTools("build");
 	}
 
+	function applyExecutionTransition(next: PlanExecutionState): string | undefined {
+		if (next.status !== "completed") {
+			updateExecution(next);
+			return undefined;
+		}
+		const summary = formatPlanCompletionSummary(next);
+		execution = undefined;
+		removePanelLayout();
+		persist();
+		applyTools("build");
+		return summary;
+	}
+
 	function ensurePanelLayout(): boolean {
 		if (!execution || !fullscreenPanelCapable || !panelTui || !originalLayoutRoot || !currentContext) return false;
 		if (!panel) panel = new PlanPanel(execution, currentContext.ui.theme);
@@ -199,7 +210,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				...base,
 				"question",
 				"plan_enter",
-				...(execution ? ["plan_step_control"] : []),
+				...(execution && execution.status !== "completed" ? ["plan_step_control"] : []),
 				...(activePlanStep(execution) ? ["plan_step_complete"] : []),
 			]));
 		}
@@ -379,13 +390,11 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_step_control",
 		label: "Control Plan Execution",
-		description: `Use this tool to translate the user's natural-language instructions into one step-by-step plan action. Available actions: start a ready step, complete a clearly finished ready or reviewed step, accept a reviewed step, request corrections, skip a ready step, revise an unimplemented instruction, pause/resume or cancel execution, or hide/show the visual plan panel. Interpret clear user intent semantically, including direct completion statements, but do not advance based on hypothetical, uncertain, or unrelated conversation.`,
+		description: `Use this tool to translate the user's natural-language instructions into one step-by-step plan action. Available actions: start a ready step, complete a clearly finished ready step, skip a ready step, revise an unimplemented instruction, pause/resume or cancel execution, or hide/show the visual plan panel. Interpret clear user intent semantically, including direct completion statements, but do not advance based on hypothetical, uncertain, or unrelated conversation.`,
 		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("start"),
 				Type.Literal("complete"),
-				Type.Literal("accept"),
-				Type.Literal("correct"),
 				Type.Literal("skip"),
 				Type.Literal("revise"),
 				Type.Literal("pause"),
@@ -394,14 +403,14 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				Type.Literal("hide"),
 				Type.Literal("show"),
 			]),
-			step: Type.Optional(Type.Number({ description: "One-based step number; defaults to the current ready/review step", minimum: 1 })),
+			step: Type.Optional(Type.Number({ description: "One-based step number; defaults to the current ready step", minimum: 1 })),
 			instruction: Type.Optional(Type.String({ description: "Replacement instruction required for revise" })),
 		}),
 		executionMode: "sequential",
 		async execute(_toolCallId, params) {
 			if (!execution) throw new Error("No step-by-step plan is active");
 			const target = params.step === undefined
-				? execution.steps.find((step) => step.status === "ready" || step.status === "review")
+				? execution.steps.find((step) => step.status === "ready")
 				: execution.steps[Math.floor(params.step) - 1];
 			const finish = (message: string) => ({
 				content: [{ type: "text" as const, text: message }],
@@ -418,7 +427,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				if (params.action === "show") ensurePanelLayout();
 				return finish(`The visual plan panel is now ${params.action === "show" ? "visible" : "hidden"}. Progress is unchanged.`);
 			}
-			if (execution.status === "completed") throw new Error("The plan is complete; only hide or show actions remain available");
+			if (execution.status === "completed") throw new Error("The plan is already complete");
 			if (params.action === "pause" || params.action === "resume") {
 				if ((params.action === "pause") === (execution.status === "paused")) return finish(`Plan execution is already ${params.action === "pause" ? "paused" : "running"}.`);
 				updateExecution(pausePlanExecution(execution));
@@ -433,22 +442,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				return finish("The requested step is approved. Its implementation is starting in a follow-up turn.");
 			}
 			if (params.action === "complete") {
-				updateExecution(completePlanStep(execution, target.id));
-				return finish(execution.status === "completed" ? "The step was marked complete and the plan is complete." : "The step was marked complete. The next step is ready and awaits user instruction.");
-			}
-			if (params.action === "accept") {
-				updateExecution(acceptPlanStep(execution, target.id));
-				return finish(execution.status === "completed" ? "The reviewed step was accepted and the plan is complete." : "The reviewed step was accepted. The next step is ready and awaits user instruction.");
-			}
-			if (params.action === "correct") {
-				updateExecution(requestPlanStepCorrections(execution, target.id));
-				applyTools("build");
-				pi.sendUserMessage(`Apply the corrections requested in the user's preceding message to plan step ${execution.steps.findIndex((step) => step.id === target.id) + 1}.`, { deliverAs: "followUp" });
-				return finish("The reviewed step was reopened. The requested corrections are starting in a follow-up turn.");
+				const completion = applyExecutionTransition(completePlanStep(execution, target.id));
+				return finish(completion ?? "The step was marked complete. The next step is ready and awaits user instruction.");
 			}
 			if (params.action === "skip") {
-				updateExecution(skipPlanStep(execution, target.id));
-				return finish(execution.status === "completed" ? "The step was skipped and the plan is complete." : "The step was skipped. The next step awaits user instruction.");
+				const completion = applyExecutionTransition(skipPlanStep(execution, target.id));
+				return finish(completion ?? "The step was skipped. The next step awaits user instruction.");
 			}
 			if (!params.instruction?.trim()) throw new Error("Revising a step requires a replacement instruction");
 			const plan = await fs.promises.readFile(planPath, "utf8");
@@ -460,7 +459,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		renderCall(args, theme) {
 			const requestedStep = typeof args.step === "number" && Number.isFinite(args.step) ? Math.max(1, Math.floor(args.step)) : undefined;
 			const inferredStep = requestedStep ?? (execution
-				? execution.steps.findIndex((step) => step.status === "ready" || step.status === "review") + 1
+				? execution.steps.findIndex((step) => step.status === "ready") + 1
 				: 0);
 			const label = inferredStep > 0 ? `Step ${inferredStep}: ${args.action}` : `Plan: ${args.action}`;
 			return new Text(theme.fg("toolTitle", theme.bold(label)), 0, 0);
@@ -482,19 +481,19 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		async execute(_toolCallId, params) {
 			const step = activePlanStep(execution);
 			if (!execution || !step) throw new Error("No plan step is currently active");
-			updateExecution(submitPlanStepForReview(execution, step.id, params.summary));
-			applyTools("build");
+			const completion = applyExecutionTransition(completePlanStep(execution, step.id, params.summary));
 			return {
-				content: [{ type: "text", text: "The active plan step is awaiting user review. Stop now and do not begin another step." }],
-				details: { stepId: step.id, review: true },
+				content: [{ type: "text", text: completion ?? "The step was completed. The next step is ready and awaits user instruction." }],
+				details: { stepId: step.id, completed: true },
 				terminate: true,
 			};
 		},
 		renderCall(_args, theme) {
-			return new Text(theme.fg("toolTitle", theme.bold("Submit plan step for review")), 0, 0);
+			return new Text(theme.fg("toolTitle", theme.bold("Complete plan step")), 0, 0);
 		},
-		renderResult(_result, _options, theme, context) {
-			return new Text(theme.fg(context.isError ? "error" : "success", context.isError ? "Plan step submission failed" : "Plan step ready for review"), 0, 0);
+		renderResult(result, _options, theme, context) {
+			const text = result.content.find((item) => item.type === "text")?.text ?? "Plan step completed";
+			return new Text(theme.fg(context.isError ? "error" : "success", text), 0, 0);
 		},
 	});
 
@@ -647,7 +646,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		runMode = undefined;
 		applyTools(selectedMode);
 		updateModeIndicator(ctx);
-		if (execution) ensurePanelLayout();
+		if (execution && execution.status !== "completed") ensurePanelLayout();
 	});
 
 	pi.on("session_start", async (event, ctx) => {
@@ -826,7 +825,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					originalLayoutRoot = (tui as TUI & { layoutRoot?: Component }).layoutRoot;
 					fullscreenPanelCapable = originalLayoutRoot !== undefined;
 				}
-				if (execution) ensurePanelLayout();
+				if (execution && execution.status !== "completed") ensurePanelLayout();
 				editor.onCycle = () => {
 					if (currentContext) void selectMode(nextMode(selectedMode), currentContext, "manual");
 				};

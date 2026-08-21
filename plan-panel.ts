@@ -6,7 +6,6 @@ const GLYPHS = {
 	pending: "○",
 	ready: "▷",
 	active: "▶",
-	review: "◆",
 	completed: "✓",
 	skipped: "–",
 } as const;
@@ -46,7 +45,7 @@ export class PlanPanel implements Component {
 		];
 		for (let index = 0; index < this.state.steps.length; index++) {
 			const step = this.state.steps[index]!;
-			const glyphColor = step.status === "completed" ? "success" : step.status === "review" ? "warning" : step.status === "active" || step.status === "ready" ? "accent" : "muted";
+			const glyphColor = step.status === "completed" ? "success" : step.status === "active" || step.status === "ready" ? "accent" : "muted";
 			const prefix = `${this.theme.fg(glyphColor, GLYPHS[step.status])} ${index + 1}. `;
 			const text = step.status === "completed" || step.status === "skipped" ? this.theme.fg("muted", step.text) : step.text;
 			const wrapped = wrapTextWithAnsi(text, Math.max(1, contentWidth - visibleWidth(prefix)));
@@ -68,7 +67,6 @@ export class PlanPanel implements Component {
 		if (this.state.status === "completed") lines.push(pad(this.theme.fg("success", "Plan complete")));
 		else if (this.state.status === "paused") lines.push(pad("Tell the agent to resume, cancel, or hide the plan."));
 		else if (current?.status === "ready") lines.push(pad("Tell the agent to implement, complete, edit, skip, cancel, or hide this step."));
-		else if (current?.status === "review") lines.push(pad("Tell the agent to accept, correct, or cancel the plan."));
 		else lines.push(pad("Plan progress updates automatically from your prompts."));
 		lines.push(border(`╰${"─".repeat(inner)}╯`));
 		return lines.map((line) => truncateToWidth(line, safeWidth, ""));
