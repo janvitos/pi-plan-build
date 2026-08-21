@@ -19,7 +19,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
   - **Switch to Build and implement here**
   - **Start fresh and implement**
   - **Stay in Plan mode**
-- **Experimental:** In fullscreen TUI, valid checklist plans also offer **Implement step by step**: a passive, non-overlapping docked right panel keeps the plan visible while natural-language prompts gate steps and return completed work for review. The panel is visual-only and never captures keyboard input. This feature is still under active development.
+  - **Experimental: Implement step by step** (fullscreen TUI only): a passive, non-overlapping docked right panel keeps the plan visible while natural-language prompts gate steps and return completed work for review. The panel is visual-only and never captures keyboard input. This feature is still under active development.
 - Staying in Plan mode—or pressing Escape in the approval dialog—produces a durable acknowledgement and stops the run until the user responds.
 - Mode state survives reloads, resumes, and forks.
 - When Pi recreates the custom editor, the latest 100 user prompts from the active session branch are restored for Up/Down history navigation.
