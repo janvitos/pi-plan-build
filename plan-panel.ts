@@ -53,6 +53,7 @@ export class PlanPanel implements Component {
 			lines.push(pad(`${prefix}${wrapped[0] ?? ""}`));
 			const continuationIndent = " ".repeat(visibleWidth(prefix));
 			for (const continuation of wrapped.slice(1)) lines.push(pad(`${continuationIndent}${continuation}`));
+			if (index < this.state.steps.length - 1) lines.push(pad());
 		}
 		const current = currentIndex >= 0 ? this.state.steps[currentIndex] : undefined;
 		if (current) {

@@ -91,7 +91,7 @@ Both actions leave Plan mode active, stop the agent, and wait for the next user 
 
 When Pi uses `"tuiMode": "fullscreen"` and the saved plan contains top-level `- [ ]` items under `## Implementation Steps`, `plan_exit` offers the additional **Implement step by step** approval action. This is opt-in per plan; it does not replace either one-shot implementation option or **Stay in Plan mode**.
 
-The passive 72-column right panel reserves terminal columns, so the transcript and editor reflow instead of being covered. Long step instructions wrap across aligned continuation rows rather than being clipped. It never accepts focus or keyboard input and collapses below 132 terminal columns. The panel is a visual status aid only; all control happens through ordinary prompts. The agent interprets intent contextually, so these are examples rather than required commands:
+The passive 64-column right panel reserves terminal columns, so the transcript and editor reflow instead of being covered. Long step instructions wrap across aligned continuation rows rather than being clipped. It never accepts focus or keyboard input and collapses below 132 terminal columns. The panel is a visual status aid only; all control happens through ordinary prompts. The agent interprets intent contextually, so these are examples rather than required commands:
 
 - “Implement the next step” or “Start step 2.”
 - “Step 1 is complete,” “I verified that one,” or “I already handled this.”

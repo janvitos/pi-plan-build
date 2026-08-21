@@ -22,6 +22,10 @@ test("passive panel renders within its reserved width and explains prompt contro
 	assert.match(output, /Tell the agent to implement/);
 	assert.match(output, /cancel/);
 	assert.doesNotMatch(output, />▷|>>/);
+	const firstStepIndex = lines.findIndex((line) => line.includes("1. First detailed implementation step"));
+	assert.ok(firstStepIndex >= 0);
+	assert.match(lines[firstStepIndex + 1]!, /^│\s+│$/);
+	assert.match(lines[firstStepIndex + 2]!, /2\. Second step/);
 	for (const line of lines.filter((candidate) => candidate.startsWith("│"))) {
 		assert.equal(line[1], " ", "content rows have one column of left padding");
 		assert.equal(line.at(-2), " ", "content rows have one column of right padding");
