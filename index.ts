@@ -527,8 +527,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			}
 			const choices = [
 				PLAN_EXIT_APPROVE_CHOICE,
-				...(stepExecution ? [PLAN_STEP_CHOICE] : []),
 				PLAN_EXIT_FRESH_CHOICE,
+				...(stepExecution ? [PLAN_STEP_CHOICE] : []),
 				PLAN_EXIT_STAY_CHOICE,
 			];
 			const selection = normalizePlanExitChoice(await ctx.ui.select(
