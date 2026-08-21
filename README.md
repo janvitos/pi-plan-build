@@ -73,8 +73,9 @@ The agent may also enter Plan mode with `plan_enter` when planning or investigat
 When planning is complete, `plan_exit` displays the entire persisted plan and asks whether to:
 
 1. implement in the current session;
-2. start a clean linked implementation session; or
-3. stay in Plan mode.
+2. start a clean linked implementation session;
+3. stay in Plan mode; or
+4. **experimentally implement step by step** in fullscreen TUI when the plan contains a valid checklist.
 
 Selecting **Start fresh and implement** stops the current run and automatically dispatches `/build-fresh`. Pi 0.84.2 or newer is required for extension command dispatch from an injected user message. The command creates a linked child session, copies the approved plan to its canonical plan file, preserves the model and thinking level selected for the action, switches it to Build, and starts implementation without transferring the planning conversation.
 
@@ -88,7 +89,7 @@ Both actions leave Plan mode active, stop the agent, and wait for the next user 
 
 > **Experimental feature:** Step-by-step execution is still being developed. Expect UI and workflow changes, and please report issues or unexpected behavior.
 
-When Pi uses `"tuiMode": "fullscreen"` and the saved plan contains top-level `- [ ]` items under `## Implementation Steps`, `plan_exit` also offers **Implement step by step**. This is opt-in per plan; it does not replace either one-shot implementation option.
+When Pi uses `"tuiMode": "fullscreen"` and the saved plan contains top-level `- [ ]` items under `## Implementation Steps`, `plan_exit` offers the additional **Implement step by step** approval action. This is opt-in per plan; it does not replace either one-shot implementation option or **Stay in Plan mode**.
 
 The passive 72-column right panel reserves terminal columns, so the transcript and editor reflow instead of being covered. Long step instructions wrap across aligned continuation rows rather than being clipped. It never accepts focus or keyboard input and collapses below 132 terminal columns. The panel is a visual status aid only; all control happens through ordinary prompts. The agent interprets intent contextually, so these are examples rather than required commands:
 
