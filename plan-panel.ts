@@ -67,7 +67,6 @@ export class PlanPanel implements Component {
 		if (this.state.status === "completed") lines.push(pad(this.theme.fg("success", "Plan complete")));
 		else if (this.state.status === "paused") lines.push(pad("Tell the agent to resume, cancel, or hide the plan."));
 		else if (current?.status === "ready") lines.push(pad("Tell the agent to implement, complete, edit, skip, cancel, or hide this step."));
-		else lines.push(pad("Plan progress updates automatically from your prompts."));
 		lines.push(border(`╰${"─".repeat(inner)}╯`));
 		return lines.map((line) => truncateToWidth(line, safeWidth, ""));
 	}
