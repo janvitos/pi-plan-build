@@ -19,7 +19,7 @@ A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that a
   - **Switch to Build and implement here**
   - **Start fresh and implement**
   - **Stay in Plan mode**
-- **Experimental:** In fullscreen TUI, valid checklist plans also offer **Implement step by step**: a passive, non-overlapping docked right panel keeps the plan visible while natural-language prompts gate steps and return completed work for review. This feature is still under active development.
+- **Experimental:** In fullscreen TUI, valid checklist plans also offer **Implement step by step**: a passive, non-overlapping docked right panel keeps the plan visible while natural-language prompts gate steps and return completed work for review. The panel is visual-only and never captures keyboard input. This feature is still under active development.
 - Staying in Plan mode—or pressing Escape in the approval dialog—produces a durable acknowledgement and stops the run until the user responds.
 - Mode state survives reloads, resumes, and forks.
 - When Pi recreates the custom editor, the latest 100 user prompts from the active session branch are restored for Up/Down history navigation.
@@ -90,7 +90,7 @@ Both actions leave Plan mode active, stop the agent, and wait for the next user 
 
 When Pi uses `"tuiMode": "fullscreen"` and the saved plan contains top-level `- [ ]` items under `## Implementation Steps`, `plan_exit` also offers **Implement step by step**. This is opt-in per plan; it does not replace either one-shot implementation option.
 
-The passive 72-column right panel reserves terminal columns, so the transcript and editor reflow instead of being covered. Long step instructions wrap across aligned continuation rows rather than being clipped. It never accepts focus or keyboard input and collapses below 132 terminal columns. Control the workflow entirely through natural-language prompts, for example:
+The passive 72-column right panel reserves terminal columns, so the transcript and editor reflow instead of being covered. Long step instructions wrap across aligned continuation rows rather than being clipped. It never accepts focus or keyboard input and collapses below 132 terminal columns. The panel is a visual status aid only; all control happens through ordinary prompts. The agent interprets intent contextually, so these are examples rather than required commands:
 
 - “Implement the next step” or “Start step 2.”
 - “Step 1 is complete,” “I verified that one,” or “I already handled this.”
@@ -99,7 +99,7 @@ The passive 72-column right panel reserves terminal columns, so the transcript a
 - “Pause the plan,” “hide the plan,” or “show the plan.”
 - “Cancel this plan” at any point to end step-by-step execution immediately.
 
-The extension exposes these actions to the agent through `plan_step_control`; project mutations remain blocked until the user clearly approves a ready step or explicitly indicates that it is already complete. The agent interprets intent contextually rather than requiring exact phrases, while the extension validates every resulting state transition. Cancelling removes the panel and execution guards immediately, restores the full-width layout, and preserves the saved plan file for reference. The agent implements only that step, calls `plan_step_complete`, and waits for the user's next prompt. Accepting a result makes the next step ready but never starts it automatically. Progress, revisions, summaries, and panel visibility survive reload/resume. If such a session is opened in regular mode, progress is retained but cannot advance until fullscreen mode is restored; no overlay fallback is used.
+The extension exposes these actions to the agent through `plan_step_control`; project mutations remain blocked until the user clearly approves a ready step or explicitly indicates that it is already complete. A ready step may be marked complete without implementation when the user says they already handled or verified it. A reviewed implementation may be accepted, while ambiguous feedback prompts clarification. The agent interprets intent contextually rather than requiring exact phrases, while the extension validates every resulting state transition. Step tool results identify the affected step, for example `Step 2: complete`, rather than presenting a plan-wide completion label. Cancelling removes the panel and execution guards immediately, restores the full-width layout, and preserves the saved plan file for reference. The agent implements only that step, calls `plan_step_complete`, and waits for the user's next prompt. Accepting a result makes the next step ready but never starts it automatically. Progress, revisions, summaries, and panel visibility survive reload/resume. If such a session is opened in regular mode, progress is retained but cannot advance until fullscreen mode is restored; no overlay fallback is used.
 
 Enable fullscreen in `~/.pi/agent/settings.json` and restart Pi:
 
