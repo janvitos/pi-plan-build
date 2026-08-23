@@ -114,11 +114,12 @@ function makeNextReady(state: PlanExecutionState, afterId: string): void {
 }
 
 export function formatPlanCompletionSummary(state: PlanExecutionState): string {
-	const lines = ["Plan complete.", "", "Summary:"];
+	const lines = ["# Plan complete", "", "## Summary", ""];
 	for (const [index, step] of state.steps.entries()) {
 		const outcome = step.status === "skipped" ? "Skipped" : "Completed";
-		lines.push(`${index + 1}. ${outcome}: ${step.text}`);
-		if (step.summary?.trim()) lines.push(`   ${step.summary.trim()}`);
+		lines.push(`${index + 1}. **${outcome}:** ${step.text}`);
+		if (step.summary?.trim()) lines.push("", `   ${step.summary.trim()}`);
+		if (index < state.steps.length - 1) lines.push("");
 	}
 	return lines.join("\n");
 }

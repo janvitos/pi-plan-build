@@ -76,10 +76,10 @@ test("formats a completion summary for the main window", () => {
 	state = skipPlanStep(state, "step-2");
 	state = completePlanStep(state, "step-3", "Workflow verified");
 	const summary = formatPlanCompletionSummary(state);
-	assert.match(summary, /Plan complete/);
-	assert.match(summary, /1\. Completed: Add parser\n   Parser added and tested/);
-	assert.match(summary, /2\. Skipped: Build panel/);
-	assert.match(summary, /3\. Completed: Verify workflow\n   Workflow verified/);
+	assert.match(summary, /^# Plan complete\n\n## Summary\n\n/);
+	assert.match(summary, /1\. \*\*Completed:\*\* Add parser\n\n   Parser added and tested/);
+	assert.match(summary, /2\. \*\*Skipped:\*\* Build panel/);
+	assert.match(summary, /3\. \*\*Completed:\*\* Verify workflow\n\n   Workflow verified/);
 });
 
 test("edits only unimplemented steps and updates the canonical checklist safely", () => {

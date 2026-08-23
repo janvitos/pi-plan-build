@@ -417,9 +417,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const target = params.step === undefined
 				? execution.steps.find((step) => step.status === "ready")
 				: execution.steps[Math.floor(params.step) - 1];
-			const finish = (message: string) => ({
+			const finish = (message: string, extraDetails?: { planCompleted?: boolean }) => ({
 				content: [{ type: "text" as const, text: message }],
-				details: { action: params.action, stepId: target?.id },
+				details: { action: params.action, stepId: target?.id, ...extraDetails },
 				terminate: true,
 			});
 
@@ -448,11 +448,17 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			}
 			if (params.action === "complete") {
 				const completion = applyExecutionTransition(completePlanStep(execution, target.id));
-				return finish(completion ?? "The step was marked complete. The next step is ready and awaits user instruction.");
+				return finish(
+					completion ?? "The step was marked complete. The next step is ready and awaits user instruction.",
+					{ planCompleted: completion !== undefined },
+				);
 			}
 			if (params.action === "skip") {
 				const completion = applyExecutionTransition(skipPlanStep(execution, target.id));
-				return finish(completion ?? "The step was skipped. The next step awaits user instruction.");
+				return finish(
+					completion ?? "The step was skipped. The next step awaits user instruction.",
+					{ planCompleted: completion !== undefined },
+				);
 			}
 			if (!params.instruction?.trim()) throw new Error("Revising a step requires a replacement instruction");
 			const plan = await fs.promises.readFile(planPath, "utf8");
@@ -471,6 +477,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		},
 		renderResult(result, _options, theme, context) {
 			const text = result.content.find((item) => item.type === "text")?.text ?? "Plan state updated";
+			const details = result.details as { planCompleted?: boolean } | undefined;
+			if (details?.planCompleted && !context.isError) return new Markdown(text, 0, 0, getMarkdownTheme());
 			return new Text(theme.fg(context.isError ? "error" : "success", text), 0, 0);
 		},
 	});
@@ -489,7 +497,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const completion = applyExecutionTransition(completePlanStep(execution, step.id, params.summary));
 			return {
 				content: [{ type: "text", text: completion ?? "The step was completed. The next step is ready and awaits user instruction." }],
-				details: { stepId: step.id, completed: true },
+				details: { stepId: step.id, completed: true, planCompleted: completion !== undefined },
 				terminate: true,
 			};
 		},
@@ -498,6 +506,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		},
 		renderResult(result, _options, theme, context) {
 			const text = result.content.find((item) => item.type === "text")?.text ?? "Plan step completed";
+			const details = result.details as { planCompleted?: boolean } | undefined;
+			if (details?.planCompleted && !context.isError) return new Markdown(text, 0, 0, getMarkdownTheme());
 			return new Text(theme.fg(context.isError ? "error" : "success", text), 0, 0);
 		},
 	});
