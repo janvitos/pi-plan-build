@@ -136,6 +136,7 @@ export const PLAN_EXIT_FRESH_CHOICE = "Start fresh and implement";
 export const PLAN_EXIT_STAY_CHOICE = "Stay in Plan mode";
 export const PLAN_EXIT_STAY_ACKNOWLEDGEMENT =
 	"Staying in Plan mode. Let me know when you’re ready to revise or implement the plan.";
+export const PLAN_STEP_READY_ACKNOWLEDGEMENT = "Awaiting your instructions.";
 
 export type PlanExitDecision = "implement-here" | "implement-fresh" | "stay";
 

@@ -34,6 +34,9 @@ export class PlanPanel implements Component {
 			const clipped = truncateToWidth(content, contentWidth, "");
 			return `${border("│")} ${clipped}${" ".repeat(Math.max(0, contentWidth - visibleWidth(clipped)))} ${border("│")}`;
 		};
+		const pushWrapped = (lines: string[], content: string) => {
+			for (const line of wrapTextWithAnsi(content, contentWidth)) lines.push(pad(line));
+		};
 		const done = this.state.steps.filter((step) => step.status === "completed" || step.status === "skipped").length;
 		const status = this.state.status === "completed" ? "complete" : this.state.status;
 		const currentIndex = this.state.steps.findIndex((step) => step.id === this.state.selectedStepId);
@@ -65,8 +68,8 @@ export class PlanPanel implements Component {
 		}
 		lines.push(border(`├${"─".repeat(inner)}┤`));
 		if (this.state.status === "completed") lines.push(pad(this.theme.fg("success", "Plan complete")));
-		else if (this.state.status === "paused") lines.push(pad("Tell the agent to resume, cancel, or hide the plan."));
-		else if (current?.status === "ready") lines.push(pad("Tell the agent to implement, complete, edit, skip, cancel, or hide this step."));
+		else if (this.state.status === "paused") pushWrapped(lines, "Tell the agent to resume, cancel, or hide the plan.");
+		else if (current?.status === "ready") pushWrapped(lines, "Tell the agent to implement, complete, edit, or skip steps. You can also cancel or hide the plan.");
 		lines.push(border(`╰${"─".repeat(inner)}╯`));
 		return lines.map((line) => truncateToWidth(line, safeWidth, ""));
 	}

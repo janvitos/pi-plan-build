@@ -28,6 +28,7 @@ import {
 	PLAN_EXIT_FRESH_CHOICE,
 	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
 	PLAN_EXIT_STAY_CHOICE,
+	PLAN_STEP_READY_ACKNOWLEDGEMENT,
 	renderModeComposer,
 	sanitizeSessionId,
 } from "./utils.ts";
@@ -186,6 +187,10 @@ test("stay acknowledgement is stable and actionable", () => {
 		PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
 		"Staying in Plan mode. Let me know when you’re ready to revise or implement the plan.",
 	);
+});
+
+test("step-by-step acknowledgement is concise", () => {
+	assert.equal(PLAN_STEP_READY_ACKNOWLEDGEMENT, "Awaiting your instructions.");
 });
 
 test("declining plan exit stays in Plan mode and terminates the run", () => {

@@ -53,6 +53,7 @@ import {
 	PLAN_EXIT_FRESH_CHOICE,
 	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
 	PLAN_EXIT_STAY_CHOICE,
+	PLAN_STEP_READY_ACKNOWLEDGEMENT,
 	renderModeComposer,
 	type Mode,
 	unique,
@@ -64,6 +65,7 @@ const PLAN_REVIEW_ENTRY_TYPE = "pi-plan-build-review";
 const LEGACY_PLAN_REVIEW_ENTRY_TYPE = "opencode-plan-review";
 const MODE_NOTICE_ENTRY_TYPE = "pi-plan-build-notice";
 const LEGACY_MODE_NOTICE_ENTRY_TYPE = "opencode-mode-notice";
+const PLAN_STEP_GUIDANCE_ENTRY_TYPE = "pi-plan-build-step-guidance";
 const STATUS_KEY = "pi-plan-build-mode";
 const PLAN_STEP_CHOICE = "Implement step by step";
 const PANEL_WIDTH = 64;
@@ -119,10 +121,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		const message = typeof entry.data?.message === "string" ? entry.data.message : "Plan mode unchanged.";
 		return new Text(theme.fg("warning", message), 0, 0);
 	};
+	const renderPlanStepGuidance: EntryRenderer = (_entry, _options, theme) =>
+		new Text(theme.fg("success", PLAN_STEP_READY_ACKNOWLEDGEMENT), 0, 0);
 	pi.registerEntryRenderer<{ plan: string }>(PLAN_REVIEW_ENTRY_TYPE, renderPlanReview);
 	pi.registerEntryRenderer<{ plan: string }>(LEGACY_PLAN_REVIEW_ENTRY_TYPE, renderPlanReview);
 	pi.registerEntryRenderer<{ message: string }>(MODE_NOTICE_ENTRY_TYPE, renderModeNotice);
 	pi.registerEntryRenderer<{ message: string }>(LEGACY_MODE_NOTICE_ENTRY_TYPE, renderModeNotice);
+	pi.registerEntryRenderer(PLAN_STEP_GUIDANCE_ENTRY_TYPE, renderPlanStepGuidance);
 
 	function stateData(): StoredState {
 		return { version: 1, selectedMode, pendingReminder, toolsBeforeModes, ...(execution ? { execution } : {}) };
@@ -541,6 +546,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				await selectMode("build", ctx, "tool");
 				updateExecution(stepExecution);
 				ensurePanelLayout();
+				pi.appendEntry(PLAN_STEP_GUIDANCE_ENTRY_TYPE);
 				return {
 					content: [{ type: "text", text: "Step-by-step execution is ready. Stop now and wait for the user's natural-language instruction in the composer; the plan panel is visual-only." }],
 					details: { approved: true, action: "step-by-step", mode: "build", planPath },
@@ -588,7 +594,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		renderResult(result, _options, theme, context) {
 			const details = result.details as { approved?: boolean; action?: string } | undefined;
 			if (details?.action === "step-by-step" && !context.isError) {
-				return new Text(theme.fg("success", "Step-by-step execution ready — waiting for your instruction."), 0, 0);
+				return new Text(theme.fg("success", "Step-by-step execution ready"), 0, 0);
 			}
 			if (details?.action === "implement-fresh" && !context.isError) {
 				return new Text(
