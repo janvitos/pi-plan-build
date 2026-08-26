@@ -18,7 +18,7 @@ Switch to Build mode to implement the approved plan directly in the current sess
 
 ## Step-by-step execution
 
-Optionally keep the approved plan visible in a fullscreen panel while implementing and verifying one step at a time.
+Optionally keep the approved plan visible in a docked side panel while implementing and verifying one step at a time.
 
 ![Pi step-by-step plan execution panel](docs/images/step-by-step.png)
 
