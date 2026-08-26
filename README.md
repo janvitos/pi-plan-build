@@ -4,6 +4,17 @@
 
 A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that adds persistent **Plan** and **Build** modes, guarded plan-file editing, interactive planning questions, full-plan review, explicit approval, and clean-session implementation handoffs.
 
+## Screenshots
+
+<p align="center">
+  <img src="docs/images/plan.png" alt="Pi Plan mode composer" width="49%" />
+  <img src="docs/images/build.png" alt="Pi Build mode composer" width="49%" />
+</p>
+
+<p align="center">
+  <img src="docs/images/step-by-step.png" alt="Pi step-by-step plan execution panel" width="90%" />
+</p>
+
 ## Features
 
 - New sessions start in **Build** mode.
