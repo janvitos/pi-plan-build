@@ -271,6 +271,8 @@ test("plan guidance supports conversation before persisted finalization", () => 
 	assert.match(reminder, /when the user explicitly asks you to finalize it/);
 	assert.match(reminder, /write the complete plan to the plan file and call plan_exit/);
 	assert.match(reminder, /only while finalizing the plan or explicitly revising an existing plan/);
+	assert.match(reminder, /concise, proportionate verification approach/);
+	assert.match(reminder, /relevant test commands or manual checks when useful/);
 	assert.match(PLAN_EXIT_DESCRIPTION, /After you have written a complete plan to the plan file/);
 	assert.match(reminder, /## Implementation Steps/);
 });

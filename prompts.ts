@@ -43,7 +43,7 @@ The plan file is the only file you may edit, and only while finalizing the plan 
 - Include only the recommended approach, not every alternative considered.
 - Be concise enough to scan quickly but detailed enough to implement.
 - Identify the critical files that need modification.
-- Include verification steps for testing the change end-to-end.
+- Include a concise, proportionate verification approach, naming relevant test commands or manual checks when useful.
 - End with a \`## Implementation Steps\` section containing the executable top-level steps as \`- [ ] ...\` checklist items. Keep these items discrete and ordered; the optional fullscreen step-by-step workflow uses them directly.
 
 After writing the complete plan, call plan_exit to request approval. Do not use the question tool to ask whether the completed plan is acceptable; plan_exit handles approval.
