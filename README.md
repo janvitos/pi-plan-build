@@ -4,16 +4,23 @@
 
 A global [Pi coding agent](https://github.com/badlogic/pi-mono) extension that adds persistent **Plan** and **Build** modes, guarded plan-file editing, interactive planning questions, full-plan review, explicit approval, and clean-session implementation handoffs.
 
-## Screenshots
+## Plan mode
 
-<p align="center">
-  <img src="docs/images/plan.png" alt="Pi Plan mode composer" width="49%" />
-  <img src="docs/images/build.png" alt="Pi Build mode composer" width="49%" />
-</p>
+Explore a codebase, ask questions, and prepare an implementation plan without modifying project files.
 
-<p align="center">
-  <img src="docs/images/step-by-step.png" alt="Pi step-by-step plan execution panel" width="90%" />
-</p>
+![Pi Plan mode composer](docs/images/plan.png)
+
+## Build mode
+
+Switch to Build mode to implement the approved plan directly in the current session or a clean session.
+
+![Pi Build mode composer](docs/images/build.png)
+
+## Step-by-step execution
+
+Optionally keep the approved plan visible in a fullscreen panel while implementing and verifying one step at a time.
+
+![Pi step-by-step plan execution panel](docs/images/step-by-step.png)
 
 ## Features
 
@@ -96,7 +103,7 @@ Selecting **Stay in Plan mode**, or pressing Escape while the approval dialog is
 
 Both actions leave Plan mode active, stop the agent, and wait for the next user message.
 
-### Step-by-step execution panel (Experimental)
+### Step-by-step execution details (Experimental)
 
 > **Experimental feature:** Step-by-step execution is still being developed. Expect UI and workflow changes, and please report issues or unexpected behavior.
 
