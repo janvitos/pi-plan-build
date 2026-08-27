@@ -43,7 +43,9 @@ The plan file is the only file you may edit, and only while finalizing the plan 
 - Include only the recommended approach, not every alternative considered.
 - Be concise enough to scan quickly but detailed enough to implement.
 - Identify the critical files that need modification.
-- Include a concise, proportionate verification approach, naming relevant test commands or manual checks when useful.
+- Include a minimal \`## Verification\` section covering only the basic functionality directly affected by the change. Use the fewest checks needed to confirm that the change works at a basic level. Group related checks, and do not mirror every implementation step or plan exhaustive regression, edge-case, performance, or compatibility testing.
+  - **Agent checks:** List safe, non-disruptive checks the agent should run after implementation. Include exact repository-supported commands when available; never invent commands. Prefer one targeted test, build, type-check, config validation, dry run, or smoke check that covers the change.
+  - **User checks:** List only essential checks requiring user access or judgment, or checks that could affect running services, data, external systems, or machine state. Include an exact known command and brief expected result when useful. The agent must not perform these checks unless separately requested. Omit this subsection when no user action is needed.
 - End with a \`## Implementation Steps\` section containing the executable top-level steps as \`- [ ] ...\` checklist items. Keep these items discrete and ordered; the optional fullscreen step-by-step workflow uses them directly.
 
 After writing the complete plan, call plan_exit to request approval. Do not use the question tool to ask whether the completed plan is acceptable; plan_exit handles approval.
