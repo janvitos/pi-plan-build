@@ -67,7 +67,7 @@ test("resolver preserves repeated-prompt order across component-tree rebuilds", 
 	assert.equal(resolver.resolve("same", "build"), "plan");
 });
 
-test("heavy dashed rails cover every row, preserve width and OSC prefixes, and keep submitted colors", () => {
+test("thin rails cover every row, preserve width and OSC prefixes, and keep submitted colors", () => {
 	let fallback: Mode = "build";
 	const controller = installUserMessageRail(FakeUserMessageComponent, {
 		formatRail: formatter,
@@ -82,17 +82,16 @@ test("heavy dashed rails cover every row, preserve width and OSC prefixes, and k
 	const plan = new FakeUserMessageComponent("plan prompt");
 	const buildLines = build.render(24);
 	const planLines = plan.render(24);
-	for (const line of [...buildLines, ...planLines]) {
-		assert.equal(visible(line).length, 24);
-		assert.equal((visible(line).match(/┇/gu) ?? []).length, 1);
-	}
-	assert.ok(buildLines.every((line) => line.includes("\x1b[38;2;92;156;245m┇\x1b[0m")));
-	assert.ok(planLines.every((line) => line.includes("\x1b[38;2;245;167;66m┇\x1b[0m")));
+	for (const line of [...buildLines, ...planLines]) assert.equal(visible(line).length, 24);
+	assert.equal(buildLines.map((line) => visible(line)[0]).join(""), "│││");
+	assert.equal(planLines.map((line) => visible(line)[0]).join(""), "│││");
+	assert.ok(buildLines.every((line) => line.includes("\x1b[38;2;92;156;245m")));
+	assert.ok(planLines.every((line) => line.includes("\x1b[38;2;245;167;66m")));
 	assert.ok(buildLines[0]!.startsWith(OSC_START));
 	assert.ok(buildLines.at(-1)!.startsWith(OSC_END));
 
 	fallback = "plan";
-	assert.ok(build.render(24).every((line) => line.includes("\x1b[38;2;92;156;245m┇\x1b[0m")));
+	assert.equal(build.render(24).map((line) => visible(line)[0]).join(""), "│││");
 	controller.deactivate();
 });
 
@@ -108,11 +107,12 @@ test("installing repeatedly does not stack rails and only the latest owner can d
 	second.setTranscript([{ text: "message", mode: "plan" }]);
 	first.deactivate();
 	const activeLines = new FakeUserMessageComponent("message").render(20);
-	assert.ok(activeLines.every((line) => (visible(line).match(/┇/gu) ?? []).length === 1));
+	assert.equal(activeLines.map((line) => visible(line)[0]).join(""), "│││");
 	second.deactivate();
-	assert.ok(new FakeUserMessageComponent("message").render(20).every((line) => !visible(line).includes("┇")));
+	assert.ok(new FakeUserMessageComponent("message").render(20).every((line) => !visible(line).includes("│")));
 	second.activate();
 	second.setTranscript([{ text: "restored", mode: "build" }]);
-	assert.ok(new FakeUserMessageComponent("restored").render(20).every((line) => visible(line).includes("┇")));
+	const restoredLines = new FakeUserMessageComponent("restored").render(20);
+	assert.equal(restoredLines.map((line) => visible(line)[0]).join(""), "│││");
 	second.deactivate();
 });

@@ -139,7 +139,7 @@ export function installUserMessageRail(
 			resolver: new TranscriptModeResolver(),
 			formatRail: options.formatRail,
 			getFallbackMode: options.getFallbackMode,
-			glyph: "┇",
+			glyph: "│",
 		};
 		globalState[PATCH_KEY] = state;
 	}
@@ -148,7 +148,7 @@ export function installUserMessageRail(
 	state.owner = owner;
 	state.formatRail = options.formatRail;
 	state.getFallbackMode = options.getFallbackMode;
-	state.glyph = "┇";
+	state.glyph = "│";
 	// Reinstall from the preserved original on every extension load. This migrates
 	// already-running processes away from stale decorator code without stacking wrappers.
 	UserMessageComponent.prototype.render = function renderWithModeRail(width: number): string[] {
