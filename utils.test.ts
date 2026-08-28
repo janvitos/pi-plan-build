@@ -70,34 +70,40 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 		bold(text: string) {
 			return `\x1b[1m${text}\x1b[22m`;
 		},
-		fg(color: "dim", text: string) {
-			assert.equal(color, "dim");
-			return `\x1b[38;2;128;128;128m${text}\x1b[39m`;
+		fg(color: "dim" | "warning" | "thinkingLow", text: string) {
+			const rgb = {
+				dim: "128;128;128",
+				warning: "245;167;66",
+				thinkingLow: "92;156;245",
+			}[color];
+			return `\x1b[38;2;${rgb}m${text}\x1b[39m`;
 		},
 	};
 	const thinkingColor = (text: string) => `\x1b[38;2;0;255;0m${text}\x1b[39m`;
-	const planRail = formatModeRail("plan");
-	const buildRail = formatModeRail("build");
-	assert.equal(planRail, "\x1b[38;2;245;167;66m│\x1b[0m");
-	assert.equal(buildRail, "\x1b[38;2;92;156;245m│\x1b[0m");
-	assert.equal(formatModeRail("plan", "┆"), "\x1b[38;2;245;167;66m┆\x1b[0m");
-	assert.equal(formatModeRail("build", "┇"), "\x1b[38;2;92;156;245m┇\x1b[0m");
+	const planRail = formatModeRail("plan", theme);
+	const buildRail = formatModeRail("build", theme);
+	assert.equal(planRail, "\x1b[38;2;245;167;66m│\x1b[39m");
+	assert.equal(buildRail, "\x1b[38;2;92;156;245m│\x1b[39m");
+	assert.equal(formatModeRail("plan", theme, "┆"), "\x1b[38;2;245;167;66m┆\x1b[39m");
+	assert.equal(formatModeRail("build", theme, "┇"), "\x1b[38;2;92;156;245m┇\x1b[39m");
+	assert.equal(formatModeRail("plan", theme, "┃"), "\x1b[38;2;245;167;66m┃\x1b[39m");
+	assert.equal(formatModeRail("build", theme, "┃"), "\x1b[38;2;92;156;245m┃\x1b[39m");
 	assert.equal(
-		formatModeTopBorder("plan", 4, "\x1b[2m╮\x1b[22m"),
-		"\x1b[38;2;245;167;66m╭─╌\x1b[0m\x1b[2m╮\x1b[22m",
+		formatModeTopBorder("plan", 4, "\x1b[2m╮\x1b[22m", theme),
+		"\x1b[38;2;245;167;66m╭─╌\x1b[39m\x1b[2m╮\x1b[22m",
 	);
-	assert.equal(formatModeTopBorder("build", 2, "\x1b[2m╮\x1b[22m"), "");
+	assert.equal(formatModeTopBorder("build", 2, "\x1b[2m╮\x1b[22m", theme), "");
 	assert.equal(
 		formatModeMetadata("plan", "high", theme, thinkingColor),
-		"\x1b[38;2;245;167;66m│\x1b[0m \x1b[38;2;245;167;66m\x1b[1mplan\x1b[22m\x1b[0m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mhigh\x1b[39m",
+		"\x1b[38;2;245;167;66m│\x1b[39m \x1b[38;2;245;167;66m\x1b[1mplan\x1b[22m\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mhigh\x1b[39m",
 	);
 	assert.equal(
 		formatModeMetadata("build", "medium", theme, thinkingColor, {
 			modelName: "gpt-5.6-sol",
 			modelProvider: "openai",
-			rail: formatModeRail("build", "┇"),
+			rail: formatModeRail("build", theme, "┇"),
 		}),
-		"\x1b[38;2;92;156;245m┇\x1b[0m \x1b[38;2;92;156;245m\x1b[1mbuild\x1b[22m\x1b[0m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
+		"\x1b[38;2;92;156;245m┇\x1b[39m \x1b[38;2;92;156;245m\x1b[1mbuild\x1b[22m\x1b[39m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
 	);
 });
 

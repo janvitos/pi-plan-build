@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CustomEditor, getAgentDir, getMarkdownTheme, type EntryRenderer, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { CustomEditor, getAgentDir, getMarkdownTheme, parseSkillBlock, type EntryRenderer, type ExtensionAPI, type ExtensionContext, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { HStack, Key, Markdown, matchesKey, Text, truncateToWidth, visibleWidth, isViewportTUI, type Component, type TUI, type ViewportTUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerQuestionTool } from "./question-ui.ts";
@@ -28,6 +28,7 @@ import {
 	type PlanExecutionState,
 } from "./plan-execution.ts";
 import { PlanPanel } from "./plan-panel.ts";
+import { collectTranscriptModeRecords, extractUserMessageText, installUserMessageRail } from "./user-message-rail.ts";
 import {
 	applyManualSelection,
 	buildFreshImplementationHandoff,
@@ -105,6 +106,23 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let originalLayoutRoot: Component | undefined;
 	let panelLayoutRoot: Component | undefined;
 	let fullscreenPanelCapable = false;
+	const displayUserMessageText = (text: string): string | undefined => {
+		const skillBlock = parseSkillBlock(text);
+		return skillBlock ? skillBlock.userMessage || undefined : text || undefined;
+	};
+	const userMessageRail = installUserMessageRail(UserMessageComponent, {
+		formatRail: (mode, glyph) => currentContext ? formatModeRail(mode, currentContext.ui.theme, glyph) : glyph,
+		getFallbackMode: () => runMode ?? selectedMode,
+	});
+	const restoreUserMessageRails = (entries: readonly unknown[]) => {
+		userMessageRail.setTranscript(
+			collectTranscriptModeRecords(entries, {
+				stateTypes: new Set([STATE_TYPE, LEGACY_STATE_TYPE]),
+				decodeState: decodeModeState,
+				displayText: displayUserMessageText,
+			}),
+		);
+	};
 
 	pi.registerFlag("plan", {
 		description: "Start in Plan mode",
@@ -665,7 +683,14 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		if (execution && execution.status !== "completed") ensurePanelLayout();
 	});
 
+	pi.on("message_start", (event) => {
+		if (event.message.role !== "user") return;
+		const text = displayUserMessageText(extractUserMessageText(event.message.content));
+		if (text) userMessageRail.addMessage(text, runMode ?? selectedMode);
+	});
+
 	pi.on("session_start", async (event, ctx) => {
+		userMessageRail.activate();
 		currentContext = ctx;
 		const entries = ctx.sessionManager.getEntries();
 		const latest = entries
@@ -679,6 +704,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		const raw = latest?.data as StoredState | undefined;
 		execution = decodePlanExecution(raw?.execution);
 		selectedMode = decoded?.selectedMode ?? (pi.getFlag("plan") === true ? "plan" : "build");
+		restoreUserMessageRails(ctx.sessionManager.getBranch());
 		pendingReminder = raw?.pendingReminder ?? (decoded ? undefined : pi.getFlag("plan") === true ? "plan" : undefined);
 		toolsBeforeModes = Array.isArray(raw?.toolsBeforeModes)
 			? raw.toolsBeforeModes.filter((name): name is string => typeof name === "string" && !MANAGED_TOOLS.has(name))
@@ -787,10 +813,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					const lines = super.render(width);
 					if (paddingWidth !== railWidth) return lines;
 
-					const leftRail = `${formatModeRail(selectedMode)} `;
+					const leftRail = `${formatModeRail(selectedMode, ctx.ui.theme)} `;
 					const rightRail = this.borderColor("│");
 					const topRightVerticalTransition = this.borderColor("┆");
-					const bottomLeftVerticalTransition = formatModeRail(selectedMode, selectedMode === "build" ? "┇" : "┆");
+					const bottomLeftVerticalTransition = formatModeRail(selectedMode, ctx.ui.theme, selectedMode === "build" ? "┇" : "┆");
 					const metadata = truncateToWidth(
 						formatModeMetadata(selectedMode, pi.getThinkingLevel(), ctx.ui.theme, this.borderColor, {
 							modelName: ctx.model?.id ?? "no-model",
@@ -800,7 +826,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 						width - 1,
 						"",
 					);
-					const topBorder = formatModeTopBorder(selectedMode, width, this.borderColor("╮"));
+					const topBorder = formatModeTopBorder(selectedMode, width, this.borderColor("╮"), ctx.ui.theme);
 					return renderModeComposer(
 						lines,
 						topBorder,
@@ -808,7 +834,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 						rightRail,
 						topRightVerticalTransition,
 						metadata,
-						formatModeRail(selectedMode, "╰"),
+						formatModeRail(selectedMode, ctx.ui.theme, "╰"),
 						railWidth,
 						width,
 						{
@@ -863,6 +889,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		userMessageRail.deactivate();
 		removePanelLayout();
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		ctx.ui.setFooter(undefined);

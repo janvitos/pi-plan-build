@@ -2,15 +2,16 @@ import path, { isAbsolute, relative, resolve, sep } from "node:path";
 
 export type Mode = "build" | "plan";
 
-const ANSI_RESET = "\x1b[0m";
-const MODE_LABELS: Record<Mode, { color: string; text: string }> = {
-	plan: { color: "38;2;245;167;66", text: "plan" },
-	build: { color: "38;2;92;156;245", text: "build" },
+const MODE_LABELS: Record<Mode, string> = {
+	plan: "plan",
+	build: "build",
 };
+
+type ModeThemeColor = "warning" | "thinkingLow";
 
 export interface ModeStatusTheme {
 	bold(text: string): string;
-	fg(color: "dim", text: string): string;
+	fg(color: "dim" | ModeThemeColor, text: string): string;
 }
 
 export interface PromptMetadataOptions {
@@ -36,17 +37,26 @@ export function nextThinkingLevel(
 	return available[(currentIndex + 1) % available.length];
 }
 
-function formatModeColor(mode: Mode, text: string): string {
-	return `\x1b[${MODE_LABELS[mode].color}m${text}${ANSI_RESET}`;
+function modeThemeColor(mode: Mode): ModeThemeColor {
+	return mode === "plan" ? "warning" : "thinkingLow";
 }
 
-export function formatModeRail(mode: Mode, glyph = "│"): string {
-	return formatModeColor(mode, glyph);
+function formatModeColor(mode: Mode, text: string, theme: ModeStatusTheme): string {
+	return theme.fg(modeThemeColor(mode), text);
 }
 
-export function formatModeTopBorder(mode: Mode, width: number, topRightCorner: string): string {
+export function formatModeRail(mode: Mode, theme: ModeStatusTheme, glyph = "│"): string {
+	return formatModeColor(mode, glyph, theme);
+}
+
+export function formatModeTopBorder(
+	mode: Mode,
+	width: number,
+	topRightCorner: string,
+	theme: ModeStatusTheme,
+): string {
 	if (width <= 2) return "";
-	return `${formatModeColor(mode, `╭${"─".repeat(width - 3)}╌`)}${topRightCorner}`;
+	return `${formatModeColor(mode, `╭${"─".repeat(width - 3)}╌`, theme)}${topRightCorner}`;
 }
 
 export function formatModeMetadata(
@@ -56,15 +66,14 @@ export function formatModeMetadata(
 	thinkingColor: (text: string) => string,
 	options?: PromptMetadataOptions,
 ): string {
-	const label = MODE_LABELS[mode];
-	const modeText = `\x1b[${label.color}m${theme.bold(label.text)}${ANSI_RESET}`;
+	const modeText = formatModeColor(mode, theme.bold(MODE_LABELS[mode]), theme);
 	const modelText = options
 		? `${theme.fg("dim", " • ")}${options.modelName}${
 			options.modelProvider ? theme.fg("dim", ` [${options.modelProvider}]`) : ""
 		}`
 		: "";
 	const thinkingSeparator = " • ";
-	return `${options?.rail ?? formatModeRail(mode)} ${modeText}${modelText}${theme.fg("dim", thinkingSeparator)}${thinkingColor(thinkingLevel)}`;
+	return `${options?.rail ?? formatModeRail(mode, theme)} ${modeText}${modelText}${theme.fg("dim", thinkingSeparator)}${thinkingColor(thinkingLevel)}`;
 }
 
 export function formatTokens(count: number): string {
