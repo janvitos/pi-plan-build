@@ -25,7 +25,7 @@ Optionally keep the approved plan visible in a docked side panel while implement
 ## Features
 
 - New sessions start in **Build** mode.
-- `Ctrl+Tab` cycles **Build → Plan → Build** in every TUI setup. With Pi Plan Build's custom composer active, bare `Tab` also cycles modes while active autocomplete dropdowns retain Pi's normal Tab completion.
+- `Alt+M` cycles **Build → Plan → Build** in every TUI setup. With Pi Plan Build's custom composer active, bare `Tab` also cycles modes while active autocomplete dropdowns retain Pi's normal Tab completion.
 - The custom composer uses OpenCode prompt-inspired blue/orange mode colors on the rounded top-left border and left rail, complemented by Pi's border color on the right rail and rounded bottom-right border; rounded corners inherit their vertical rail colors while horizontal `╌` segments bridge the borders at both junctions, paired with a light vertical `┆` at the top right and a mode-specific bottom-left transition: thin `┆` in Plan and heavy `┇` in Build. The active composer and submitted user messages use a continuous solid thin `│` left rail in both modes. These rails use the active Pi theme's `warning` color in Plan and `thinkingLow` color in Build, and submitted messages retain their original mode after mode changes and session restores. Its metadata row shows mode, model, provider, and thinking level; cycling the thinking level updates that row directly.
 - Pi Plan Build leaves the footer untouched; Pi or another installed extension remains responsible for path, usage, model, provider, thinking, and extension-status information.
 - `/plan`, `/build`, and the `--plan` startup flag.
@@ -80,7 +80,7 @@ Do not install more than one npm, Git, or local copy at the same time; duplicate
 
 | Action | Result |
 | --- | --- |
-| `Ctrl+Tab` | Cycle Build and Plan in any TUI setup |
+| `Alt+M` | Cycle Build and Plan in any TUI setup |
 | `Tab` | With the custom composer active, cycle modes or accept an active autocomplete selection |
 | `/plan` | Select Plan mode |
 | `/build` | Select Build mode |

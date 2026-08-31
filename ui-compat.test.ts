@@ -8,6 +8,7 @@ function createHarness(initialEditor?: unknown) {
 	const editorCalls: unknown[] = [];
 	const statuses: Array<[string, string | undefined]> = [];
 	const notifications: Array<[string, string]> = [];
+	const shortcuts = new Map<string, unknown>();
 	let activeTools = ["read", "bash", "edit", "write"];
 	const tui = {
 		requestRender() {},
@@ -25,7 +26,7 @@ function createHarness(initialEditor?: unknown) {
 		registerFlag() {},
 		registerTool() {},
 		registerCommand() {},
-		registerShortcut() {},
+		registerShortcut(key: string, options: unknown) { shortcuts.set(key, options); },
 		registerEntryRenderer() {},
 		getFlag() { return false; },
 		getActiveTools() { return [...activeTools]; },
@@ -65,6 +66,7 @@ function createHarness(initialEditor?: unknown) {
 		editorCalls,
 		statuses,
 		notifications,
+		shortcuts,
 		setCurrentEditor(value: unknown) { currentEditor = value; },
 		decorateCurrentEditor() {
 			const base = currentEditor as ((...args: any[]) => unknown) | undefined;
@@ -81,6 +83,13 @@ async function start(harness: ReturnType<typeof createHarness>) {
 async function shutdown(harness: ReturnType<typeof createHarness>) {
 	await harness.handlers.get("session_shutdown")?.({ reason: "quit" }, harness.ctx);
 }
+
+test("registers Alt+M without taking Pi's Shift+Tab thinking shortcut", () => {
+	const harness = createHarness();
+	assert.equal(harness.shortcuts.has("alt+m"), true);
+	assert.equal(harness.shortcuts.has("ctrl+tab"), false);
+	assert.equal(harness.shortcuts.has("shift+tab"), false);
+});
 
 test("an editor installed before Pi Plan Build triggers reduced optional UI", async () => {
 	const otherEditor = () => undefined;

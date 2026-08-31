@@ -202,7 +202,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		if (!reducedUiNoticeShown) {
 			reducedUiNoticeShown = true;
 			ctx.ui.notify(
-				"Another extension owns Pi's custom editor or fullscreen layout. Pi Plan Build disabled its custom composer and experimental step-by-step panel; Plan and Build workflows remain available through Ctrl+Tab, /plan, and /build.",
+				"Another extension owns Pi's custom editor or fullscreen layout. Pi Plan Build disabled its custom composer and experimental step-by-step panel; Plan and Build workflows remain available through Alt+M, /plan, and /build.",
 				"warning",
 			);
 		}
@@ -343,7 +343,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		description: "Switch to Build mode",
 		handler: async (_args, ctx) => selectMode("build", ctx, "manual"),
 	});
-	pi.registerShortcut("ctrl+tab", {
+	pi.registerShortcut("alt+m", {
 		description: "Cycle Plan and Build modes",
 		handler: async (ctx) => selectMode(nextMode(selectedMode), ctx, "manual"),
 	});
