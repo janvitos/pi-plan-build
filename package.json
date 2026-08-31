@@ -1,6 +1,6 @@
 {
   "name": "@janvitos/pi-plan-build",
-  "version": "0.1.48",
+  "version": "0.1.49",
   "description": "Plan safely, approve explicitly, then implement here or in a clean session.",
   "type": "module",
   "license": "MIT",
@@ -33,7 +33,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test utils.test.ts question-ui.test.ts plan-execution.test.ts plan-panel.test.ts user-message-rail.test.ts",
+    "test": "node --experimental-strip-types --test utils.test.ts question-ui.test.ts plan-execution.test.ts plan-panel.test.ts user-message-rail.test.ts ui-compat.test.ts",
     "prepublishOnly": "npm test"
   },
   "peerDependencies": {

@@ -40,15 +40,14 @@ import {
 	type FreshImplementationRequest,
 	decodeModeState,
 	extractPromptHistory,
-	formatFooterCwd,
 	formatModeMetadata,
 	formatModeRail,
 	formatModeTopBorder,
-	formatTokens,
 	isAllowedPlanMutation,
 	makePlanPath,
 	nextMode,
 	nextThinkingLevel,
+	ownsUiSlot,
 	normalizePlanExitChoice,
 	PLAN_EXIT_APPROVE_CHOICE,
 	PLAN_EXIT_FRESH_CHOICE,
@@ -56,6 +55,7 @@ import {
 	PLAN_EXIT_STAY_CHOICE,
 	PLAN_STEP_READY_ACKNOWLEDGEMENT,
 	renderModeComposer,
+	shouldReduceOptionalUi,
 	type Mode,
 	unique,
 } from "./utils.ts";
@@ -76,6 +76,7 @@ const MODE_ADDED_TOOLS = new Set([...MANAGED_TOOLS, "edit", "write"]);
 const EMPTY_PARAMETERS = Type.Object({});
 
 type PendingReminder = "plan" | "build" | undefined;
+type EditorFactory = NonNullable<ReturnType<ExtensionContext["ui"]["getEditorComponent"]>>;
 interface StoredState {
 	version: 1;
 	selectedMode: Mode;
@@ -105,7 +106,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let panelTui: (TUI & Partial<ViewportTUI>) | undefined;
 	let originalLayoutRoot: Component | undefined;
 	let panelLayoutRoot: Component | undefined;
+	let panelLayoutToken: { enabled: boolean } | undefined;
+	let installedEditorFactory: EditorFactory | undefined;
+	let composerMountingEditorFactory: EditorFactory | undefined;
 	let fullscreenPanelCapable = false;
+	let reducedOptionalUi = false;
+	let reducedUiNoticeShown = false;
 	const displayUserMessageText = (text: string): string | undefined => {
 		const skillBlock = parseSkillBlock(text);
 		return skillBlock ? skillBlock.userMessage || undefined : text || undefined;
@@ -162,11 +168,59 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		panelTui?.requestRender();
 	}
 
+	function currentLayoutRoot(): Component | undefined {
+		return (panelTui as (TUI & { layoutRoot?: Component }) | undefined)?.layoutRoot;
+	}
+
 	function removePanelLayout(): void {
-		if (panelLayoutRoot && panelTui && originalLayoutRoot) panelTui.setLayoutRoot?.(originalLayoutRoot);
-		panelLayoutRoot = undefined;
-		panel = undefined;
+		if (panelLayoutToken) panelLayoutToken.enabled = false;
+		if (!panelLayoutRoot) {
+			panel = undefined;
+			panelLayoutToken = undefined;
+			return;
+		}
+		if (panelTui && originalLayoutRoot && ownsUiSlot(currentLayoutRoot(), panelLayoutRoot)) {
+			panelTui.setLayoutRoot?.(originalLayoutRoot);
+			panelLayoutRoot = undefined;
+			panel = undefined;
+			panelLayoutToken = undefined;
+		}
 		panelTui?.requestRender();
+	}
+
+	function setReducedModeStatus(ctx: ExtensionContext): void {
+		ctx.ui.setStatus(STATUS_KEY, formatModeRail(selectedMode, ctx.ui.theme, ctx.ui.theme.bold(selectedMode)));
+	}
+
+	function enterReducedOptionalUi(ctx: ExtensionContext): void {
+		if (!reducedOptionalUi) {
+			reducedOptionalUi = true;
+			removePanelLayout();
+			fullscreenPanelCapable = false;
+		}
+		setReducedModeStatus(ctx);
+		if (!reducedUiNoticeShown) {
+			reducedUiNoticeShown = true;
+			ctx.ui.notify(
+				"Another extension owns Pi's custom editor or fullscreen layout. Pi Plan Build disabled its custom composer and experimental step-by-step panel; Plan and Build workflows remain available through Ctrl+Tab, /plan, and /build.",
+				"warning",
+			);
+		}
+	}
+
+	function detectOptionalUiConflict(ctx: ExtensionContext): boolean {
+		if (reducedOptionalUi) return true;
+		const editorConflict = shouldReduceOptionalUi(
+			ctx.ui.getEditorComponent(),
+			composerMountingEditorFactory ?? installedEditorFactory,
+		);
+		const expectedRoot = panelLayoutRoot ?? originalLayoutRoot;
+		const layoutConflict = expectedRoot !== undefined && !ownsUiSlot(currentLayoutRoot(), expectedRoot);
+		if (editorConflict || layoutConflict) {
+			enterReducedOptionalUi(ctx);
+			return true;
+		}
+		return false;
 	}
 
 	function cancelPlanExecution(): void {
@@ -191,9 +245,17 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 
 	function ensurePanelLayout(): boolean {
 		if (!execution || !fullscreenPanelCapable || !panelTui || !originalLayoutRoot || !currentContext) return false;
+		if (detectOptionalUiConflict(currentContext)) return false;
+		const expectedRoot = panelLayoutRoot ?? originalLayoutRoot;
+		if (!ownsUiSlot(currentLayoutRoot(), expectedRoot)) {
+			enterReducedOptionalUi(currentContext);
+			return false;
+		}
 		if (!panel) panel = new PlanPanel(execution, currentContext.ui.theme);
 		else panel.setState(execution);
 		if (!panelLayoutRoot) {
+			const layoutToken = { enabled: true };
+			panelLayoutToken = layoutToken;
 			panelLayoutRoot = new HStack([
 				{ component: originalLayoutRoot, basis: 0, grow: 1, shrink: 1, minSize: 58 },
 				{
@@ -203,7 +265,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					shrink: 0,
 					minSize: PANEL_WIDTH,
 					maxSize: PANEL_WIDTH,
-					visible: (viewport) => execution?.panelVisible !== false && viewport.width >= PANEL_MIN_TERMINAL_WIDTH,
+					visible: (viewport) => layoutToken.enabled && !reducedOptionalUi && execution !== undefined && execution.panelVisible !== false && viewport.width >= PANEL_MIN_TERMINAL_WIDTH,
 				},
 			]);
 			panelTui.setLayoutRoot?.(panelLayoutRoot);
@@ -213,7 +275,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	}
 
 	function updateModeIndicator(ctx: ExtensionContext): void {
-		// Clear the legacy footer status; the mode is now rendered inside the editor.
+		if (detectOptionalUiConflict(ctx)) {
+			setReducedModeStatus(ctx);
+			return;
+		}
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		requestEditorRender?.();
 	}
@@ -277,6 +342,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerCommand("build", {
 		description: "Switch to Build mode",
 		handler: async (_args, ctx) => selectMode("build", ctx, "manual"),
+	});
+	pi.registerShortcut("ctrl+tab", {
+		description: "Cycle Plan and Build modes",
+		handler: async (ctx) => selectMode(nextMode(selectedMode), ctx, "manual"),
 	});
 	pi.registerCommand("build-fresh", {
 		description: "Start a clean linked session and implement the plan selected in plan_exit",
@@ -446,6 +515,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				return finish("Step-by-step execution was cancelled. The panel and execution guards were removed; the saved plan file remains available.");
 			}
 			if (params.action === "hide" || params.action === "show") {
+				if (params.action === "show" && reducedOptionalUi) {
+					throw new Error("The visual plan panel is disabled because another extension owns Pi's optional editor or fullscreen layout UI");
+				}
 				updateExecution({ ...execution, panelVisible: params.action === "show" });
 				if (params.action === "show") ensurePanelLayout();
 				return finish(`The visual plan panel is now ${params.action === "show" ? "visible" : "hidden"}. Progress is unchanged.`);
@@ -548,9 +620,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (!plan.trim()) throw new Error("Cannot request plan approval because the plan file is empty");
 			pi.appendEntry(PLAN_REVIEW_ENTRY_TYPE, { plan, planPath });
 			const displayPath = shorten(planPath, ctx.cwd);
+			detectOptionalUiConflict(ctx);
 			let stepExecution: PlanExecutionState | undefined;
 			let checklistError: string | undefined;
-			const panelAvailable = fullscreenPanelCapable && (panelTui?.terminal.columns ?? 0) >= PANEL_MIN_TERMINAL_WIDTH;
+			const panelAvailable = !reducedOptionalUi && fullscreenPanelCapable && (panelTui?.terminal.columns ?? 0) >= PANEL_MIN_TERMINAL_WIDTH;
 			if (panelAvailable) {
 				try {
 					stepExecution = createPlanExecution(plan);
@@ -655,6 +728,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	pi.on("before_agent_start", async (_event, ctx) => {
+		detectOptionalUiConflict(ctx);
 		runMode = selectedMode;
 		applyTools(runMode);
 		let content: string | undefined;
@@ -692,6 +766,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.on("session_start", async (event, ctx) => {
 		userMessageRail.activate();
 		currentContext = ctx;
+		installedEditorFactory = undefined;
+		composerMountingEditorFactory = undefined;
+		reducedOptionalUi = false;
+		reducedUiNoticeShown = false;
 		const entries = ctx.sessionManager.getEntries();
 		const latest = entries
 			.filter(
@@ -715,85 +793,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		applyTools(selectedMode);
 		updateModeIndicator(ctx);
 
-		if (ctx.mode === "tui") {
-			ctx.ui.setFooter((tui, theme, footerData) => {
-				const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
-				return {
-					dispose: unsubscribe,
-					invalidate() {},
-					render(width: number): string[] {
-						let input = 0;
-						let output = 0;
-						let cacheRead = 0;
-						let cacheWrite = 0;
-						let cost = 0;
-						let latestCacheHitRate: number | undefined;
-						for (const entry of ctx.sessionManager.getEntries()) {
-							const usage =
-								entry.type === "message" &&
-								(entry.message.role === "assistant" || entry.message.role === "toolResult")
-									? entry.message.usage
-									: (entry.type === "branch_summary" || entry.type === "compaction")
-										? entry.usage
-										: undefined;
-							if (!usage) continue;
-							input += usage.input;
-							output += usage.output;
-							cacheRead += usage.cacheRead;
-							cacheWrite += usage.cacheWrite;
-							cost += usage.cost.total;
-							if (entry.type === "message" && entry.message.role === "assistant") {
-								const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite;
-								latestCacheHitRate = promptTokens > 0 ? (usage.cacheRead / promptTokens) * 100 : undefined;
-							}
-						}
-
-						let cwd = formatFooterCwd(ctx.sessionManager.getCwd(), process.env.HOME || process.env.USERPROFILE);
-						const branch = footerData.getGitBranch();
-						if (branch) cwd += ` (${branch})`;
-						const sessionName = ctx.sessionManager.getSessionName();
-						if (sessionName) cwd += ` • ${sessionName}`;
-
-						const stats: string[] = [];
-						if (input) stats.push(`↑${formatTokens(input)}`);
-						if (output) stats.push(`↓${formatTokens(output)}`);
-						if (cacheRead) stats.push(`R${formatTokens(cacheRead)}`);
-						if (cacheWrite) stats.push(`W${formatTokens(cacheWrite)}`);
-						if ((cacheRead || cacheWrite) && latestCacheHitRate !== undefined) {
-							stats.push(`CH${latestCacheHitRate.toFixed(1)}%`);
-						}
-						const usingSubscription = ctx.model
-							? ctx.model.provider === "kimi-coding" || ctx.modelRegistry.isUsingOAuth(ctx.model)
-							: false;
-						if (cost || usingSubscription) {
-							stats.push(`$${cost.toFixed(3)}${usingSubscription ? " (sub)" : ""}`);
-						}
-
-						const contextUsage = ctx.getContextUsage();
-						const contextWindow = contextUsage?.contextWindow ?? ctx.model?.contextWindow ?? 0;
-						const contextPercent = contextUsage?.percent;
-						const contextText = `${contextPercent === null || contextPercent === undefined ? "?" : `${contextPercent.toFixed(1)}%`}/${formatTokens(contextWindow)} (auto)`;
-						stats.push(
-							contextPercent !== null && contextPercent !== undefined && contextPercent > 90
-								? theme.fg("error", contextText)
-								: contextPercent !== null && contextPercent !== undefined && contextPercent > 70
-									? theme.fg("warning", contextText)
-									: contextText,
-						);
-
-						const lines = [
-							truncateToWidth(theme.fg("dim", cwd), width, theme.fg("dim", "...")),
-							truncateToWidth(theme.fg("dim", stats.join(" ")), width, theme.fg("dim", "...")),
-						];
-						const statuses = Array.from(footerData.getExtensionStatuses().entries())
-							.sort(([a], [b]) => a.localeCompare(b))
-							.map(([, text]) => text.replace(/[\r\n\t]/g, " ").replace(/ +/g, " ").trim());
-						if (statuses.length) lines.push(truncateToWidth(statuses.join(" "), width, theme.fg("dim", "...")));
-						return lines;
-					},
-				};
-			});
-
+		if (ctx.mode === "tui" && !reducedOptionalUi) {
 			// Startup history is populated after session_start; replacement flows recreate the editor after that step.
 			const promptHistory = event.reason === "startup" ? [] : extractPromptHistory(ctx.sessionManager.getBranch());
 			class ModeEditor extends CustomEditor {
@@ -806,6 +806,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				}
 
 				override render(width: number): string[] {
+					if (reducedOptionalUi) return super.render(width);
 					const railWidth = 2;
 					const paddingWidth = Math.min(railWidth, Math.max(0, Math.floor((width - 1) / 2)));
 					if (this.getPaddingX() !== railWidth) this.setPaddingX(railWidth);
@@ -845,19 +846,20 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				}
 
 				override handleInput(data: string): void {
-					if (this.matchesThinkingCycle?.(data)) {
+					if (!reducedOptionalUi && this.matchesThinkingCycle?.(data)) {
 						if (this.onExtensionShortcut?.(data)) return;
 						this.onCycleThinking?.();
 						return;
 					}
-					if (matchesKey(data, Key.tab) && !this.isShowingAutocomplete()) {
+					if (!reducedOptionalUi && matchesKey(data, Key.tab) && !this.isShowingAutocomplete()) {
 						this.onCycle?.();
 						return;
 					}
 					super.handleInput(data);
 				}
 			}
-			ctx.ui.setEditorComponent((tui, theme, keybindings) => {
+			installedEditorFactory = (tui, theme, keybindings) => {
+				composerMountingEditorFactory = ctx.ui.getEditorComponent() ?? installedEditorFactory;
 				const editor = new ModeEditor(tui, theme, keybindings);
 				for (const prompt of promptHistory) editor.addToHistory(prompt);
 				requestEditorRender = () => editor.requestModeRender();
@@ -881,7 +883,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					editor.requestModeRender();
 				};
 				return editor;
-			});
+			};
+			ctx.ui.setEditorComponent(installedEditorFactory);
 			if (execution && !fullscreenPanelCapable) {
 				ctx.ui.notify("Step-by-step progress was restored, but its plan panel requires fullscreen TUI mode. Progress is preserved.", "warning");
 			}
@@ -892,14 +895,18 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		userMessageRail.deactivate();
 		removePanelLayout();
 		ctx.ui.setStatus(STATUS_KEY, undefined);
-		ctx.ui.setFooter(undefined);
-		ctx.ui.setEditorComponent(undefined);
+		if (ownsUiSlot(ctx.ui.getEditorComponent(), installedEditorFactory)) ctx.ui.setEditorComponent(undefined);
 		requestEditorRender = undefined;
+		installedEditorFactory = undefined;
+		composerMountingEditorFactory = undefined;
 		panel = undefined;
 		panelTui = undefined;
 		panelLayoutRoot = undefined;
+		panelLayoutToken = undefined;
 		originalLayoutRoot = undefined;
 		fullscreenPanelCapable = false;
+		reducedOptionalUi = false;
+		reducedUiNoticeShown = false;
 		currentContext = undefined;
 	});
 }

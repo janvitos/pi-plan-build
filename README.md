@@ -25,8 +25,9 @@ Optionally keep the approved plan visible in a docked side panel while implement
 ## Features
 
 - New sessions start in **Build** mode.
-- Bare `Tab` cycles **Build → Plan → Build**, while active autocomplete dropdowns retain Pi's normal Tab completion.
-- The composer uses OpenCode prompt-inspired blue/orange mode colors on the rounded top-left border and left rail, complemented by Pi's border color on the right rail and rounded bottom-right border; rounded corners inherit their vertical rail colors while horizontal `╌` segments bridge the borders at both junctions, paired with a light vertical `┆` at the top right and a mode-specific bottom-left transition: thin `┆` in Plan and heavy `┇` in Build. The active composer and submitted user messages use a continuous solid thin `│` left rail in both modes. These rails use the active Pi theme's `warning` color in Plan and `thinkingLow` color in Build, and submitted messages retain their original mode after mode changes and session restores. It also includes a mode/model/thinking metadata row; cycling the thinking level updates this row without adding a duplicate status above the composer. The model is shown as `model-id [provider]` (for example, `gpt-5.6-luna [openai]`), with the model ID inheriting the terminal foreground like unselected entries in `/model` and the provider using the footer's dim text color. The footer keeps the remaining path and usage stats without duplicating model metadata.
+- `Ctrl+Tab` cycles **Build → Plan → Build** in every TUI setup. With Pi Plan Build's custom composer active, bare `Tab` also cycles modes while active autocomplete dropdowns retain Pi's normal Tab completion.
+- The custom composer uses OpenCode prompt-inspired blue/orange mode colors on the rounded top-left border and left rail, complemented by Pi's border color on the right rail and rounded bottom-right border; rounded corners inherit their vertical rail colors while horizontal `╌` segments bridge the borders at both junctions, paired with a light vertical `┆` at the top right and a mode-specific bottom-left transition: thin `┆` in Plan and heavy `┇` in Build. The active composer and submitted user messages use a continuous solid thin `│` left rail in both modes. These rails use the active Pi theme's `warning` color in Plan and `thinkingLow` color in Build, and submitted messages retain their original mode after mode changes and session restores. Its metadata row shows mode, model, provider, and thinking level; cycling the thinking level updates that row directly.
+- Pi Plan Build leaves the footer untouched; Pi or another installed extension remains responsible for path, usage, model, provider, thinking, and extension-status information.
 - `/plan`, `/build`, and the `--plan` startup flag.
 - Per-session plans at `~/.pi/agent/plans/<session-id>.md`.
 - In Plan mode, built-in `edit` and `write` are restricted to the exact plan file.
@@ -37,10 +38,11 @@ Optionally keep the approved plan visible in a docked side panel while implement
   - **Switch to Build and implement here**
   - **Start fresh and implement**
   - **Stay in Plan mode**
-- **Experimental:** In fullscreen TUI, valid checklist plans also offer **Implement step by step**: a passive, non-overlapping docked right panel keeps the plan visible while natural-language prompts gate steps and report completed work. The panel is visual-only and never captures keyboard input. This feature is still under active development.
+- **Experimental:** In fullscreen TUI, valid checklist plans also offer **Implement step by step** when Pi Plan Build owns the optional fullscreen layout: a passive, non-overlapping docked right panel keeps the plan visible while natural-language prompts gate steps and report completed work. The panel is visual-only and never captures keyboard input. This feature is still under active development.
+- Compatible editor decorators can wrap Pi Plan Build's editor without disabling its composer. If another extension replaces rather than invokes that editor, already owns the editor before Plan Build starts, or replaces the fullscreen layout, Plan Build automatically uses reduced UI: it keeps the core Plan/Build workflow and mode status but does not replace that editor or offer a new step-by-step panel.
 - Staying in Plan mode—or pressing Escape in the approval dialog—produces a durable acknowledgement and stops the run until the user responds.
 - Mode state survives reloads, resumes, and forks.
-- When Pi recreates the custom editor, the latest 100 user prompts from the active session branch are restored for Up/Down history navigation.
+- When Pi Plan Build's custom editor is active and Pi recreates it, the latest 100 user prompts from the active session branch are restored for Up/Down history navigation.
 
 ## Requirements
 
@@ -78,7 +80,8 @@ Do not install more than one npm, Git, or local copy at the same time; duplicate
 
 | Action | Result |
 | --- | --- |
-| `Tab` | Cycle Build and Plan, or accept an active autocomplete selection |
+| `Ctrl+Tab` | Cycle Build and Plan in any TUI setup |
+| `Tab` | With the custom composer active, cycle modes or accept an active autocomplete selection |
 | `/plan` | Select Plan mode |
 | `/build` | Select Build mode |
 | `pi --plan` | Start a new session in Plan mode |
@@ -93,7 +96,7 @@ When planning is complete, `plan_exit` displays the entire persisted plan and as
 1. implement in the current session;
 2. start a clean linked implementation session;
 3. stay in Plan mode; or
-4. **experimentally implement step by step** in fullscreen TUI when the plan contains a valid checklist.
+4. **experimentally implement step by step** in fullscreen TUI when the plan contains a valid checklist and no other extension owns the optional editor/layout UI.
 
 Selecting **Start fresh and implement** stops the current run and automatically dispatches `/build-fresh`. Pi 0.84.2 or newer is required for extension command dispatch from an injected user message. The command creates a linked child session, copies the approved plan to its canonical plan file, preserves the model and thinking level selected for the action, switches it to Build, and starts implementation without transferring the planning conversation.
 
@@ -107,7 +110,7 @@ Both actions leave Plan mode active, stop the agent, and wait for the next user 
 
 > **Experimental feature:** Step-by-step execution is still being developed. Expect UI and workflow changes, and please report issues or unexpected behavior.
 
-When Pi uses `"tuiMode": "fullscreen"` and the saved plan contains top-level `- [ ]` items under `## Implementation Steps`, `plan_exit` offers the additional **Implement step by step** approval action. This is opt-in per plan; it does not replace either one-shot implementation option or **Stay in Plan mode**.
+When Pi uses `"tuiMode": "fullscreen"`, Pi Plan Build still owns its custom editor/layout UI, and the saved plan contains top-level `- [ ]` items under `## Implementation Steps`, `plan_exit` offers the additional **Implement step by step** approval action. This is opt-in per plan; it does not replace either one-shot implementation option or **Stay in Plan mode**.
 
 The passive 64-column right panel reserves terminal columns, so the transcript and editor reflow instead of being covered. Long step instructions and panel guidance wrap instead of being clipped. It never accepts focus or keyboard input and collapses below 132 terminal columns. The panel is a visual status aid only; all control happens through ordinary prompts. Its guidance remains visible, and the main transcript says, “Awaiting your instructions.” The agent interprets intent contextually, so these are examples rather than required commands:
 
@@ -127,7 +130,7 @@ Enable fullscreen in `~/.pi/agent/settings.json` and restart Pi:
 }
 ```
 
-The integration uses Pi 0.84.2's public fullscreen layout primitives plus a guarded read of its runtime layout root because the current extension API exposes `setLayoutRoot()` but not a corresponding getter.
+The integration uses Pi 0.84.2's public fullscreen layout primitives plus a guarded read of its runtime layout root because the current extension API exposes `setLayoutRoot()` but not a corresponding getter. Before installing or removing the panel, Pi Plan Build verifies that it still owns the relevant layout slot. For editor composition, it recognizes a later factory as compatible when that factory invokes Plan Build's editor factory; decorators such as global-history wrappers therefore retain the full composer. A non-composing editor replacement or conflicting layout shows one warning, reports the current mode through Pi's keyed extension status, and disables only the custom composer and new step-by-step panel. Existing restored step progress is retained for prompt-based completion or cancellation.
 
 ## Plan-mode permissions
 
@@ -159,7 +162,7 @@ npm test
 npm pack --dry-run
 ```
 
-The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode and provider rendering, conversational Plan guidance, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session settings and handoff content, question formatting and cancellation, structured checklist parsing, step state transitions, safe instruction revisions, and responsive panel rendering.
+The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode/provider/thinking rendering and cycling, optional-UI ownership decisions, conversational Plan guidance, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session settings and handoff content, question formatting and cancellation, structured checklist parsing, step state transitions, safe instruction revisions, and responsive panel rendering.
 
 ### Publishing
 

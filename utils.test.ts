@@ -13,12 +13,10 @@ import {
 	classifyPlanExitChoice,
 	decodeModeState,
 	extractPromptHistory,
-	formatFooterCwd,
 	formatModeMetadata,
 	formatModeRail,
 	formatModeTopBorder,
 	formatQuestionAnswers,
-	formatTokens,
 	isAllowedPlanMutation,
 	makePlanPath,
 	nextMode,
@@ -29,8 +27,10 @@ import {
 	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
 	PLAN_EXIT_STAY_CHOICE,
 	PLAN_STEP_READY_ACKNOWLEDGEMENT,
+	ownsUiSlot,
 	renderModeComposer,
 	sanitizeSessionId,
+	shouldReduceOptionalUi,
 } from "./utils.ts";
 
 test("mode state decodes current and legacy shapes safely", () => {
@@ -116,13 +116,17 @@ test("thinking levels cycle through only the levels supported by the model", () 
 	assert.equal(nextThinkingLevel("medium", undefined), undefined);
 });
 
-test("footer helpers preserve compact counts and safe home-relative paths", () => {
-	assert.equal(formatTokens(999), "999");
-	assert.equal(formatTokens(1500), "1.5k");
-	assert.equal(formatTokens(15000), "15k");
-	assert.equal(formatTokens(1_500_000), "1.5M");
-	assert.equal(formatFooterCwd("/home/user/project", "/home/user"), `~${path.sep}project`);
-	assert.equal(formatFooterCwd("/home/username/project", "/home/user"), "/home/username/project");
+test("optional UI ownership detects both extension load orders", () => {
+	const planBuildEditor = {};
+	const otherEditor = {};
+	assert.equal(shouldReduceOptionalUi(undefined, undefined), false);
+	assert.equal(shouldReduceOptionalUi(otherEditor, undefined), true);
+	assert.equal(shouldReduceOptionalUi(planBuildEditor, planBuildEditor), false);
+	assert.equal(shouldReduceOptionalUi(otherEditor, planBuildEditor), true);
+	assert.equal(shouldReduceOptionalUi(undefined, planBuildEditor), true);
+	assert.equal(ownsUiSlot(planBuildEditor, planBuildEditor), true);
+	assert.equal(ownsUiSlot(otherEditor, planBuildEditor), false);
+	assert.equal(ownsUiSlot(undefined, planBuildEditor), false);
 });
 
 test("mode composer joins border colors with dashed transitions and rail-colored corners", () => {

@@ -1,4 +1,4 @@
-import path, { isAbsolute, relative, resolve, sep } from "node:path";
+import path from "node:path";
 
 export type Mode = "build" | "plan";
 
@@ -76,23 +76,12 @@ export function formatModeMetadata(
 	return `${options?.rail ?? formatModeRail(mode, theme)} ${modeText}${modelText}${theme.fg("dim", thinkingSeparator)}${thinkingColor(thinkingLevel)}`;
 }
 
-export function formatTokens(count: number): string {
-	if (count < 1000) return count.toString();
-	if (count < 10000) return `${(count / 1000).toFixed(1)}k`;
-	if (count < 1000000) return `${Math.round(count / 1000)}k`;
-	if (count < 10000000) return `${(count / 1000000).toFixed(1)}M`;
-	return `${Math.round(count / 1000000)}M`;
+export function shouldReduceOptionalUi(currentOwner: unknown, acceptedOwner: unknown): boolean {
+	return acceptedOwner === undefined ? currentOwner !== undefined : currentOwner !== acceptedOwner;
 }
 
-export function formatFooterCwd(cwd: string, home: string | undefined): string {
-	if (!home) return cwd;
-	const resolvedCwd = resolve(cwd);
-	const relativeToHome = relative(resolve(home), resolvedCwd);
-	const isInsideHome =
-		relativeToHome === "" ||
-		(relativeToHome !== ".." && !relativeToHome.startsWith(`..${sep}`) && !isAbsolute(relativeToHome));
-	if (!isInsideHome) return cwd;
-	return relativeToHome === "" ? "~" : `~${sep}${relativeToHome}`;
+export function ownsUiSlot(currentOwner: unknown, installedOwner: unknown): boolean {
+	return installedOwner !== undefined && currentOwner === installedOwner;
 }
 
 export interface LineWidthTools {
