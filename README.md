@@ -41,7 +41,7 @@ Optionally keep the approved plan visible in a docked side panel while implement
 - **Experimental:** In fullscreen TUI, valid checklist plans also offer **Implement step by step** when Pi Plan Build owns the optional fullscreen layout: a passive, non-overlapping docked right panel keeps the plan visible while natural-language prompts gate steps and report completed work. The panel is visual-only and never captures keyboard input. This feature is still under active development.
 - Compatible editor decorators can wrap Pi Plan Build's editor without disabling its composer. If another extension replaces rather than invokes that editor, already owns the editor before Plan Build starts, or replaces the fullscreen layout, Plan Build automatically uses reduced UI: it keeps the core Plan/Build workflow and mode status but does not replace that editor or offer a new step-by-step panel.
 - Staying in Plan mode—or pressing Escape in the approval dialog—produces a durable acknowledgement and stops the run until the user responds.
-- Mode state survives reloads, resumes, and forks.
+- Mode state and mode-specific tool availability survive compactions, reloads, resumes, and forks.
 - When Pi Plan Build's custom editor is active and Pi recreates it, the latest 100 user prompts from the active session branch are restored for Up/Down history navigation.
 
 ## Requirements

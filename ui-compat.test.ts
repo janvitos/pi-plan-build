@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import planBuildModes from "./index.ts";
 
-function createHarness(initialEditor?: unknown) {
+function createHarness(initialEditor?: unknown, startInPlan = false) {
 	const handlers = new Map<string, (...args: any[]) => unknown>();
 	let currentEditor = initialEditor;
 	const editorCalls: unknown[] = [];
@@ -28,7 +28,7 @@ function createHarness(initialEditor?: unknown) {
 		registerCommand() {},
 		registerShortcut(key: string, options: unknown) { shortcuts.set(key, options); },
 		registerEntryRenderer() {},
-		getFlag() { return false; },
+		getFlag() { return startInPlan; },
 		getActiveTools() { return [...activeTools]; },
 		setActiveTools(next: string[]) { activeTools = [...next]; },
 		appendEntry() {},
@@ -67,6 +67,8 @@ function createHarness(initialEditor?: unknown) {
 		statuses,
 		notifications,
 		shortcuts,
+		getActiveTools() { return [...activeTools]; },
+		setActiveTools(next: string[]) { activeTools = [...next]; },
 		setCurrentEditor(value: unknown) { currentEditor = value; },
 		decorateCurrentEditor() {
 			const base = currentEditor as ((...args: any[]) => unknown) | undefined;
@@ -89,6 +91,19 @@ test("registers Alt+M without taking Pi's Shift+Tab thinking shortcut", () => {
 	assert.equal(harness.shortcuts.has("alt+m"), true);
 	assert.equal(harness.shortcuts.has("ctrl+tab"), false);
 	assert.equal(harness.shortcuts.has("shift+tab"), false);
+});
+
+test("restores Plan tools at turn end before an intra-run continuation", async () => {
+	const harness = createHarness(undefined, true);
+	await start(harness);
+	await harness.handlers.get("before_agent_start")?.({}, harness.ctx);
+
+	harness.setActiveTools(harness.getActiveTools().filter((name) => name !== "plan_exit"));
+	assert.equal(harness.getActiveTools().includes("plan_exit"), false);
+
+	await harness.handlers.get("turn_end")?.({}, harness.ctx);
+	assert.equal(harness.getActiveTools().includes("plan_exit"), true);
+	assert.equal(harness.getActiveTools().includes("plan_enter"), false);
 });
 
 test("an editor installed before Pi Plan Build triggers reduced optional UI", async () => {

@@ -750,6 +750,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		return { message: { customType: "pi-plan-build-reminder", content, display: false } };
 	});
 
+	pi.on("turn_end", () => {
+		applyTools(runMode ?? selectedMode);
+	});
+
 	pi.on("agent_settled", async (_event, ctx) => {
 		runMode = undefined;
 		applyTools(selectedMode);
