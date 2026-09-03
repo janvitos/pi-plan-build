@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import planBuildModes from "./index.ts";
 
-function createHarness(initialEditor?: unknown, startInPlan = false) {
+function createHarness(initialEditor?: unknown) {
 	const handlers = new Map<string, (...args: any[]) => unknown>();
+	const registeredTools = new Map<string, any>();
 	let currentEditor = initialEditor;
 	const editorCalls: unknown[] = [];
 	const statuses: Array<[string, string | undefined]> = [];
@@ -24,11 +25,11 @@ function createHarness(initialEditor?: unknown, startInPlan = false) {
 			handlers.set(name, handler);
 		},
 		registerFlag() {},
-		registerTool() {},
+		registerTool(definition: any) { registeredTools.set(definition.name, definition); },
 		registerCommand() {},
 		registerShortcut(key: string, options: unknown) { shortcuts.set(key, options); },
 		registerEntryRenderer() {},
-		getFlag() { return startInPlan; },
+		getFlag() { return false; },
 		getActiveTools() { return [...activeTools]; },
 		setActiveTools(next: string[]) { activeTools = [...next]; },
 		appendEntry() {},
@@ -67,8 +68,7 @@ function createHarness(initialEditor?: unknown, startInPlan = false) {
 		statuses,
 		notifications,
 		shortcuts,
-		getActiveTools() { return [...activeTools]; },
-		setActiveTools(next: string[]) { activeTools = [...next]; },
+		registeredTools,
 		setCurrentEditor(value: unknown) { currentEditor = value; },
 		decorateCurrentEditor() {
 			const base = currentEditor as ((...args: any[]) => unknown) | undefined;
@@ -93,17 +93,14 @@ test("registers Alt+M without taking Pi's Shift+Tab thinking shortcut", () => {
 	assert.equal(harness.shortcuts.has("shift+tab"), false);
 });
 
-test("restores Plan tools at turn end before an intra-run continuation", async () => {
-	const harness = createHarness(undefined, true);
-	await start(harness);
-	await harness.handlers.get("before_agent_start")?.({}, harness.ctx);
+test("exposes plan_exit in the textual tool inventory metadata", () => {
+	const harness = createHarness();
+	const planExit = harness.registeredTools.get("plan_exit");
 
-	harness.setActiveTools(harness.getActiveTools().filter((name) => name !== "plan_exit"));
-	assert.equal(harness.getActiveTools().includes("plan_exit"), false);
-
-	await harness.handlers.get("turn_end")?.({}, harness.ctx);
-	assert.equal(harness.getActiveTools().includes("plan_exit"), true);
-	assert.equal(harness.getActiveTools().includes("plan_enter"), false);
+	assert.equal(planExit?.promptSnippet, "Display the saved plan and request user approval");
+	assert.deepEqual(planExit?.promptGuidelines, [
+		"Call plan_exit after finalizing the saved plan when the user asks to show, review, or approve it.",
+	]);
 });
 
 test("an editor installed before Pi Plan Build triggers reduced optional UI", async () => {

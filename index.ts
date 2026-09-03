@@ -606,6 +606,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		name: "plan_exit",
 		label: "Exit Plan Mode",
 		description: PLAN_EXIT_DESCRIPTION,
+		promptSnippet: "Display the saved plan and request user approval",
+		promptGuidelines: ["Call plan_exit after finalizing the saved plan when the user asks to show, review, or approve it."],
 		parameters: EMPTY_PARAMETERS,
 		executionMode: "sequential",
 		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
@@ -748,10 +750,6 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		persist();
 		if (!content) return;
 		return { message: { customType: "pi-plan-build-reminder", content, display: false } };
-	});
-
-	pi.on("turn_end", () => {
-		applyTools(runMode ?? selectedMode);
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
