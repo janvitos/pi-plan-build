@@ -29,7 +29,7 @@ Optionally keep the approved plan visible in a docked side panel while implement
 - The custom composer uses OpenCode prompt-inspired blue/orange mode colors on the rounded top-left border and left rail, complemented by Pi's border color on the right rail and rounded bottom-right border; rounded corners inherit their vertical rail colors while horizontal `╌` segments bridge the borders at both junctions, paired with a light vertical `┆` at the top right and a mode-specific bottom-left transition: thin `┆` in Plan and heavy `┇` in Build. The active composer and submitted user messages use a continuous solid thin `│` left rail in both modes. These rails use the active Pi theme's `warning` color in Plan and `thinkingLow` color in Build, and submitted messages retain their original mode after mode changes and session restores. Its metadata row shows mode, model, provider, and thinking level; cycling the thinking level updates that row directly.
 - Pi Plan Build leaves the footer untouched; Pi or another installed extension remains responsible for path, usage, model, provider, thinking, and extension-status information.
 - `/plan`, `/build`, and the `--plan` startup flag.
-- Per-session plans at `~/.pi/agent/plans/<session-id>.md`.
+- Per-task plans at `~/.pi/agent/plans/<session-id>-001.md`, `-002.md`, etc., with the active plan and completion status persisted in the session. Existing `<session-id>.md` plans remain usable.
 - In Plan mode, built-in `edit` and `write` are restricted to the exact plan file.
 - Interactive `question`, `plan_enter`, and `plan_exit` tools.
 - Plan mode supports read-only conversation and research across multiple turns, then persists the final plan when it is ready for approval.
@@ -82,12 +82,22 @@ Do not install more than one npm, Git, or local copy at the same time; duplicate
 | --- | --- |
 | `Alt+M` | Cycle Build and Plan in any TUI setup |
 | `Tab` | With the custom composer active, cycle modes or accept an active autocomplete selection |
-| `/plan` | Select Plan mode |
+| `/plan` | Resume the unfinished plan, or select a new plan file after completion |
+| `/plan new` | Start a separate task in Plan mode, preserving previous plan files and clearing previous step execution |
+| `/plan done` | In Build mode, explicitly mark the saved plan's implementation complete |
 | `/build` | Select Build mode |
 | `pi --plan` | Start a new session in Plan mode |
 | `/build-fresh` | Start a pending clean-session implementation manually |
 
 The agent may also enter Plan mode with `plan_enter` when planning or investigation is safer than immediate execution.
+
+### Plan lifecycle
+
+One task uses one plan file across discussion, revisions, approval, and temporary mode changes. Approval or the end of an agent turn does **not** mark implementation complete. For normal Build execution, the agent calls `plan_complete` after finishing implementation and required verification; `/plan done` is the manual equivalent. Completing the final step in step-by-step execution also marks the plan complete. The next entry into Plan mode selects a new numbered file without modifying the old one.
+
+Use `/plan new` for an unrelated task before the current plan is finished. It preserves existing files but clears the previous step-by-step execution and pending fresh-session handoff. `/plan new` and `/plan done` require an idle agent. Cancelling step execution does not mark a plan complete.
+
+Plan files are written only when finalizing or revising, not merely when selecting a new task. Reload/resume restores the active file and lifecycle; forks copy the tracked plan into the child session's own file. Legacy unnumbered files are retained without renaming.
 
 ### Plan approval
 
@@ -136,7 +146,7 @@ The integration uses Pi 0.84.2's public fullscreen layout primitives plus a guar
 
 Normal tools remain visible so the model can inspect the project. While a Plan run is active:
 
-- `edit` and `write` are permitted only for the canonical session plan file;
+- `edit` and `write` are permitted only for the active task's plan file;
 - the Plan prompt reserves those mutations for finalizing or explicitly revising the plan, not ordinary conversation or research;
 - other `edit` and `write` calls are blocked by the extension;
 - bash is not restricted at the permission layer, but the Plan prompt explicitly permits read-only exploration only.

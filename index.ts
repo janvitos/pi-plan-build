@@ -39,6 +39,8 @@ import {
 	classifyPlanExitChoice,
 	type FreshImplementationRequest,
 	decodeModeState,
+	decodePlanLifecycle,
+	type PlanLifecycle,
 	extractPromptHistory,
 	formatModeMetadata,
 	formatModeRail,
@@ -71,7 +73,7 @@ const STATUS_KEY = "pi-plan-build-mode";
 const PLAN_STEP_CHOICE = "Implement step by step";
 const PANEL_WIDTH = 64;
 const PANEL_MIN_TERMINAL_WIDTH = 132;
-const MANAGED_TOOLS = new Set(["question", "plan_enter", "plan_exit", "plan_step_control", "plan_step_complete"]);
+const MANAGED_TOOLS = new Set(["question", "plan_enter", "plan_exit", "plan_step_control", "plan_step_complete", "plan_complete"]);
 const MODE_ADDED_TOOLS = new Set([...MANAGED_TOOLS, "edit", "write"]);
 const EMPTY_PARAMETERS = Type.Object({});
 
@@ -83,6 +85,8 @@ interface StoredState {
 	pendingReminder?: "plan" | "build";
 	toolsBeforeModes?: string[];
 	execution?: PlanExecutionState;
+	plan?: PlanLifecycle;
+	planSessionId?: string;
 }
 
 function shorten(filePath: string, cwd: string): string {
@@ -97,6 +101,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let runMode: Mode | undefined;
 	let pendingReminder: PendingReminder;
 	let planPath = "";
+	let planLifecycle: PlanLifecycle = { sequence: 1, status: "open" };
 	let toolsBeforeModes: string[] = [];
 	let currentContext: ExtensionContext | undefined;
 	let requestEditorRender: (() => void) | undefined;
@@ -154,7 +159,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerEntryRenderer(PLAN_STEP_GUIDANCE_ENTRY_TYPE, renderPlanStepGuidance);
 
 	function stateData(): StoredState {
-		return { version: 1, selectedMode, pendingReminder, toolsBeforeModes, ...(execution ? { execution } : {}) };
+		return { version: 1, selectedMode, pendingReminder, toolsBeforeModes, plan: { ...planLifecycle }, planSessionId: currentContext?.sessionManager.getSessionId(), ...(execution ? { execution } : {}) };
 	}
 
 	function persist(): void {
@@ -236,6 +241,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			return undefined;
 		}
 		const summary = formatPlanCompletionSummary(next);
+		planLifecycle = { ...planLifecycle, status: "completed" };
 		execution = undefined;
 		removePanelLayout();
 		persist();
@@ -298,6 +304,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				...base,
 				"question",
 				"plan_enter",
+				...(!execution && planLifecycle.status === "open" && fs.existsSync(planPath) ? ["plan_complete"] : []),
 				...(execution && execution.status !== "completed" ? ["plan_step_control"] : []),
 				...(activePlanStep(execution) ? ["plan_step_complete"] : []),
 			]));
@@ -314,7 +321,36 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			: `No plan file exists yet. When ready to finalize, create your plan at ${planPath} using the write tool.`;
 	}
 
+	function startNewPlan(ctx: ExtensionContext): void {
+		let sequence = planLifecycle.sequence;
+		for (const entry of ctx.sessionManager.getEntries()) {
+			if (entry.type !== "custom" || entry.customType !== STATE_TYPE) continue;
+			const saved = decodePlanLifecycle((entry.data as StoredState | undefined)?.plan);
+			if (saved) sequence = Math.max(sequence, saved.sequence);
+		}
+		do {
+			planPath = makePlanPath(path.join(getAgentDir(), "plans"), ctx.sessionManager.getSessionId(), ++sequence);
+		} while (fs.existsSync(planPath));
+		planLifecycle = { sequence, status: "open" };
+		freshImplementationRequest = undefined;
+		execution = undefined;
+		removePanelLayout();
+		pendingReminder = "plan";
+		persist();
+	}
+
+	function completeCurrentPlan(): void {
+		if ((runMode ?? selectedMode) !== "build") throw new Error("Switch to Build mode before completing implementation");
+		if (execution) throw new Error("Complete or cancel the step-by-step execution first");
+		if (!fs.existsSync(planPath)) throw new Error("No saved plan to complete");
+		planLifecycle = { ...planLifecycle, status: "completed" };
+		freshImplementationRequest = undefined;
+		persist();
+		applyTools("build");
+	}
+
 	async function selectMode(mode: Mode, ctx: ExtensionContext, source: "manual" | "tool"): Promise<void> {
+		if (mode === "plan" && planLifecycle.status === "completed" && (source === "tool" || ctx.isIdle())) startNewPlan(ctx);
 		if (mode === selectedMode && (source === "manual" || mode === runMode)) return;
 		const previous = selectedMode;
 		if (mode === "plan") await ensurePlanDirectory();
@@ -336,8 +372,32 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	}
 
 	pi.registerCommand("plan", {
-		description: "Switch to Plan mode",
-		handler: async (_args, ctx) => selectMode("plan", ctx, "manual"),
+		description: "Switch to Plan mode; new starts a separate task, done marks implementation complete",
+		getArgumentCompletions: (prefix) => ["new", "done"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value })),
+		handler: async (args, ctx) => {
+			const action = args.trim();
+			if (!action) return selectMode("plan", ctx, "manual");
+			if (action !== "new" && action !== "done") {
+				ctx.ui.notify("Usage: /plan [new|done]", "warning");
+				return;
+			}
+			if (!ctx.isIdle()) {
+				ctx.ui.notify("Wait for the agent to finish before changing the active plan.", "warning");
+				return;
+			}
+			if (action === "done") {
+				try {
+					completeCurrentPlan();
+					ctx.ui.notify("Plan completed. The next planning task will use a new file.", "info");
+				} catch (error) {
+					ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning");
+				}
+				return;
+			}
+			startNewPlan(ctx);
+			await selectMode("plan", ctx, "manual");
+			ctx.ui.notify(`New plan: ${shorten(planPath, ctx.cwd)}. Previous plan files are preserved.`, "info");
+		},
 	});
 	pi.registerCommand("build", {
 		description: "Switch to Build mode",
@@ -402,6 +462,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 							destinationPlanPath = makePlanPath(
 								path.join(getAgentDir(), "plans"),
 								sessionManager.getSessionId(),
+								1,
 							);
 							await fs.promises.mkdir(path.dirname(destinationPlanPath), { recursive: true });
 							await fs.promises.writeFile(destinationPlanPath, request.plan, "utf8");
@@ -412,6 +473,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 								selectedMode: "build",
 								pendingReminder: "build",
 								toolsBeforeModes: sourceTools,
+								plan: { sequence: 1, status: "open" },
+								planSessionId: sessionManager.getSessionId(),
 							} satisfies StoredState);
 						} catch (error: unknown) {
 							setupError = error instanceof Error ? error.message : String(error);
@@ -455,6 +518,22 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					// The source command context may be stale after partial session replacement.
 				}
 			}
+		},
+	});
+
+	pi.registerTool({
+		name: "plan_complete",
+		label: "Complete Plan",
+		description: "Mark the current saved plan complete only after its implementation and required verification are finished, or the user explicitly confirms completion. Do not call for partial work, pauses, errors, or merely approving a plan. Preserves the plan file; the next planning task gets a new file.",
+		promptGuidelines: ["Call plan_complete when the current saved plan has been fully implemented and verified; do not infer completion merely from the end of a turn."],
+		parameters: EMPTY_PARAMETERS,
+		executionMode: "sequential",
+		async execute() {
+			completeCurrentPlan();
+			return {
+				content: [{ type: "text", text: "Plan marked complete and preserved. Summarize the implementation and verification for the user." }],
+				details: { planPath, completed: true },
+			};
 		},
 	});
 
@@ -735,6 +814,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		applyTools(runMode);
 		let content: string | undefined;
 		if (runMode === "plan") {
+			if (planLifecycle.status === "completed") startNewPlan(ctx);
 			await ensurePlanDirectory();
 			content = buildPlanReminder(describePlanFile());
 		} else if (activePlanStep(execution)) {
@@ -744,7 +824,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			content = buildPlanStepWaitingReminder(execution.steps.map((step, index) => `${index + 1}. [${step.status}] ${step.text}`).join("\n"));
 		} else if (pendingReminder === "build") {
 			content = PLAN_TO_BUILD_REMINDER;
-			if (fs.existsSync(planPath)) content += `\n\nA plan file exists at ${planPath}. You should execute the plan defined within it.`;
+			if (planLifecycle.status === "open" && fs.existsSync(planPath)) content += `\n\nA plan file exists at ${planPath}. You should execute the plan defined within it.`;
 		}
 		pendingReminder = undefined;
 		persist();
@@ -772,7 +852,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		composerMountingEditorFactory = undefined;
 		reducedOptionalUi = false;
 		reducedUiNoticeShown = false;
-		const entries = ctx.sessionManager.getEntries();
+		const entries = ctx.sessionManager.getBranch();
 		const latest = entries
 			.filter(
 				(entry: any) =>
@@ -789,7 +869,18 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		toolsBeforeModes = Array.isArray(raw?.toolsBeforeModes)
 			? raw.toolsBeforeModes.filter((name): name is string => typeof name === "string" && !MANAGED_TOOLS.has(name))
 			: pi.getActiveTools().filter((name) => !MANAGED_TOOLS.has(name));
-		planPath = makePlanPath(path.join(getAgentDir(), "plans"), ctx.sessionManager.getSessionId());
+		const plansDir = path.join(getAgentDir(), "plans");
+		const legacyPath = makePlanPath(plansDir, ctx.sessionManager.getSessionId());
+		planLifecycle = decodePlanLifecycle(raw?.plan) ?? { sequence: fs.existsSync(legacyPath) || execution ? 0 : 1, status: "open" };
+		planPath = makePlanPath(plansDir, ctx.sessionManager.getSessionId(), planLifecycle.sequence);
+		if (event.reason === "fork" && typeof raw?.planSessionId === "string" && raw.planSessionId !== ctx.sessionManager.getSessionId()) {
+			const sourcePath = makePlanPath(plansDir, raw.planSessionId, planLifecycle.sequence);
+			if (fs.existsSync(sourcePath) && !fs.existsSync(planPath)) {
+				await ensurePlanDirectory();
+				await fs.promises.copyFile(sourcePath, planPath, fs.constants.COPYFILE_EXCL);
+			}
+		}
+		persist();
 		if (selectedMode === "plan" || execution) await ensurePlanDirectory();
 		if (execution && !fs.existsSync(planPath)) await fs.promises.writeFile(planPath, execution.planMarkdown, "utf8");
 		applyTools(selectedMode);

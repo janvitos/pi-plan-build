@@ -230,9 +230,24 @@ export function sanitizeSessionId(value: string | undefined): string {
 	return cleaned || "ephemeral";
 }
 
-export function makePlanPath(plansDir: string, sessionId: string | undefined): string {
+export interface PlanLifecycle {
+	sequence: number;
+	status: "open" | "completed";
+}
+
+export function decodePlanLifecycle(value: unknown): PlanLifecycle | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const candidate = value as Partial<PlanLifecycle>;
+	if (!Number.isSafeInteger(candidate.sequence) || candidate.sequence! < 0 ||
+		(candidate.status !== "open" && candidate.status !== "completed")) return undefined;
+	return { sequence: candidate.sequence!, status: candidate.status };
+}
+
+export function makePlanPath(plansDir: string, sessionId: string | undefined, sequence = 0): string {
+	if (!Number.isSafeInteger(sequence) || sequence < 0) throw new Error("Invalid plan sequence");
 	const root = path.resolve(plansDir);
-	const candidate = path.resolve(root, `${sanitizeSessionId(sessionId)}.md`);
+	const suffix = sequence === 0 ? "" : `-${String(sequence).padStart(3, "0")}`;
+	const candidate = path.resolve(root, `${sanitizeSessionId(sessionId)}${suffix}.md`);
 	if (path.dirname(candidate) !== root) throw new Error("Generated plan path escaped the plans directory");
 	return candidate;
 }
