@@ -26,8 +26,8 @@ jobs:
       - name: Install current npm
         run: npm install --global npm@latest
 
-      - name: Install peer dependencies for prepublish tests
-        run: npm install --ignore-scripts --no-package-lock
+      - name: Install tested Pi baseline for prepublish tests
+        run: npm install --ignore-scripts --no-package-lock --no-save @earendil-works/pi-coding-agent@0.84.2 @earendil-works/pi-tui@0.84.2
 
       - name: Publish package
         run: npm publish --access public --provenance
