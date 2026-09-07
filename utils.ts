@@ -1,4 +1,5 @@
 import path from "node:path";
+import { VERIFICATION_GUIDANCE } from "./prompts.ts";
 
 export type Mode = "build" | "plan";
 
@@ -188,7 +189,7 @@ export function buildFreshImplementationRequest(
 }
 
 export function buildFreshImplementationHandoff(plan: string): string {
-	return `Plan mode is now disabled. Full tool access is restored. Implement this approved plan now:\n\n${plan}`;
+	return `Plan mode is now disabled. Full tool access is restored.\n\n${VERIFICATION_GUIDANCE}\n\nImplement this approved plan now:\n\n${plan}`;
 }
 
 export function buildPlanExitStayResult(planPath: string, cancelled: boolean) {

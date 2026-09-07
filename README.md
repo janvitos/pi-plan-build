@@ -159,6 +159,14 @@ Plan mode follows OpenCode’s standard conversational lifecycle while retaining
 
 Once the request is sufficiently understood and the agent is ready to present the final implementation plan—or the user explicitly asks it to finalize—the agent writes the complete canonical plan and calls `plan_exit`. An existing plan file does not trigger automatic edits during unrelated discussion.
 
+### Minimal verification
+
+Plan and implementation prompts instruct agents to **use the smallest sufficient verification, then stop**. Default to one focused behavioral check using existing repository tools, with an exact command and expected result—not a rigid one-command limit. Add or update a small test when existing coverage misses the change; prose-only edits can use focused inspection. Builds and type-checks are appropriate for some changes but do not by themselves prove runtime behavior.
+
+Additional checks need a concrete uncovered behavior or risk, an observed failure, or an explicit user/repository requirement. Passing planned checks do not automatically trigger full suites, packaging checks, or extra smoke tests. Step-by-step execution reuses still-valid results instead of repeating plan-wide checks; checks requiring later steps are explicitly deferred. Agents report blocked or unperformed checks rather than claiming success.
+
+The same policy is included in Build transitions and clean-session handoffs. These are model instructions, not runtime test limits or guarantees of compliance; repository and release/CI requirements still apply.
+
 ## Design and attribution
 
 Pi Plan & Build is an independent extension with its own workflow and UI behavior. Its conversational read-only lifecycle follows OpenCode’s standard Plan agent, while persisted finalization and approval are adapted for Pi. Earlier prompt and transition semantics were informed by OpenCode 1.18.16, and clean-session implementation ideas were informed by the former `pi-plan-mode` extension. The mode-colored transcript rail decorates Pi's exported `UserMessageComponent` because Pi does not currently expose a built-in user-message renderer hook; this compatibility layer is guarded against duplicate installation on reload. This project is not affiliated with either project.

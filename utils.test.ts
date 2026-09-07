@@ -2,7 +2,15 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { buildPlanReminder, buildPlanStepReminder, buildPlanStepWaitingReminder, PLAN_EXIT_DESCRIPTION } from "./prompts.ts";
+import {
+	buildPlanReminder,
+	buildPlanStepReminder,
+	buildPlanStepWaitingReminder,
+	PLAN_EXIT_DESCRIPTION,
+	PLAN_STEP_COMPLETE_DESCRIPTION,
+	PLAN_TO_BUILD_REMINDER,
+	VERIFICATION_GUIDANCE,
+} from "./prompts.ts";
 import {
 	applyManualSelection,
 	buildFreshImplementationHandoff,
@@ -286,7 +294,10 @@ test("plan guidance supports conversation before persisted finalization", () => 
 	assert.match(reminder, /avoid exhaustive regression, edge-case, performance, or compatibility testing/);
 	assert.match(reminder, /standalone bold labels without colons/);
 	assert.match(reminder, /Place `\*\*Agent\*\*` on its own line/);
-	assert.match(reminder, /targeted behavior-level test or smoke check/);
+	assert.match(reminder, /behavioral test or smoke check/);
+	assert.match(reminder, /execution remains deferred until approval/);
+	assert.match(reminder, /specific inspection action when no command is needed/);
+	assert.match(reminder, /disclose that limitation rather than treating a build or type-check as equivalent/);
 	assert.match(reminder, /exact repository-supported command and a short expected observable result/);
 	assert.match(reminder, /Never invent commands/);
 	assert.match(reminder, /place `\*\*User\*\*` on its own line/);
@@ -298,12 +309,43 @@ test("plan guidance supports conversation before persisted finalization", () => 
 	assert.match(reminder, /## Implementation Steps/);
 });
 
+test("verification policy reaches planning and every implementation handoff", () => {
+	const prompts = [
+		buildPlanReminder("Plan path: /tmp/plan.md"),
+		PLAN_TO_BUILD_REMINDER,
+		buildFreshImplementationHandoff("Approved plan"),
+		buildPlanStepReminder("/tmp/plan.md", 1, 2, "Update behavior"),
+	];
+	for (const prompt of prompts) {
+		assert.equal(prompt.split(VERIFICATION_GUIDANCE).length, 2);
+	}
+	assert.match(VERIFICATION_GUIDANCE, /Use the smallest sufficient verification, then stop/);
+	assert.match(VERIFICATION_GUIDANCE, /Default to one focused check/);
+	assert.match(VERIFICATION_GUIDANCE, /Scope by behavior and risk, not command count/);
+	assert.match(VERIFICATION_GUIDANCE, /Add or update a small test in existing infrastructure/);
+	assert.match(VERIFICATION_GUIDANCE, /not as automatic extras/);
+	assert.match(VERIFICATION_GUIDANCE, /For prose-only changes, focused inspection is sufficient/);
+	assert.match(VERIFICATION_GUIDANCE, /Add checks only for a concrete uncovered behavior or risk, an observed failure, or an explicit user\/repository requirement/);
+	assert.match(VERIFICATION_GUIDANCE, /Briefly explain why each additional check is necessary/);
+	assert.match(VERIFICATION_GUIDANCE, /use the approved Verification section as the scope/);
+	assert.match(VERIFICATION_GUIDANCE, /Once sufficient required checks pass, stop/);
+	assert.match(VERIFICATION_GUIDANCE, /Reuse passing results unless subsequent changes could invalidate them/);
+	assert.match(VERIFICATION_GUIDANCE, /Do not repeat plan-wide verification after every implementation step/);
+	assert.match(VERIFICATION_GUIDANCE, /Report what passed and what remains unverified, including blocked checks/);
+	assert.match(VERIFICATION_GUIDANCE, /Never claim unperformed checks passed, weaken checks to obtain a pass, or fix unrelated failures/);
+});
+
 test("step execution prompts constrain work to an approved active step", () => {
 	const reminder = buildPlanStepReminder("/tmp/plan.md", 2, 4, "Build the parser");
 	assert.match(reminder, /only step 2 of 4/);
 	assert.match(reminder, /Build the parser/);
 	assert.match(reminder, /Do not begin any later plan step/);
 	assert.match(reminder, /plan_step_complete/);
+	assert.match(reminder, /Validate only the active step as needed/);
+	assert.match(reminder, /Defer checks that depend on later steps/);
+	assert.match(reminder, /explicitly report those deferrals, not a passing result/);
+	assert.match(PLAN_STEP_COMPLETE_DESCRIPTION, /completing its applicable verification/);
+	assert.match(PLAN_STEP_COMPLETE_DESCRIPTION, /report checks deferred to later steps without claiming they passed/);
 	const waiting = buildPlanStepWaitingReminder("1. [ready] Build parser");
 	assert.match(waiting, /No plan step is currently approved/);
 	assert.match(waiting, /Do not modify the project/);
