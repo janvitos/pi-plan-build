@@ -2,9 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CustomEditor, getAgentDir, getMarkdownTheme, parseSkillBlock, type EntryRenderer, type ExtensionAPI, type ExtensionContext, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { HStack, Key, Markdown, matchesKey, Text, truncateToWidth, visibleWidth, isViewportTUI, type Component, type TUI, type ViewportTUI } from "@earendil-works/pi-tui";
+import { HStack, Markdown, matchesKey, Text, truncateToWidth, visibleWidth, isViewportTUI, type Component, type TUI, type ViewportTUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerQuestionTool } from "./question-ui.ts";
+import { loadShortcutConfig } from "./shortcut-config.ts";
 import {
 	buildPlanReminder,
 	buildPlanStepReminder,
@@ -97,6 +98,8 @@ function shorten(filePath: string, cwd: string): string {
 }
 
 export default function planBuildModes(pi: ExtensionAPI): void {
+	const { config: shortcutConfig, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(getAgentDir());
+	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
 	let runMode: Mode | undefined;
 	let pendingReminder: PendingReminder;
@@ -403,10 +406,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		description: "Switch to Build mode",
 		handler: async (_args, ctx) => selectMode("build", ctx, "manual"),
 	});
-	pi.registerShortcut("alt+m", {
-		description: "Cycle Plan and Build modes",
-		handler: async (ctx) => selectMode(nextMode(selectedMode), ctx, "manual"),
-	});
+	for (const shortcut of shortcutConfig.toggleMode) {
+		pi.registerShortcut(shortcut, {
+			description: "Cycle Plan and Build modes",
+			handler: async (ctx) => selectMode(nextMode(selectedMode), ctx, "manual"),
+		});
+	}
 	pi.registerCommand("build-fresh", {
 		description: "Start a clean linked session and implement the plan selected in plan_exit",
 		handler: async (_args, ctx) => {
@@ -848,6 +853,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.on("session_start", async (event, ctx) => {
 		userMessageRail.activate();
 		currentContext = ctx;
+		if (shortcutConfigWarning && !shortcutConfigWarningShown && ctx.hasUI) {
+			shortcutConfigWarningShown = true;
+			ctx.ui.notify(
+				`Invalid Pi Plan Build shortcut configuration at ${shortcutConfigPath}: ${shortcutConfigWarning}. Safe defaults were used for invalid actions.`,
+				"warning",
+			);
+		}
 		installedEditorFactory = undefined;
 		composerMountingEditorFactory = undefined;
 		reducedOptionalUi = false;
@@ -892,6 +904,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			class ModeEditor extends CustomEditor {
 				onCycle?: () => void;
 				onCycleThinking?: () => void;
+				matchesModeToggle?: (data: string) => boolean;
 				matchesThinkingCycle?: (data: string) => boolean;
 
 				requestModeRender(): void {
@@ -939,13 +952,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				}
 
 				override handleInput(data: string): void {
+					if (!reducedOptionalUi && !this.isShowingAutocomplete() && this.matchesModeToggle?.(data)) {
+						this.onCycle?.();
+						return;
+					}
 					if (!reducedOptionalUi && this.matchesThinkingCycle?.(data)) {
 						if (this.onExtensionShortcut?.(data)) return;
 						this.onCycleThinking?.();
-						return;
-					}
-					if (!reducedOptionalUi && matchesKey(data, Key.tab) && !this.isShowingAutocomplete()) {
-						this.onCycle?.();
 						return;
 					}
 					super.handleInput(data);
@@ -966,6 +979,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				editor.onCycle = () => {
 					if (currentContext) void selectMode(nextMode(selectedMode), currentContext, "manual");
 				};
+				editor.matchesModeToggle = (data) => shortcutConfig.toggleModeInEditor.some((shortcut) => matchesKey(data, shortcut));
 				editor.matchesThinkingCycle = (data) =>
 					keybindings.matches(data, "app.thinking.cycle") &&
 					!keybindings.matches(data, "tui.editor.historyPrevious") &&
