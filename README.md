@@ -25,7 +25,7 @@ Optionally keep the approved plan visible in a docked side panel while implement
 ## Features
 
 - New sessions start in **Build** mode.
-- `Alt+M` cycles **Build → Plan → Build** in every TUI setup. Pi Plan Build leaves Pi's native `Tab` autocomplete behavior unchanged by default; its mode shortcuts are configurable per user.
+- By default, `Alt+M` cycles **Build → Plan → Build** in every TUI setup, and `Tab` also cycles modes in Pi Plan Build's custom composer while autocomplete is closed. An open autocomplete menu keeps normal Tab selection. Use `/plan-settings` to restore Tab-triggered file completion or configure your own shortcuts.
 - The custom composer uses OpenCode prompt-inspired blue/orange mode colors on the rounded top-left border and left rail, complemented by Pi's border color on the right rail and rounded bottom-right border; rounded corners inherit their vertical rail colors while horizontal `╌` segments bridge the borders at both junctions, paired with a light vertical `┆` at the top right and a mode-specific bottom-left transition: thin `┆` in Plan and heavy `┇` in Build. The active composer and submitted user messages use a continuous solid thin `│` left rail in both modes. These rails use the active Pi theme's `warning` color in Plan and `thinkingLow` color in Build, and submitted messages retain their original mode after mode changes and session restores. Its metadata row shows mode, model, provider, and thinking level; cycling the thinking level updates that row directly.
 - Pi Plan Build leaves the footer untouched; Pi or another installed extension remains responsible for path, usage, model, provider, thinking, and extension-status information.
 - `/plan`, `/build`, and the `--plan` startup flag.
@@ -81,7 +81,8 @@ Do not install more than one npm, Git, or local copy at the same time; duplicate
 | Action | Result |
 | --- | --- |
 | `Alt+M` | Default shortcut to cycle Build and Plan in any TUI setup |
-| Configured editor shortcut | Cycle modes only in Pi Plan Build's custom composer, without intercepting an open autocomplete selection |
+| `Tab` (default editor shortcut) | With the custom composer active, cycle modes when autocomplete is closed; accept a suggestion when it is open |
+| `/plan-settings` | Choose a shortcut preset or locate the custom configuration file |
 | `/plan` | Resume the unfinished plan, or select a new plan file after completion |
 | `/plan new` | Start a separate task in Plan mode, preserving previous plan files and clearing previous step execution |
 | `/plan done` | In Build mode, explicitly mark the saved plan's implementation complete |
@@ -91,18 +92,29 @@ Do not install more than one npm, Git, or local copy at the same time; duplicate
 
 ### Shortcut configuration
 
+Run `/plan-settings` to see the active shortcuts and choose:
+
+- **Tab + Alt+M** (default): keep the existing mode-switching workflow.
+- **Alt+M only**: leave Tab entirely to Pi autocomplete.
+- **Disabled**: use `/plan` and `/build` without mode shortcuts.
+- **Custom (edit config file)**: show the file path and an example without changing your configuration.
+
+Presets update the same configuration file used for custom shortcuts and preserve unrelated settings. Cancel makes no changes. Run `/reload` after saving a preset or manually editing the file; the active shortcuts stay unchanged until reload. The selector refuses to overwrite malformed JSON.
+
+**Tab tradeoff:** Pi normally uses Tab to request file completion even with no menu open (for example, `Review READ` + Tab can suggest `README.md`). The default editor shortcut intentionally replaces that action with mode switching. It does not interfere with accepting a suggestion from an already-open menu. Choose **Alt+M only** if you use Tab to request completion.
+
 Pi Plan Build reads its user configuration from `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`). The default behavior is equivalent to:
 
 ```json
 {
   "shortcuts": {
     "toggleMode": ["alt+m"],
-    "toggleModeInEditor": []
+    "toggleModeInEditor": ["tab"]
   }
 }
 ```
 
-`toggleMode` works in every TUI setup. `toggleModeInEditor` works only while Pi Plan Build's custom composer is active. Each action accepts one Pi key string or an array of keys. Use an empty array to disable that action; disable both to remove every Plan Build mode shortcut.
+`toggleMode` registers global shortcuts through Pi and follows Pi's built-in conflict rules: reserved shortcuts may be skipped with a warning. `toggleModeInEditor` works only while Pi Plan Build's custom composer is active and yields while autocomplete is open. Each action accepts one Pi key string or an array of keys. Use an empty array to disable that action; disable both to remove every Plan Build mode shortcut. Omitted actions retain their defaults. For Alt+M only, set `toggleModeInEditor` to `[]`.
 
 ```json
 {
@@ -113,7 +125,9 @@ Pi Plan Build reads its user configuration from `~/.pi/agent/pi-plan-build.json`
 }
 ```
 
-Use Pi's `modifier+key` syntax, such as `ctrl+alt+m`, `shift+tab`, or `f6`. A configured editor key is ignored while Pi displays an autocomplete list, so the normal completion key still accepts the selected item. Configure `"tab"` only when you intentionally want it to switch modes whenever autocomplete is not already open. Run `/reload` after editing the file. Invalid JSON or key strings show a warning and use safe defaults for the affected action.
+Use lowercase Pi `modifier+key` syntax, such as `ctrl+alt+m`, `ctrl+shift+m`, or `f6` (navigation names include `pageUp` and `pageDown`). Put bare `"tab"` only in `toggleModeInEditor`; a global Tab binding is rejected because it would intercept open-menu completion too. Avoid assigning the same key to both actions if you want editor-only autocomplete protection: global shortcuts still run while a menu is open.
+
+Known unsupported matcher forms, including `+`/`ctrl++`, modified Escape, and modified function keys, are rejected. Advanced modifier combinations depend on terminal support; legacy terminals may report different key combinations identically. Invalid JSON or key strings show a warning and use the defaults above for affected actions, including Tab for an invalid editor action.
 
 The agent may also enter Plan mode with `plan_enter` when planning or investigation is safer than immediate execution.
 
