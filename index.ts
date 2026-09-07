@@ -2,9 +2,10 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CustomEditor, getAgentDir, getMarkdownTheme, parseSkillBlock, type EntryRenderer, type ExtensionAPI, type ExtensionContext, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { HStack, Key, Markdown, matchesKey, Text, truncateToWidth, visibleWidth, isViewportTUI, type Component, type TUI, type ViewportTUI } from "@earendil-works/pi-tui";
+import { HStack, Markdown, matchesKey, Text, truncateToWidth, visibleWidth, isViewportTUI, type Component, type TUI, type ViewportTUI } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { registerQuestionTool } from "./question-ui.ts";
+import { loadShortcutConfig, saveShortcutPreset, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
 	buildPlanReminder,
 	buildPlanStepReminder,
@@ -97,6 +98,9 @@ function shorten(filePath: string, cwd: string): string {
 }
 
 export default function planBuildModes(pi: ExtensionAPI): void {
+	const shortcutAgentDir = getAgentDir();
+	const { config: shortcutConfig, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
+	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
 	let runMode: Mode | undefined;
 	let pendingReminder: PendingReminder;
@@ -207,7 +211,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		if (!reducedUiNoticeShown) {
 			reducedUiNoticeShown = true;
 			ctx.ui.notify(
-				"Another extension owns Pi's custom editor or fullscreen layout. Pi Plan Build disabled its custom composer and experimental step-by-step panel; Plan and Build workflows remain available through Alt+M, /plan, and /build.",
+				`Another extension owns Pi's custom editor or fullscreen layout. Pi Plan Build disabled its custom composer and experimental step-by-step panel; Plan and Build workflows remain available through ${shortcutConfig.toggleMode.length ? `${shortcutConfig.toggleMode.join(", ")}, ` : ""}/plan, and /build.`,
 				"warning",
 			);
 		}
@@ -403,10 +407,37 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		description: "Switch to Build mode",
 		handler: async (_args, ctx) => selectMode("build", ctx, "manual"),
 	});
-	pi.registerShortcut("alt+m", {
-		description: "Cycle Plan and Build modes",
-		handler: async (ctx) => selectMode(nextMode(selectedMode), ctx, "manual"),
+	pi.registerCommand("plan-settings", {
+		description: "Choose Plan/Build shortcuts or locate the custom shortcut configuration",
+		handler: async (_args, ctx) => {
+			if (!ctx.hasUI) return;
+			const customOption = "Custom (edit config file)";
+			const selected = await ctx.ui.select(
+				`Plan/Build shortcuts — active: ${shortcutPresetLabel(shortcutConfig)} (global: ${shortcutConfig.toggleMode.join(", ") || "none"}; editor: ${shortcutConfig.toggleModeInEditor.join(", ") || "none"})`,
+				[...Object.keys(SHORTCUT_PRESETS), customOption],
+			);
+			if (!selected) return;
+			if (selected === customOption) {
+				ctx.ui.notify(
+					`Edit ${shortcutConfigPath}, then run /reload. Example: {"shortcuts":{"toggleMode":["ctrl+alt+m"],"toggleModeInEditor":["tab"]}}. Use [] to disable an action. Put Tab only in toggleModeInEditor; it switches modes when autocomplete is closed instead of requesting file completion.`,
+					"info",
+				);
+				return;
+			}
+			try {
+				saveShortcutPreset(shortcutAgentDir, selected);
+				ctx.ui.notify(`Saved ${selected} to ${shortcutConfigPath}. Run /reload to apply the shortcuts.`, "info");
+			} catch (error) {
+				ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+			}
+		},
 	});
+	for (const shortcut of shortcutConfig.toggleMode) {
+		pi.registerShortcut(shortcut, {
+			description: "Cycle Plan and Build modes",
+			handler: async (ctx) => selectMode(nextMode(selectedMode), ctx, "manual"),
+		});
+	}
 	pi.registerCommand("build-fresh", {
 		description: "Start a clean linked session and implement the plan selected in plan_exit",
 		handler: async (_args, ctx) => {
@@ -848,6 +879,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.on("session_start", async (event, ctx) => {
 		userMessageRail.activate();
 		currentContext = ctx;
+		if (shortcutConfigWarning && !shortcutConfigWarningShown && ctx.hasUI) {
+			shortcutConfigWarningShown = true;
+			ctx.ui.notify(
+				`Invalid Pi Plan Build shortcut configuration at ${shortcutConfigPath}: ${shortcutConfigWarning}. Default shortcuts were used for invalid actions.`,
+				"warning",
+			);
+		}
 		installedEditorFactory = undefined;
 		composerMountingEditorFactory = undefined;
 		reducedOptionalUi = false;
@@ -892,6 +930,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			class ModeEditor extends CustomEditor {
 				onCycle?: () => void;
 				onCycleThinking?: () => void;
+				matchesModeToggle?: (data: string) => boolean;
 				matchesThinkingCycle?: (data: string) => boolean;
 
 				requestModeRender(): void {
@@ -939,13 +978,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				}
 
 				override handleInput(data: string): void {
+					if (!reducedOptionalUi && !this.isShowingAutocomplete() && this.matchesModeToggle?.(data)) {
+						this.onCycle?.();
+						return;
+					}
 					if (!reducedOptionalUi && this.matchesThinkingCycle?.(data)) {
 						if (this.onExtensionShortcut?.(data)) return;
 						this.onCycleThinking?.();
-						return;
-					}
-					if (!reducedOptionalUi && matchesKey(data, Key.tab) && !this.isShowingAutocomplete()) {
-						this.onCycle?.();
 						return;
 					}
 					super.handleInput(data);
@@ -966,6 +1005,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				editor.onCycle = () => {
 					if (currentContext) void selectMode(nextMode(selectedMode), currentContext, "manual");
 				};
+				editor.matchesModeToggle = (data) => shortcutConfig.toggleModeInEditor.some((shortcut) => matchesKey(data, shortcut));
 				editor.matchesThinkingCycle = (data) =>
 					keybindings.matches(data, "app.thinking.cycle") &&
 					!keybindings.matches(data, "tui.editor.historyPrevious") &&
