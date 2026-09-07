@@ -25,7 +25,7 @@ Optionally keep the approved plan visible in a docked side panel while implement
 ## Features
 
 - New sessions start in **Build** mode.
-- `Alt+M` cycles **Build → Plan → Build** in every TUI setup. With Pi Plan Build's custom composer active, bare `Tab` also cycles modes while active autocomplete dropdowns retain Pi's normal Tab completion.
+- `Alt+M` cycles **Build → Plan → Build** in every TUI setup. Pi Plan Build leaves Pi's native `Tab` autocomplete behavior unchanged by default; its mode shortcuts are configurable per user.
 - The custom composer uses OpenCode prompt-inspired blue/orange mode colors on the rounded top-left border and left rail, complemented by Pi's border color on the right rail and rounded bottom-right border; rounded corners inherit their vertical rail colors while horizontal `╌` segments bridge the borders at both junctions, paired with a light vertical `┆` at the top right and a mode-specific bottom-left transition: thin `┆` in Plan and heavy `┇` in Build. The active composer and submitted user messages use a continuous solid thin `│` left rail in both modes. These rails use the active Pi theme's `warning` color in Plan and `thinkingLow` color in Build, and submitted messages retain their original mode after mode changes and session restores. Its metadata row shows mode, model, provider, and thinking level; cycling the thinking level updates that row directly.
 - Pi Plan Build leaves the footer untouched; Pi or another installed extension remains responsible for path, usage, model, provider, thinking, and extension-status information.
 - `/plan`, `/build`, and the `--plan` startup flag.
@@ -80,14 +80,40 @@ Do not install more than one npm, Git, or local copy at the same time; duplicate
 
 | Action | Result |
 | --- | --- |
-| `Alt+M` | Cycle Build and Plan in any TUI setup |
-| `Tab` | With the custom composer active, cycle modes or accept an active autocomplete selection |
+| `Alt+M` | Default shortcut to cycle Build and Plan in any TUI setup |
+| Configured editor shortcut | Cycle modes only in Pi Plan Build's custom composer, without intercepting an open autocomplete selection |
 | `/plan` | Resume the unfinished plan, or select a new plan file after completion |
 | `/plan new` | Start a separate task in Plan mode, preserving previous plan files and clearing previous step execution |
 | `/plan done` | In Build mode, explicitly mark the saved plan's implementation complete |
 | `/build` | Select Build mode |
 | `pi --plan` | Start a new session in Plan mode |
 | `/build-fresh` | Start a pending clean-session implementation manually |
+
+### Shortcut configuration
+
+Pi Plan Build reads its user configuration from `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`). The default behavior is equivalent to:
+
+```json
+{
+  "shortcuts": {
+    "toggleMode": ["alt+m"],
+    "toggleModeInEditor": []
+  }
+}
+```
+
+`toggleMode` works in every TUI setup. `toggleModeInEditor` works only while Pi Plan Build's custom composer is active. Each action accepts one Pi key string or an array of keys. Use an empty array to disable that action; disable both to remove every Plan Build mode shortcut.
+
+```json
+{
+  "shortcuts": {
+    "toggleMode": "ctrl+alt+m",
+    "toggleModeInEditor": ["ctrl+shift+m"]
+  }
+}
+```
+
+Use Pi's `modifier+key` syntax, such as `ctrl+alt+m`, `shift+tab`, or `f6`. A configured editor key is ignored while Pi displays an autocomplete list, so the normal completion key still accepts the selected item. Configure `"tab"` only when you intentionally want it to switch modes whenever autocomplete is not already open. Run `/reload` after editing the file. Invalid JSON or key strings show a warning and use safe defaults for the affected action.
 
 The agent may also enter Plan mode with `plan_enter` when planning or investigation is safer than immediate execution.
 

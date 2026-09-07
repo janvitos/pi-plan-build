@@ -1,12 +1,16 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import test from "node:test";
 import planBuildModes from "./index.ts";
 
-function createHarness(initialEditor?: unknown) {
+function createHarness(initialEditor?: unknown, agentDir?: string) {
 	const handlers = new Map<string, (...args: any[]) => unknown>();
 	const registeredTools = new Map<string, any>();
 	let currentEditor = initialEditor;
 	const editorCalls: unknown[] = [];
+	let createdEditor: any;
 	const statuses: Array<[string, string | undefined]> = [];
 	const notifications: Array<[string, string]> = [];
 	const shortcuts = new Map<string, unknown>();
@@ -50,7 +54,7 @@ function createHarness(initialEditor?: unknown) {
 			setEditorComponent(factory: unknown) {
 				editorCalls.push(factory);
 				currentEditor = factory;
-				if (typeof factory === "function") factory(tui, editorTheme, keybindings);
+				if (typeof factory === "function") createdEditor = factory(tui, editorTheme, keybindings);
 			},
 			setStatus(key: string, text: string | undefined) { statuses.push([key, text]); },
 			notify(message: string, level: string) { notifications.push([message, level]); },
@@ -60,7 +64,14 @@ function createHarness(initialEditor?: unknown) {
 			},
 		},
 	};
-	planBuildModes(pi as any);
+	const previousAgentDir = process.env.PI_CODING_AGENT_DIR;
+	if (agentDir !== undefined) process.env.PI_CODING_AGENT_DIR = agentDir;
+	try {
+		planBuildModes(pi as any);
+	} finally {
+		if (previousAgentDir === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previousAgentDir;
+	}
 	return {
 		handlers,
 		ctx,
@@ -69,6 +80,7 @@ function createHarness(initialEditor?: unknown) {
 		notifications,
 		shortcuts,
 		registeredTools,
+		editor: () => createdEditor,
 		setCurrentEditor(value: unknown) { currentEditor = value; },
 		decorateCurrentEditor() {
 			const base = currentEditor as ((...args: any[]) => unknown) | undefined;
@@ -86,11 +98,27 @@ async function shutdown(harness: ReturnType<typeof createHarness>) {
 	await harness.handlers.get("session_shutdown")?.({ reason: "quit" }, harness.ctx);
 }
 
-test("registers Alt+M without taking Pi's Shift+Tab thinking shortcut", () => {
+test("registers default Alt+M without taking Pi's Shift+Tab thinking shortcut", () => {
 	const harness = createHarness();
 	assert.equal(harness.shortcuts.has("alt+m"), true);
 	assert.equal(harness.shortcuts.has("ctrl+tab"), false);
 	assert.equal(harness.shortcuts.has("shift+tab"), false);
+});
+
+test("leaves bare Tab to Pi's custom-editor handling by default", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-plan-build-ui-"));
+	try {
+		const harness = createHarness(undefined, dir);
+		await start(harness);
+		const editor = harness.editor();
+		assert.ok(editor, "Pi Plan Build should install its custom editor");
+
+		editor.handleInput("\t");
+		await new Promise((resolve) => setImmediate(resolve));
+		assert.match(editor.render(120).join("\n"), /\*\*build\*\*/);
+	} finally {
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
 });
 
 test("exposes plan_exit in the textual tool inventory metadata", () => {

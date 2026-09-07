@@ -27,13 +27,14 @@
     "plan-panel.ts",
     "user-message-rail.ts",
     "utils.ts",
+    "shortcut-config.ts",
     "docs/images"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test utils.test.ts question-ui.test.ts plan-execution.test.ts plan-panel.test.ts user-message-rail.test.ts ui-compat.test.ts plan-lifecycle.test.ts",
+    "test": "node --experimental-strip-types --test utils.test.ts shortcut-config.test.ts question-ui.test.ts plan-execution.test.ts plan-panel.test.ts user-message-rail.test.ts ui-compat.test.ts plan-lifecycle.test.ts",
     "prepublishOnly": "npm test"
   },
   "peerDependencies": {
