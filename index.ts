@@ -824,7 +824,17 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
-		if ((runMode ?? selectedMode) === "build" && execution && execution.status !== "completed" && !activePlanStep(execution) && (event.toolName === "edit" || event.toolName === "write" || event.toolName === "bash")) {
+		const effectiveMode = runMode ?? selectedMode;
+		if (effectiveMode === "build" && (event.toolName === "edit" || event.toolName === "write")) {
+			const inputPath = (event.input as { path?: unknown }).path;
+			if (isAllowedPlanMutation(ctx.cwd, inputPath, planPath)) {
+				return {
+					block: true,
+					reason: "The active plan file is read-only in Build mode. Do not update its checklist markers; report completion through plan_step_complete during step-by-step execution or plan_complete after normal implementation and verification.",
+				};
+			}
+		}
+		if (effectiveMode === "build" && execution && execution.status !== "completed" && !activePlanStep(execution) && (event.toolName === "edit" || event.toolName === "write" || event.toolName === "bash")) {
 			return {
 				block: true,
 				reason: "Step-by-step execution is waiting for an explicit natural-language instruction from the user; no step is approved for project mutations.",

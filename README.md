@@ -182,7 +182,7 @@ Enable fullscreen in `~/.pi/agent/settings.json` and restart Pi:
 
 The integration uses Pi 0.84.2's public fullscreen layout primitives plus a guarded read of its runtime layout root because the current extension API exposes `setLayoutRoot()` but not a corresponding getter. Before installing or removing the panel, Pi Plan Build verifies that it still owns the relevant layout slot. For editor composition, it recognizes a later factory as compatible when that factory invokes Plan Build's editor factory; decorators such as global-history wrappers therefore retain the full composer. A non-composing editor replacement or conflicting layout shows one warning, reports the current mode through Pi's keyed extension status, and disables only the custom composer and new step-by-step panel. Existing restored step progress is retained for prompt-based completion or cancellation.
 
-## Plan-mode permissions
+## Plan-file permissions
 
 Normal tools remain visible so the model can inspect the project. While a Plan run is active:
 
@@ -190,6 +190,8 @@ Normal tools remain visible so the model can inspect the project. While a Plan r
 - the Plan prompt reserves those mutations for finalizing or explicitly revising the plan, not ordinary conversation or research;
 - other `edit` and `write` calls are blocked by the extension;
 - bash is not restricted at the permission layer, but the Plan prompt explicitly permits read-only exploration only.
+
+In Build mode, the active plan file is read-only to agent `edit` and `write` calls. The agent must not check off its Markdown items: normal implementation records whole-plan completion through `plan_complete`, while step-by-step execution records progress through `plan_step_complete`. Extension-controlled revisions of unimplemented step instructions remain supported.
 
 This mirrors the intended permission-oriented workflow rather than hiding normal tool schemas.
 

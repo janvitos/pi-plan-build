@@ -59,10 +59,20 @@ test("plan lifecycle keeps revisions, preserves completed plans, and restores th
 		assert.equal(h.state().plan.sequence, 1, "mode toggles resume unfinished work");
 		await h.tool("plan_exit");
 		assert.equal(h.state().plan.status, "open", "approval is not completion");
+		for (const [toolName, input] of [
+			["edit", { path: first, edits: [{ oldText: "# First task", newText: "# Changed task" }] }],
+			["write", { path: first, content: "# Replaced task\n" }],
+		] as const) {
+			const blocked = await h.event("tool_call", { toolName, input });
+			assert.equal(blocked.block, true, `${toolName} cannot mutate the active plan in Build mode`);
+			assert.match(blocked.reason, /plan_complete/);
+		}
+		assert.equal(fs.readFileSync(first, "utf8"), "# First task\n");
 		await h.event("agent_settled");
 		assert.equal(h.state().plan.status, "open", "settling is not completion");
 		await h.tool("plan_complete");
 		assert.equal(h.active().includes("plan_complete"), false);
+		assert.equal(fs.readFileSync(first, "utf8"), "# First task\n", "completion preserves the approved plan");
 		await h.command("");
 		assert.equal(h.state().plan.sequence, 2);
 		assert.equal(fs.readFileSync(first, "utf8"), "# First task\n");
