@@ -38,7 +38,7 @@ Optionally keep the approved plan visible in a docked side panel while implement
   - **Switch to Build and implement here**
   - **Start fresh and implement**
   - **Stay in Plan mode**
-- **Experimental:** In fullscreen TUI, valid checklist plans also offer **Implement step by step** when Pi Plan Build owns the optional fullscreen layout: a passive, non-overlapping docked right panel keeps the plan visible while natural-language prompts gate steps and report completed work. The panel is visual-only and never captures keyboard input. This feature is still under active development.
+- **Experimental:** In fullscreen TUI, plans with valid implementation steps also offer **Implement step by step** when Pi Plan Build owns the optional fullscreen layout: a passive, non-overlapping docked right panel keeps the plan visible while natural-language prompts gate steps and report completed work. The panel is visual-only and never captures keyboard input. This feature is still under active development.
 - Compatible editor decorators can wrap Pi Plan Build's editor without disabling its composer. If another extension replaces rather than invokes that editor, already owns the editor before Plan Build starts, or replaces the fullscreen layout, Plan Build automatically uses reduced UI: it keeps the core Plan/Build workflow and mode status but does not replace that editor or offer a new step-by-step panel.
 - Staying in Plan mode—or pressing Escape in the approval dialog—produces a durable acknowledgement and stops the run until the user responds.
 - Plan mode state survives compactions, reloads, resumes, and forks.
@@ -146,23 +146,36 @@ When planning is complete, `plan_exit` displays the entire persisted plan and as
 1. implement in the current session;
 2. start a clean linked implementation session;
 3. stay in Plan mode; or
-4. **experimentally implement step by step** in fullscreen TUI when the plan contains a valid checklist and no other extension owns the optional editor/layout UI.
+4. **experimentally implement step by step** in fullscreen TUI when the plan contains a valid implementation-step list and no other extension owns the optional editor/layout UI.
+
+Every approval-menu choice displays a one-line next-action announcement before proceeding. **Start fresh and implement** displays its one-time announcement in the **new session, below the full transferred plan and above the first assistant response or tool activity**; other choices announce in the current session. Reloading or resuming the destination does not append another announcement. TUI announcements remain in the transcript, while RPC clients receive a notification.
 
 Selecting **Start fresh and implement** stops the current run and automatically dispatches `/build-fresh`. Pi 0.84.2 or newer is required for extension command dispatch from an injected user message. The command creates a linked child session, copies the approved plan to its canonical plan file, preserves the model and thinking level selected for the action, switches it to Build, and starts implementation without transferring the planning conversation.
 
 Selecting **Stay in Plan mode**, or pressing Escape while the approval dialog is open, displays:
 
-> Staying in Plan mode. Let me know when you’re ready to revise or implement the plan.
+> I’ll stay in Plan mode and wait for your next instruction.
 
 Both actions leave Plan mode active, stop the agent, and wait for the next user message.
+
+New plans use numbered instructions, not completion checkboxes:
+
+```markdown
+## Implementation Steps
+1. Add the parser.
+2. Integrate the workflow.
+3. Run focused verification.
+```
+
+Completion is tracked in extension-managed state and the UI through `plan_step_complete` or `plan_complete`, not by editing the approved plan. Existing unchecked `- [ ]` items remain supported for compatibility; existing plan files are not automatically rewritten.
 
 ### Step-by-step execution details (Experimental)
 
 > **Experimental feature:** Step-by-step execution is still being developed. Expect UI and workflow changes, and please report issues or unexpected behavior.
 
-When Pi uses `"tuiMode": "fullscreen"`, Pi Plan Build still owns its custom editor/layout UI, and the saved plan contains top-level `- [ ]` items under `## Implementation Steps`, `plan_exit` offers the additional **Implement step by step** approval action. This is opt-in per plan; it does not replace either one-shot implementation option or **Stay in Plan mode**.
+When Pi uses `"tuiMode": "fullscreen"`, Pi Plan Build still owns its custom editor/layout UI, and the saved plan contains top-level numbered items under `## Implementation Steps`, `plan_exit` offers the additional **Implement step by step** approval action. This is opt-in per plan; it does not replace either one-shot implementation option or **Stay in Plan mode**.
 
-The passive 64-column right panel reserves terminal columns, so the transcript and editor reflow instead of being covered. Long step instructions and panel guidance wrap instead of being clipped. It never accepts focus or keyboard input and collapses below 132 terminal columns. The panel is a visual status aid only; all control happens through ordinary prompts. Its guidance remains visible, and the main transcript says, “Awaiting your instructions.” The agent interprets intent contextually, so these are examples rather than required commands:
+The passive 64-column right panel reserves terminal columns, so the transcript and editor reflow instead of being covered. Long step instructions wrap instead of being clipped. It never accepts focus or keyboard input and collapses below 132 terminal columns. The panel is a visual status aid only; all control happens through ordinary prompts. The last cell always shows wrapped **How to use** instructions: write instructions in the chat, write “Proceed” to start the next step, or ask to edit, skip, mark complete, pause, resume, cancel, hide, or show the plan. You can use your own words. These instructions stay unchanged across execution states rather than repeating selected-step details or results; completion summaries remain in the main conversation. When step-by-step mode starts, a one-time message in the main transcript says: “Write ‘Proceed’ to start the first step. Instructions are shown at the bottom of the plan panel.” The agent interprets intent contextually, so these are examples rather than required commands:
 
 - “Implement the next step,” “Start step 2,” or simply “Approved” / “Go ahead.”
 - “Step 1 is complete,” “I verified that one,” or “I already handled this.”
@@ -222,7 +235,7 @@ npm test
 npm pack --dry-run
 ```
 
-The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode/provider/thinking rendering and cycling, optional-UI ownership decisions, conversational Plan guidance, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session settings and handoff content, question formatting and cancellation, structured checklist parsing, step state transitions, safe instruction revisions, and responsive panel rendering.
+The tests cover state decoding, safe plan paths, mutation restrictions, deferred transitions, mode/provider/thinking rendering and cycling, optional-UI ownership decisions, conversational Plan guidance, session-based prompt history restoration, complete plan rendering, approval decisions, stop behavior, fresh-session settings and handoff content, question formatting and cancellation, numbered-step and legacy checkbox parsing, step state transitions, safe instruction revisions, and responsive panel rendering.
 
 ### Publishing
 

@@ -134,8 +134,14 @@ export const PLAN_EXIT_APPROVE_CHOICE = "Switch to Build and implement here";
 export const PLAN_EXIT_FRESH_CHOICE = "Start fresh and implement";
 export const PLAN_EXIT_STAY_CHOICE = "Stay in Plan mode";
 export const PLAN_EXIT_STAY_ACKNOWLEDGEMENT =
-	"Staying in Plan mode. Let me know when you’re ready to revise or implement the plan.";
-export const PLAN_STEP_READY_ACKNOWLEDGEMENT = "Awaiting your instructions.";
+	"I’ll stay in Plan mode and wait for your next instruction.";
+export const PLAN_ACTION_ANNOUNCEMENTS = {
+	"implement-here": "I’ll switch to Build mode and implement the approved plan in this session.",
+	"implement-fresh": "I’ll implement the approved plan in this clean session.",
+	"step-by-step": "I’ll open step-by-step execution and wait for your instruction before starting a step.",
+	stay: PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
+} as const;
+export const PLAN_STEP_READY_ACKNOWLEDGEMENT = "Write “Proceed” to start the first step. Instructions are shown at the bottom of the plan panel.";
 
 export type PlanExitDecision = "implement-here" | "implement-fresh" | "stay";
 

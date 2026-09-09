@@ -34,6 +34,7 @@ import {
 	PLAN_EXIT_FRESH_CHOICE,
 	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
 	PLAN_EXIT_STAY_CHOICE,
+	PLAN_ACTION_ANNOUNCEMENTS,
 	PLAN_STEP_READY_ACKNOWLEDGEMENT,
 	ownsUiSlot,
 	renderModeComposer,
@@ -203,12 +204,21 @@ test("plan review preserves the complete plan without truncation", () => {
 test("stay acknowledgement is stable and actionable", () => {
 	assert.equal(
 		PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
-		"Staying in Plan mode. Let me know when you’re ready to revise or implement the plan.",
+		"I’ll stay in Plan mode and wait for your next instruction.",
 	);
 });
 
-test("step-by-step acknowledgement is concise", () => {
-	assert.equal(PLAN_STEP_READY_ACKNOWLEDGEMENT, "Awaiting your instructions.");
+test("every plan action has a single-line next-action announcement", () => {
+	assert.deepEqual(Object.keys(PLAN_ACTION_ANNOUNCEMENTS).sort(), ["implement-fresh", "implement-here", "stay", "step-by-step"]);
+	for (const message of Object.values(PLAN_ACTION_ANNOUNCEMENTS)) {
+		assert.ok(message.startsWith("I’ll "));
+		assert.equal(/[\r\n]/.test(message), false);
+	}
+	assert.match(PLAN_ACTION_ANNOUNCEMENTS["step-by-step"], /wait for your instruction before starting a step/);
+});
+
+test("step-by-step startup guidance points to the panel instructions", () => {
+	assert.equal(PLAN_STEP_READY_ACKNOWLEDGEMENT, "Write “Proceed” to start the first step. Instructions are shown at the bottom of the plan panel.");
 });
 
 test("declining plan exit stays in Plan mode and terminates the run", () => {
@@ -307,6 +317,10 @@ test("plan guidance supports conversation before persisted finalization", () => 
 	assert.doesNotMatch(reminder, /`### (?:Agent|User)`|\*\*(?:Agent|User):\*\*/);
 	assert.match(PLAN_EXIT_DESCRIPTION, /After you have written a complete plan to the plan file/);
 	assert.match(reminder, /## Implementation Steps/);
+	assert.match(reminder, /numbered items \(`1\. \.\.\.`, `2\. \.\.\.`\)/);
+	assert.match(reminder, /Do not use checkboxes or completion markers/);
+	assert.match(reminder, /completion is recorded only in extension-managed state/);
+	assert.equal(reminder.includes("- [ ]"), false);
 });
 
 test("verification policy reaches planning and every implementation handoff", () => {

@@ -19,7 +19,8 @@ export interface PlanExecutionState {
 
 const IMPLEMENTATION_HEADING = /^##\s+Implementation Steps\s*$/i;
 const NEXT_H2 = /^##\s+/;
-const CHECKLIST_ITEM = /^- \[ \]\s+(.+?)\s*$/;
+// Capture the marker separately so instruction revisions preserve the source format.
+const IMPLEMENTATION_ITEM = /^(\d+\.\s+|- \[ \]\s+)(\S.*?)\s*$/;
 
 export function parseImplementationSteps(plan: string): PlanStep[] {
 	const lines = plan.replace(/\r\n?/g, "\n").split("\n");
@@ -31,16 +32,16 @@ export function parseImplementationSteps(plan: string): PlanStep[] {
 	for (let index = heading + 1; index < lines.length; index++) {
 		const line = lines[index]!;
 		if (NEXT_H2.test(line.trim())) break;
-		const match = CHECKLIST_ITEM.exec(line);
+		const match = IMPLEMENTATION_ITEM.exec(line);
 		if (!match) continue;
-		const text = match[1]!.trim();
+		const text = match[2]!.trim();
 		const normalized = text.toLocaleLowerCase();
 		if (!text) throw new Error(`Implementation step on line ${index + 1} is empty`);
 		if (seen.has(normalized)) throw new Error(`Duplicate implementation step: ${text}`);
 		seen.add(normalized);
 		steps.push({ id: `step-${steps.length + 1}`, text, status: "pending", sourceLine: index });
 	}
-	if (steps.length === 0) throw new Error("The Implementation Steps section has no top-level ‘- [ ]’ items");
+	if (steps.length === 0) throw new Error("The Implementation Steps section has no top-level numbered steps (or legacy unchecked checkbox items)");
 	return steps;
 }
 
@@ -172,13 +173,16 @@ export function pausePlanExecution(state: PlanExecutionState): PlanExecutionStat
 	return { ...clone(state), status: state.status === "paused" ? "running" : "paused" };
 }
 
-export function updatePlanChecklistStep(plan: string, sourceLine: number, text: string): string {
+export function updatePlanStepInstruction(plan: string, sourceLine: number, text: string): string {
 	const newline = plan.includes("\r\n") ? "\r\n" : "\n";
 	const lines = plan.replace(/\r\n?/g, "\n").split("\n");
-	if (!Number.isInteger(sourceLine) || sourceLine < 0 || sourceLine >= lines.length || !CHECKLIST_ITEM.test(lines[sourceLine]!)) {
-		throw new Error("The saved plan changed and the selected checklist item can no longer be updated safely");
+	const match = Number.isInteger(sourceLine) && sourceLine >= 0 && sourceLine < lines.length
+		? IMPLEMENTATION_ITEM.exec(lines[sourceLine]!)
+		: null;
+	if (!match) {
+		throw new Error("The saved plan changed and the selected implementation step can no longer be updated safely");
 	}
-	lines[sourceLine] = `- [ ] ${text.trim()}`;
+	lines[sourceLine] = `${match[1]}${text.trim()}`;
 	return lines.join(newline);
 }
 

@@ -34,12 +34,8 @@ export class PlanPanel implements Component {
 			const clipped = truncateToWidth(content, contentWidth, "");
 			return `${border("│")} ${clipped}${" ".repeat(Math.max(0, contentWidth - visibleWidth(clipped)))} ${border("│")}`;
 		};
-		const pushWrapped = (lines: string[], content: string) => {
-			for (const line of wrapTextWithAnsi(content, contentWidth)) lines.push(pad(line));
-		};
 		const done = this.state.steps.filter((step) => step.status === "completed" || step.status === "skipped").length;
 		const status = this.state.status === "completed" ? "complete" : this.state.status;
-		const currentIndex = this.state.steps.findIndex((step) => step.id === this.state.selectedStepId);
 		const lines = [
 			border(`╭${"─".repeat(inner)}╮`),
 			pad(`${this.theme.bold(this.theme.fg("accent", "Plan"))} ${this.theme.fg("dim", `${done}/${this.state.steps.length}`)}`),
@@ -57,19 +53,22 @@ export class PlanPanel implements Component {
 			for (const continuation of wrapped.slice(1)) lines.push(pad(`${continuationIndent}${continuation}`));
 			if (index < this.state.steps.length - 1) lines.push(pad());
 		}
-		const current = currentIndex >= 0 ? this.state.steps[currentIndex] : undefined;
-		if (current) {
-			lines.push(border(`├${"─".repeat(inner)}┤`));
-			for (const detail of wrapTextWithAnsi(current.text, contentWidth).slice(0, 5)) lines.push(pad(detail));
-			if (current.summary) {
-				lines.push(pad(this.theme.fg("dim", "Result:")));
-				for (const summary of wrapTextWithAnsi(current.summary, contentWidth).slice(0, 4)) lines.push(pad(summary));
-			}
-		}
 		lines.push(border(`├${"─".repeat(inner)}┤`));
-		if (this.state.status === "completed") lines.push(pad(this.theme.fg("success", "Plan complete")));
-		else if (this.state.status === "paused") pushWrapped(lines, "Tell the agent to resume, cancel, or hide the plan.");
-		else if (current?.status === "ready") pushWrapped(lines, "Tell the agent to implement, complete, edit, or skip steps. You can also cancel or hide the plan.");
+		const instructions = [
+			this.theme.bold("How to use"),
+			"",
+			"Write your instructions in the chat.",
+			"",
+			"- Write “Proceed” to start the next step.",
+			"- Ask to edit, skip, or mark a step complete.",
+			"- Ask to pause, resume, or cancel the plan.",
+			"- Ask to hide or show this panel.",
+			"",
+			"You can use your own words.",
+		];
+		for (const instruction of instructions) {
+			for (const line of wrapTextWithAnsi(instruction, contentWidth)) lines.push(pad(line));
+		}
 		lines.push(border(`╰${"─".repeat(inner)}╯`));
 		return lines.map((line) => truncateToWidth(line, safeWidth, ""));
 	}

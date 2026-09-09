@@ -9,7 +9,7 @@ import {
 	revisePlanStep,
 	skipPlanStep,
 	startPlanStep,
-	updatePlanChecklistStep,
+	updatePlanStepInstruction,
 } from "./plan-execution.ts";
 
 const plan = `# Plan
@@ -18,15 +18,15 @@ Context.
 
 ## Implementation Steps
 
-- [ ] Add parser
-- [ ] Build panel
-- [ ] Verify workflow
+1. Add parser
+2. Build panel
+3. Verify workflow
 
 ## Notes
 - [ ] This is not an implementation step
 `;
 
-test("parses only the dedicated top-level implementation checklist", () => {
+test("parses only the dedicated top-level numbered implementation steps", () => {
 	const state = createPlanExecution(plan);
 	assert.deepEqual(state.steps.map((step) => [step.id, step.text, step.status]), [
 		["step-1", "Add parser", "ready"],
@@ -36,10 +36,21 @@ test("parses only the dedicated top-level implementation checklist", () => {
 	assert.equal(state.steps[0]?.sourceLine, 6);
 });
 
+test("supports repeated numbering and legacy items in document order, excluding nested and checked items", () => {
+	const state = createPlanExecution("## Implementation Steps\n1. First\n   1. Nested\n1. Second\n- [ ] Legacy\n- [x] Finished\n## Notes\n2. Outside");
+	assert.deepEqual(state.steps.map(s => [s.id, s.text, s.sourceLine]), [
+		["step-1", "First", 1], ["step-2", "Second", 3], ["step-3", "Legacy", 4],
+	]);
+	const legacy = createPlanExecution("## Implementation Steps\n- [ ] First\n- [ ] Second");
+	assert.equal(completePlanStep(legacy, "step-1").steps[1]?.status, "ready");
+});
+
 test("rejects missing, empty, and duplicate implementation lists", () => {
 	assert.throws(() => createPlanExecution("# Plan\n- [ ] loose"), /Implementation Steps/);
 	assert.throws(() => createPlanExecution("## Implementation Steps\ntext"), /no top-level/);
-	assert.throws(() => createPlanExecution("## Implementation Steps\n- [ ] Same\n- [ ] same"), /Duplicate/);
+	for (const items of ["1. Same\n2. same", "- [ ] Same\n- [ ] same", "1. Same\n- [ ] same"]) {
+		assert.throws(() => createPlanExecution(`## Implementation Steps\n${items}`), /Duplicate/);
+	}
 });
 
 test("completes active steps directly and gates the next step", () => {
@@ -82,15 +93,25 @@ test("formats a completion summary for the main window", () => {
 	assert.match(summary, /3\. \*\*Completed:\*\* Verify workflow\n\n   Workflow verified/);
 });
 
-test("edits only unimplemented steps and updates the canonical checklist safely", () => {
+test("edits only unimplemented steps and updates the canonical numbered instruction safely", () => {
 	let state = createPlanExecution(plan);
 	state = revisePlanStep(state, "step-1", "Add strict parser");
 	assert.equal(state.steps[0]?.text, "Add strict parser");
-	const updated = updatePlanChecklistStep(plan, state.steps[0]!.sourceLine, state.steps[0]!.text);
-	assert.match(updated, /- \[ \] Add strict parser/);
-	assert.throws(() => updatePlanChecklistStep(plan, 0, "unsafe"), /changed/);
+	const updated = updatePlanStepInstruction(plan, state.steps[0]!.sourceLine, state.steps[0]!.text);
+	assert.equal(updated, plan.replace("1. Add parser", "1. Add strict parser"));
+	assert.throws(() => updatePlanStepInstruction(plan, 0, "unsafe"), /changed/);
 	state = startPlanStep(state, "step-1");
 	assert.throws(() => revisePlanStep(state, "step-1", "too late"), /unimplemented/);
+});
+
+test("instruction revisions preserve numbered and legacy markers and newline style", () => {
+	for (const marker of ["12. ", "1.   ", "- [ ] "]) {
+		for (const newline of ["\n", "\r\n"]) {
+			const source = `## Implementation Steps${newline}${marker}Original${newline}`;
+			assert.equal(updatePlanStepInstruction(source, 1, "Revised"), source.replace("Original", "Revised"));
+		}
+	}
+	assert.throws(() => updatePlanStepInstruction("## Implementation Steps\n- [x] Done", 1, "Changed"), /changed/);
 });
 
 test("pause toggles without losing state and persisted state decodes defensively", () => {

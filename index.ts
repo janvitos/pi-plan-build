@@ -25,7 +25,7 @@ import {
 	revisePlanStep,
 	skipPlanStep,
 	startPlanStep,
-	updatePlanChecklistStep,
+	updatePlanStepInstruction,
 	type PlanExecutionState,
 } from "./plan-execution.ts";
 import { PlanPanel } from "./plan-panel.ts";
@@ -54,7 +54,7 @@ import {
 	normalizePlanExitChoice,
 	PLAN_EXIT_APPROVE_CHOICE,
 	PLAN_EXIT_FRESH_CHOICE,
-	PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
+	PLAN_ACTION_ANNOUNCEMENTS,
 	PLAN_EXIT_STAY_CHOICE,
 	PLAN_STEP_READY_ACKNOWLEDGEMENT,
 	renderModeComposer,
@@ -70,6 +70,7 @@ const LEGACY_PLAN_REVIEW_ENTRY_TYPE = "opencode-plan-review";
 const MODE_NOTICE_ENTRY_TYPE = "pi-plan-build-notice";
 const LEGACY_MODE_NOTICE_ENTRY_TYPE = "opencode-mode-notice";
 const PLAN_STEP_GUIDANCE_ENTRY_TYPE = "pi-plan-build-step-guidance";
+const FRESH_ANNOUNCEMENT_MESSAGE_TYPE = "pi-plan-build-fresh-announcement";
 const STATUS_KEY = "pi-plan-build-mode";
 const PLAN_STEP_CHOICE = "Implement step by step";
 const PANEL_WIDTH = 64;
@@ -84,6 +85,7 @@ interface StoredState {
 	version: 1;
 	selectedMode: Mode;
 	pendingReminder?: "plan" | "build";
+	pendingFreshAnnouncement?: boolean;
 	toolsBeforeModes?: string[];
 	execution?: PlanExecutionState;
 	plan?: PlanLifecycle;
@@ -104,6 +106,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let selectedMode: Mode = "build";
 	let runMode: Mode | undefined;
 	let pendingReminder: PendingReminder;
+	let pendingFreshAnnouncement = false;
 	let planPath = "";
 	let planLifecycle: PlanLifecycle = { sequence: 1, status: "open" };
 	let toolsBeforeModes: string[] = [];
@@ -161,9 +164,11 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerEntryRenderer<{ message: string }>(MODE_NOTICE_ENTRY_TYPE, renderModeNotice);
 	pi.registerEntryRenderer<{ message: string }>(LEGACY_MODE_NOTICE_ENTRY_TYPE, renderModeNotice);
 	pi.registerEntryRenderer(PLAN_STEP_GUIDANCE_ENTRY_TYPE, renderPlanStepGuidance);
+	pi.registerMessageRenderer(FRESH_ANNOUNCEMENT_MESSAGE_TYPE, (message, _options, theme) =>
+		new Text(theme.fg("warning", typeof message.content === "string" ? message.content : ""), 0, 0));
 
 	function stateData(): StoredState {
-		return { version: 1, selectedMode, pendingReminder, toolsBeforeModes, plan: { ...planLifecycle }, planSessionId: currentContext?.sessionManager.getSessionId(), ...(execution ? { execution } : {}) };
+		return { version: 1, selectedMode, pendingReminder, ...(pendingFreshAnnouncement ? { pendingFreshAnnouncement: true } : {}), toolsBeforeModes, plan: { ...planLifecycle }, planSessionId: currentContext?.sessionManager.getSessionId(), ...(execution ? { execution } : {}) };
 	}
 
 	function persist(): void {
@@ -503,6 +508,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 								version: 1,
 								selectedMode: "build",
 								pendingReminder: "build",
+								pendingFreshAnnouncement: true,
 								toolsBeforeModes: sourceTools,
 								plan: { sequence: 1, status: "open" },
 								planSessionId: sessionManager.getSessionId(),
@@ -662,7 +668,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			}
 			if (!params.instruction?.trim()) throw new Error("Revising a step requires a replacement instruction");
 			const plan = await fs.promises.readFile(planPath, "utf8");
-			const updatedPlan = updatePlanChecklistStep(plan, target.sourceLine, params.instruction);
+			const updatedPlan = updatePlanStepInstruction(plan, target.sourceLine, params.instruction);
 			await fs.promises.writeFile(planPath, updatedPlan, "utf8");
 			updateExecution(revisePlanStep(execution, target.id, params.instruction, updatedPlan));
 			return finish("The plan step instruction was revised and is awaiting user approval.");
@@ -734,13 +740,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const displayPath = shorten(planPath, ctx.cwd);
 			detectOptionalUiConflict(ctx);
 			let stepExecution: PlanExecutionState | undefined;
-			let checklistError: string | undefined;
+			let stepsError: string | undefined;
 			const panelAvailable = !reducedOptionalUi && fullscreenPanelCapable && (panelTui?.terminal.columns ?? 0) >= PANEL_MIN_TERMINAL_WIDTH;
 			if (panelAvailable) {
 				try {
 					stepExecution = createPlanExecution(plan);
 				} catch (error: unknown) {
-					checklistError = error instanceof Error ? error.message : String(error);
+					stepsError = error instanceof Error ? error.message : String(error);
 				}
 			}
 			const choices = [
@@ -753,6 +759,14 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				`Build Agent: Plan at ${displayPath} is complete. What would you like to do?`,
 				choices,
 			));
+			const action = selection.choice === PLAN_STEP_CHOICE && stepExecution
+				? "step-by-step"
+				: classifyPlanExitChoice(selection.choice);
+			if (action !== "implement-fresh") {
+				const message = PLAN_ACTION_ANNOUNCEMENTS[action];
+				pi.appendEntry(MODE_NOTICE_ENTRY_TYPE, { message });
+				if (ctx.mode === "rpc") ctx.ui.notify(message, "info");
+			}
 			if (selection.choice === PLAN_STEP_CHOICE && stepExecution) {
 				freshImplementationRequest = undefined;
 				execution = stepExecution;
@@ -766,15 +780,14 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					terminate: true,
 				};
 			}
-			if (panelAvailable && !stepExecution && checklistError) {
-				ctx.ui.notify(`Step-by-step execution is unavailable: ${checklistError}.`, "warning");
+			if (panelAvailable && !stepExecution && stepsError) {
+				ctx.ui.notify(`Step-by-step execution is unavailable: ${stepsError}.`, "warning");
 			} else if (fullscreenPanelCapable && !panelAvailable) {
 				ctx.ui.notify(`Step-by-step execution requires a terminal at least ${PANEL_MIN_TERMINAL_WIDTH} columns wide.`, "warning");
 			}
 			const decision = classifyPlanExitChoice(selection.choice);
 			if (decision === "stay") {
 				freshImplementationRequest = undefined;
-				pi.appendEntry(MODE_NOTICE_ENTRY_TYPE, { message: PLAN_EXIT_STAY_ACKNOWLEDGEMENT });
 				return buildPlanExitStayResult(planPath, selection.cancelled);
 			}
 			if (decision === "implement-fresh") {
@@ -819,7 +832,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (details?.approved === true && !context.isError) {
 				return new Text(theme.fg("success", "Plan approved; switched to Build mode"), 0, 0);
 			}
-			return new Text(theme.fg("warning", PLAN_EXIT_STAY_ACKNOWLEDGEMENT), 0, 0);
+			return new Text(theme.fg("warning", "Remaining in Plan mode"), 0, 0);
 		},
 	});
 
@@ -830,7 +843,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (isAllowedPlanMutation(ctx.cwd, inputPath, planPath)) {
 				return {
 					block: true,
-					reason: "The active plan file is read-only in Build mode. Do not update its checklist markers; report completion through plan_step_complete during step-by-step execution or plan_complete after normal implementation and verification.",
+					reason: "The active plan file is read-only in Build mode. Do not add completion markers or otherwise update its steps; report completion through plan_step_complete during step-by-step execution or plan_complete after normal implementation and verification.",
 				};
 			}
 		}
@@ -848,6 +861,21 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			reason: `Plan mode only permits edit/write access to the plan file: ${planPath}`,
 		};
 	});
+
+	pi.on("before_agent_start", (_event, ctx) => {
+		if (!pendingFreshAnnouncement) return;
+		pendingFreshAnnouncement = false;
+		persist();
+		const content = PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"];
+		if (ctx.mode === "rpc") ctx.ui.notify(content, "info");
+		// Returned messages follow the full user handoff in live and restored transcripts.
+		return { message: { customType: FRESH_ANNOUNCEMENT_MESSAGE_TYPE, content, display: true } };
+	});
+
+	pi.on("context", (event) => ({
+		messages: event.messages.filter((message) =>
+			message.role !== "custom" || message.customType !== FRESH_ANNOUNCEMENT_MESSAGE_TYPE),
+	}));
 
 	pi.on("before_agent_start", async (_event, ctx) => {
 		detectOptionalUiConflict(ctx);
@@ -911,6 +939,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		const decoded = decodeModeState(latest?.data);
 		const raw = latest?.data as StoredState | undefined;
 		execution = decodePlanExecution(raw?.execution);
+		pendingFreshAnnouncement = raw?.pendingFreshAnnouncement === true;
 		selectedMode = decoded?.selectedMode ?? (pi.getFlag("plan") === true ? "plan" : "build");
 		restoreUserMessageRails(ctx.sessionManager.getBranch());
 		pendingReminder = raw?.pendingReminder ?? (decoded ? undefined : pi.getFlag("plan") === true ? "plan" : undefined);
