@@ -58,6 +58,7 @@ function createHarness(initialEditor?: unknown) {
 		registerCommand(name: string, options: unknown) { commands.set(name, options); },
 		registerShortcut(key: string, options: unknown) { shortcuts.set(key, options); },
 		registerEntryRenderer() {},
+		registerMessageRenderer() {},
 		getFlag() { return false; },
 		getActiveTools() { return [...activeTools]; },
 		setActiveTools(next: string[]) { activeTools = [...next]; },
