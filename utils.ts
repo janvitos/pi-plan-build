@@ -48,15 +48,6 @@ export function formatPlanLabel(title: string | undefined, awaitingValidation = 
 	return truncateToWidth(prefix ? `${prefix} · ${status}` : status, width, "…");
 }
 
-const SMALL_CAPS = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘqʀꜱᴛᴜᴠᴡxʏᴢ";
-
-export function smallCapsTitle(title: string): string {
-	return title.replace(/[a-z]/gi, (letter) => {
-		const lower = letter.toLowerCase();
-		return lower === "q" || lower === "x" ? letter : SMALL_CAPS[lower.charCodeAt(0) - 97]!;
-	});
-}
-
 export function formatModeTopBorder(
 	mode: Mode,
 	width: number,
@@ -64,12 +55,11 @@ export function formatModeTopBorder(
 	theme: ModeStatusTheme,
 	title?: string,
 	awaitingValidation = false,
-	smallCaps = true,
 ): string {
 	if (width <= 2) return "";
 	if (!title && !awaitingValidation) return `${formatModeColor(mode, `╭${"─".repeat(width - 2)}`, theme)}${topRightCorner}`;
-	const label = truncateToWidth(` ${formatPlanLabel(smallCaps && title ? smallCapsTitle(cleanTaskTitle(title)) : title, awaitingValidation, Math.max(0, width - 4))} `, Math.max(0, width - 2), "…");
-	return `${formatModeColor(mode, "╭", theme)}${label ? theme.fg("accent", label) : ""}${formatModeColor(mode, `${"─".repeat(Math.max(0, width - 2 - visibleWidth(label)))}`, theme)}${topRightCorner}`;
+	const label = truncateToWidth(` ${formatPlanLabel(title ? cleanTaskTitle(title).toLowerCase() : title, awaitingValidation, Math.max(0, width - 4))} `, Math.max(0, width - 2), "…");
+	return `${formatModeColor(mode, "╭", theme)}${label ? theme.fg("warning", label) : ""}${formatModeColor(mode, `${"─".repeat(Math.max(0, width - 2 - visibleWidth(label)))}`, theme)}${topRightCorner}`;
 }
 
 export function formatModeMetadata(

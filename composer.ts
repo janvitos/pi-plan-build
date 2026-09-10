@@ -12,7 +12,7 @@ const PANEL_WIDTH = 64;
 /** Owns optional UI only. Lifecycle and durable progress belong to PlanState. */
 export function createComposer(
 	pi: ExtensionAPI,
-	shortcuts: { toggleMode: string[]; toggleModeInEditor: string[]; smallCapsPlanTitle?: boolean },
+	shortcuts: { toggleMode: string[]; toggleModeInEditor: string[] },
 	view: () => { mode: Mode; title?: string; awaitingValidation?: boolean; execution?: PlanExecutionState },
 	selectMode: (mode: Mode, ctx: ExtensionContext) => void,
 ) {
@@ -105,7 +105,7 @@ export function createComposer(
 				if (paddingWidth !== railWidth || !ctx) return lines;
 				const { mode, title, awaitingValidation } = view();
 				const metadata = formatModeMetadata(mode, pi.getThinkingLevel(), ctx.ui.theme, this.borderColor, { modelName: ctx.model?.id ?? "no-model", modelProvider: ctx.model?.provider, rail: "" });
-				return renderModeComposer(lines, formatModeTopBorder(mode, width, this.borderColor("╮"), ctx.ui.theme, title, awaitingValidation, shortcuts.smallCapsPlanTitle), `${formatModeRail(mode, ctx.ui.theme)} `, this.borderColor("│"), metadata, formatModeRail(mode, ctx.ui.theme, "╰"), railWidth, width, { truncate: (line, max) => truncateToWidth(line, max, ""), measure: visibleWidth }, (text) => this.borderColor(text));
+				return renderModeComposer(lines, formatModeTopBorder(mode, width, this.borderColor("╮"), ctx.ui.theme, title, awaitingValidation), `${formatModeRail(mode, ctx.ui.theme)} `, this.borderColor("│"), metadata, formatModeRail(mode, ctx.ui.theme, "╰"), railWidth, width, { truncate: (line, max) => truncateToWidth(line, max, ""), measure: visibleWidth }, (text) => this.borderColor(text));
 			}
 			override handleInput(data: string): void {
 				if (!reduced && !this.isShowingAutocomplete() && shortcuts.toggleModeInEditor.some((shortcut) => matchesKey(data, shortcut as Parameters<typeof matchesKey>[1]))) {

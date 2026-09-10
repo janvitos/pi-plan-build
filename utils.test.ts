@@ -32,7 +32,6 @@ import {
 	formatModeRail,
 	formatModeTopBorder,
 	formatPlanLabel,
-	smallCapsTitle,
 	formatQuestionAnswers,
 	isAllowedPlanMutation,
 	makePlanPath,
@@ -71,13 +70,11 @@ test("plan guards normalize Pi paths and resolve filesystem aliases without auth
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("small caps affect only supported outline letters and can be disabled", () => {
+test("outline titles use regular lowercase without changing other labels", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
-	assert.equal(smallCapsTitle("ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz"), "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘQʀꜱᴛᴜᴠᴡXʏᴢ ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘqʀꜱᴛᴜᴠᴡxʏᴢ");
-	assert.equal(smallCapsTitle("Été 修復 🔑 123!?"), "Éᴛé 修復 🔑 123!?");
 	const title = "Plan Title QX";
-	assert.match(formatModeTopBorder("plan", 80, "╮", theme, title, true), /ᴘʟᴀɴ ᴛɪᴛʟᴇ QX · Awaiting validation/);
-	assert.match(formatModeTopBorder("plan", 80, "╮", theme, title, true, false), /Plan Title QX · Awaiting validation/);
+	assert.match(formatModeTopBorder("plan", 80, "╮", theme, title, true), /plan title qx · Awaiting validation/);
+	assert.match(formatModeTopBorder("build", 80, "╮", theme, "Été 修復 🔑 123!?"), /été 修復 🔑 123!\?/);
 	assert.equal(formatPlanLabel(title, true), "Plan Title QX · Awaiting validation");
 });
 
@@ -96,7 +93,7 @@ test("validation status survives long titles and narrow Unicode layouts", () => 
 test("plan border shows only a safe title and fits narrow Unicode layouts", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
 	const titled = formatModeTopBorder("plan", 60, "╮", theme, "Fix login redirects");
-	assert.match(titled, /ꜰɪx ʟᴏɢɪɴ ʀᴇᴅɪʀᴇᴄᴛꜱ/);
+	assert.match(titled, /fix login redirects/);
 	assert.doesNotMatch(titled, /Plan|#003/);
 	for (const mode of ["plan", "build"] as const) for (const width of [1, 2, 3, 4, 8, 20, 60]) {
 		const line = formatModeTopBorder(mode, width, "╮", theme, "修復 🔑\n\x1b[31mlogin\x07 redirects");
@@ -104,7 +101,7 @@ test("plan border shows only a safe title and fits narrow Unicode layouts", () =
 		// truncateToWidth emits its own SGR resets; user-supplied controls must not survive.
 		assert.doesNotMatch(line.replaceAll("\x1b[0m", ""), /[\x00-\x1f\x7f-\x9f]/);
 	}
-	assert.match(formatModeTopBorder("build", 40, "╮", theme, "Visible title"), /ᴠɪꜱɪʙʟᴇ ᴛɪᴛʟᴇ/);
+	assert.match(formatModeTopBorder("build", 40, "╮", theme, "Visible title"), /visible title/);
 	assert.doesNotMatch(formatModeTopBorder("build", 40, "╮", theme), /Untitled/);
 });
 
@@ -120,12 +117,12 @@ test("composer outline uses only solid lines and rounded corners", () => {
 	}
 });
 
-test("plan title uses normal-weight accent independent of mode border colors", () => {
+test("plan title uses normal-weight warning in both modes", () => {
 	for (const mode of ["plan", "build"] as const) {
 		const calls: Array<{ color: string; text: string }> = [];
 		const theme = { bold: (_: string): string => { throw new Error("Title must not be bold"); }, fg: (color: string, text: string) => { calls.push({ color, text }); return text; } };
 		formatModeTopBorder(mode, 60, "╮", theme, "Fix login");
-		assert.deepEqual(calls.filter((call) => call.color === "accent"), [{ color: "accent", text: " ꜰɪx ʟᴏɢɪɴ " }]);
+		assert.deepEqual(calls.find((call) => call.text === " fix login "), { color: "warning", text: " fix login " });
 		assert.equal(calls[0].color, mode === "plan" ? "warning" : "thinkingLow");
 		assert.equal(calls.at(-1)?.color, calls[0].color);
 	}

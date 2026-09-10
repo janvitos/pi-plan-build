@@ -20,7 +20,6 @@ export interface ShortcutConfig {
 }
 
 export interface LoadedShortcutConfig {
-	smallCapsPlanTitle: boolean;
 	config: ShortcutConfig;
 	path: string;
 	warning?: string;
@@ -123,10 +122,7 @@ function parseShortcuts(value: unknown): {
 }
 
 export function parseShortcutConfig(value: unknown): Omit<LoadedShortcutConfig, "path"> {
-	const parsed = parseShortcuts(value);
-	const preference = isObject(value) ? value.smallCapsPlanTitle : undefined;
-	const warning = [parsed.warning, preference !== undefined && typeof preference !== "boolean" ? "smallCapsPlanTitle must be a boolean" : undefined].filter(Boolean).join("; ");
-	return { ...parsed, smallCapsPlanTitle: typeof preference === "boolean" ? preference : true, ...(warning ? { warning } : {}) };
+	return parseShortcuts(value);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -137,10 +133,6 @@ function isObject(value: unknown): value is Record<string, unknown> {
 export function saveShortcutPreset(agentDir: string, presetName: string): string {
 	if (!Object.hasOwn(SHORTCUT_PRESETS, presetName)) throw new Error("Unknown shortcut preset");
 	return saveSettings(agentDir, (document) => ({ ...document, shortcuts: { ...(document.shortcuts as Record<string, unknown> | undefined), ...SHORTCUT_PRESETS[presetName] } }));
-}
-
-export function saveSmallCapsPlanTitle(agentDir: string, enabled: boolean): string {
-	return saveSettings(agentDir, (document) => ({ ...document, smallCapsPlanTitle: enabled }));
 }
 
 function saveSettings(agentDir: string, update: (document: Record<string, unknown>) => Record<string, unknown>): string {

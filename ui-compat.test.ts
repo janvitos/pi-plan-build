@@ -279,7 +279,7 @@ test("global Tab is rejected with editor-only guidance and autocomplete remains 
 	await completeFile(harness);
 });
 
-test("small-caps settings persist and apply only to outline titles after reload", async () => {
+test("outline titles stay lowercase even with legacy settings, without changing stored titles or input", async () => {
 	const setup = async () => {
 		const h = createHarness();
 		await start(h);
@@ -289,28 +289,16 @@ test("small-caps settings persist and apply only to outline titles after reload"
 		return h;
 	};
 	const h = await setup();
-	assert.match(h.editor().render(100)[0], /ᴘʟᴀɴ ᴛɪᴛʟᴇ/);
+	assert.match(h.editor().render(100)[0], /plan title/);
 	assert.match(JSON.stringify(h.persisted), /"title":"Plan Title"/);
-	h.selectOptions("Small-caps plan titles (active: enabled)", undefined);
-	await h.commands.get("plan-settings").handler("", h.ctx);
-	assert.equal(fs.existsSync(path.join(agentDir, SHORTCUT_CONFIG_FILE)), false);
-	h.selectOptions("Small-caps plan titles (active: enabled)", "Disabled");
-	await h.commands.get("plan-settings").handler("", h.ctx);
-	assert.equal(loadShortcutConfig(agentDir).smallCapsPlanTitle, false);
-	assert.match(h.notifications.at(-1)![0], /\/reload/);
-	assert.match(h.editor().render(100)[0], /ᴘʟᴀɴ ᴛɪᴛʟᴇ/);
 	assert.equal(h.editor().getText(), "Regular User Text");
-	const reloaded = await setup();
-	assert.match(reloaded.editor().render(100)[0], /Plan Title/);
-	assert.equal(reloaded.editor().getText(), "Regular User Text");
-	reloaded.selectOptions("Small-caps plan titles (active: disabled)", "Enabled (default)");
-	await reloaded.commands.get("plan-settings").handler("", reloaded.ctx);
-	assert.equal(loadShortcutConfig(agentDir).smallCapsPlanTitle, true);
-	fs.writeFileSync(path.join(agentDir, SHORTCUT_CONFIG_FILE), "{");
-	reloaded.selectOptions("Small-caps plan titles (active: disabled)", "Disabled");
-	await reloaded.commands.get("plan-settings").handler("", reloaded.ctx);
-	assert.equal(fs.readFileSync(path.join(agentDir, SHORTCUT_CONFIG_FILE), "utf8"), "{");
-	assert.match(reloaded.notifications.at(-1)![0], /Could not save/);
+	for (const smallCapsPlanTitle of [true, false]) {
+		fs.writeFileSync(path.join(agentDir, SHORTCUT_CONFIG_FILE), JSON.stringify({ smallCapsPlanTitle }));
+		const reloaded = await setup();
+		assert.match(reloaded.editor().render(100)[0], /plan title/);
+		assert.equal(reloaded.editor().getText(), "Regular User Text");
+	}
+	assert.match(h.registeredTools.get("plan_task").promptGuidelines.join(" "), /titles short and descriptive, ideally 3–6 words/);
 	h.setCurrentEditor({});
 	await h.handlers.get("before_agent_start")?.({}, h.ctx);
 	assert.ok(h.statuses.some(([, text]) => text?.includes("Plan Title")), "reduced-UI status keeps the original title");
@@ -322,7 +310,7 @@ test("settings save the selected preset, retain active bindings until reload, an
 	harness.selectOption("Alt+M only");
 	await harness.commands.get("plan-settings").handler("", harness.ctx);
 	assert.match(harness.selections[0]!.title, /active: Tab \+ Alt\+M/);
-	assert.deepEqual(harness.selections[0]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Small-caps plan titles (active: enabled)", "Custom (edit config file)"]);
+	assert.deepEqual(harness.selections[0]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Custom (edit config file)"]);
 	assert.match(harness.notifications.at(-1)![0], /Saved Alt\+M only.*\/reload/);
 	await toggle(harness, "\t", "plan");
 	await shutdown(harness);

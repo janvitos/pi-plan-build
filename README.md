@@ -61,7 +61,7 @@ Do not load multiple npm/Git/local copies simultaneously.
 | --- | --- |
 | `Alt+M` | Default global Build/Plan toggle |
 | `Tab` | In the custom composer, toggle when autocomplete is closed; accept a suggestion when open |
-| `/plan-settings` | Configure shortcuts and small-caps composer titles |
+| `/plan-settings` | Configure shortcuts |
 | `/plan` | Select read-only Plan mode without allocating a task |
 | `/plan new` | Start a plan only when no current unfinished plan exists |
 | `/plan abandon` | Confirm explicit abandonment; preserve the file without implying success |
@@ -75,7 +75,7 @@ Lifecycle commands require an idle agent. Manual mode changes during a run are d
 
 ### Shortcut configuration
 
-`/plan-settings` offers **Tab + Alt+M**, **Alt+M only**, **Disabled**, **Small-caps plan titles**, and **Custom (edit config file)**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Run `/reload` to apply saved changes.
+`/plan-settings` offers **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Run `/reload` to apply saved changes.
 
 Pi Plan Build reads `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`):
 
@@ -88,7 +88,7 @@ Pi Plan Build reads `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/p
 }
 ```
 
-Composer-outline plan titles use **Unicode small caps by default**. To disable them, choose **Small-caps plan titles → Disabled** in `/plan-settings`, or set the top-level `"smallCapsPlanTitle": false` in `pi-plan-build.json`, then run `/reload`. Saved titles, other title displays, validation labels, and user input keep their original lettering. Glyph availability, appearance, and alignment depend on your terminal/font; copied outline text contains Unicode substitute letters. Unsupported characters (including Q/q and X/x) remain unchanged. Disable this option if rendering or accessibility is affected.
+Composer-outline plan titles use **regular lowercase text**. Saved titles, other title displays, validation labels, and user input keep their original lettering. Agents are guided to use concise, descriptive plan titles, ideally 3–6 words. The former `smallCapsPlanTitle` setting is ignored and can be removed from existing configuration files.
 
 Each action accepts one Pi key string or an array. `[]` disables it; omitted actions retain defaults. `toggleMode` uses Pi’s global shortcut conflict rules. `toggleModeInEditor` requires the custom composer and yields to open autocomplete. For example, use `"toggleMode": "ctrl+alt+m"` and `"toggleModeInEditor": ["f6"]`.
 

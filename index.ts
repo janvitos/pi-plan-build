@@ -9,7 +9,7 @@ import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker
 import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
 import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
 import { registerQuestionTool } from "./question-ui.ts";
-import { loadShortcutConfig, saveShortcutPreset, saveSmallCapsPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { loadShortcutConfig, saveShortcutPreset, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
 	PLAN_ENTER_DESCRIPTION,
 	PLAN_EXIT_DESCRIPTION,
@@ -84,7 +84,7 @@ function shorten(filePath: string, cwd: string): string {
 
 export default function planBuildModes(pi: ExtensionAPI): void {
 	const shortcutAgentDir = getAgentDir();
-	const { config: shortcutConfig, smallCapsPlanTitle, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
+	const { config: shortcutConfig, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
 	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
 	let runMode: Mode | undefined;
@@ -103,7 +103,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let toolsBeforeModes: string[] = [];
 	let currentContext: ExtensionContext | undefined;
 	let freshImplementationRequest: ApprovedHandoff | undefined;
-	const composer = createComposer(pi, { ...shortcutConfig, smallCapsPlanTitle }, () => ({ mode: selectedMode, title: currentPlanTitle(), awaitingValidation: plans.attached?.plan.outcome?.kind === "awaiting_validation", execution: plans.execution }), (mode, ctx) => { void selectMode(mode, ctx, "manual"); });
+	const composer = createComposer(pi, shortcutConfig, () => ({ mode: selectedMode, title: currentPlanTitle(), awaitingValidation: plans.attached?.plan.outcome?.kind === "awaiting_validation", execution: plans.execution }), (mode, ctx) => { void selectMode(mode, ctx, "manual"); });
 	const displayUserMessageText = (text: string): string | undefined => {
 		const skillBlock = parseSkillBlock(text);
 		return skillBlock ? skillBlock.userMessage || undefined : text || undefined;
@@ -392,30 +392,18 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		handler: async (_args, ctx) => selectMode("build", ctx, "manual"),
 	});
 	pi.registerCommand("plan-settings", {
-		description: "Configure Plan/Build shortcuts and small-caps composer titles",
+		description: "Configure Plan/Build shortcuts",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) return;
 			const customOption = "Custom (edit config file)";
-			const titleOption = `Small-caps plan titles (active: ${smallCapsPlanTitle ? "enabled" : "disabled"})`;
 			const selected = await ctx.ui.select(
 				`Plan/Build shortcuts — active: ${shortcutPresetLabel(shortcutConfig)} (global: ${shortcutConfig.toggleMode.join(", ") || "none"}; editor: ${shortcutConfig.toggleModeInEditor.join(", ") || "none"})`,
-				[...Object.keys(SHORTCUT_PRESETS), titleOption, customOption],
+				[...Object.keys(SHORTCUT_PRESETS), customOption],
 			);
 			if (!selected) return;
-			if (selected === titleOption) {
-				const choice = await ctx.ui.select("Composer-outline small-caps plan titles", ["Enabled (default)", "Disabled"]);
-				if (!choice) return;
-				try {
-					saveSmallCapsPlanTitle(shortcutAgentDir, choice === "Enabled (default)");
-					ctx.ui.notify(`Saved small-caps plan titles: ${choice}. Run /reload to apply.`, "info");
-				} catch (error) {
-					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
-				}
-				return;
-			}
 			if (selected === customOption) {
 				ctx.ui.notify(
-					`Edit ${shortcutConfigPath}, then run /reload. Example: {"smallCapsPlanTitle":false,"shortcuts":{"toggleMode":["ctrl+alt+m"],"toggleModeInEditor":["tab"]}}. Use [] to disable an action. Put Tab only in toggleModeInEditor; it switches modes when autocomplete is closed instead of requesting file completion.`,
+					`Edit ${shortcutConfigPath}, then run /reload. Example: {"shortcuts":{"toggleMode":["ctrl+alt+m"],"toggleModeInEditor":["tab"]}}. Use [] to disable an action. Put Tab only in toggleModeInEditor; it switches modes when autocomplete is closed instead of requesting file completion.`,
 					"info",
 				);
 				return;
@@ -466,13 +454,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		name: "plan_task",
 		label: "Plan Task",
 		description: "Manage the single current plan without editing Markdown. list reports only the current plan. new is Plan-only and requires no current plan. abandon is irreversible lifecycle closure, preserves the file, requires explicit user direction and a reason, and never implies success. update establishes identity once, then changes it only for user-driven material deliverable/constraint changes, explicit renames, or correction of mistaken identity. include/discussion record explicit task-boundary decisions. Supply expectedAttached (current sequence or null); legacy sequence is accepted. Deprecated pause/resume inputs never mutate state. Keep lifecycle transitions separate from dependent project edits and shell calls.",
-		promptGuidelines: ["Use plan_task to establish concise task identity once. Later updates require a user-driven material change to the deliverable/defining constraints, an explicit rename, or correction of mistaken identity. Do not log progress, findings, proposed/rejected techniques, implementation adjustments, or message paraphrases. Use include/discussion only for explicit task-boundary decisions. In Plan mode, create a task when the user requests a planning deliverable or accepts a concrete proposed change in the planning conversation—not for informational agreement or discussion alone. Start a new plan only when no current plan exists, using expectedAttached: null, title, and scope; await the returned canonical path before saving the plan and requesting implementation approval through plan_exit. If the user explicitly abandons the current plan, call plan_task abandon with its expected attachment and a concise reason; otherwise complete the current plan before starting another."],
+		promptGuidelines: ["Use plan_task to establish concise task identity once. Keep plan titles short and descriptive, ideally 3–6 words. Later updates require a user-driven material change to the deliverable/defining constraints, an explicit rename, or correction of mistaken identity. Do not log progress, findings, proposed/rejected techniques, implementation adjustments, or message paraphrases. Use include/discussion only for explicit task-boundary decisions. In Plan mode, create a task when the user requests a planning deliverable or accepts a concrete proposed change in the planning conversation—not for informational agreement or discussion alone. Start a new plan only when no current plan exists, using expectedAttached: null, title, and scope; await the returned canonical path before saving the plan and requesting implementation approval through plan_exit. If the user explicitly abandons the current plan, call plan_task abandon with its expected attachment and a concise reason; otherwise complete the current plan before starting another."],
 		parameters: Type.Object({
 			action: Type.String({ enum: ["list", "pause", "resume", "update", "include", "discussion", "new", "abandon"] }),
 			sequence: Type.Optional(Type.Integer({ minimum: 0 })),
 			expectedAttached: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
 			targetSequence: Type.Optional(Type.Integer({ minimum: 0 })),
-			title: Type.Optional(Type.String({ maxLength: 160 })),
+			title: Type.Optional(Type.String({ maxLength: 160, description: "Concise, descriptive plan title, ideally 3–6 words" })),
 			scope: Type.Optional(Type.String({ maxLength: 4000 })),
 			topic: Type.Optional(Type.String({ maxLength: 1000 })),
 			reason: Type.Optional(Type.String({ maxLength: 1000 })),
