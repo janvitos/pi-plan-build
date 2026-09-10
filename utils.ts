@@ -1,4 +1,5 @@
 import path from "node:path";
+import fs from "node:fs";
 import { decodePlanExecution, type PlanExecutionState } from "./plan-execution.ts";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { VERIFICATION_GUIDANCE } from "./prompts.ts";
@@ -175,7 +176,7 @@ export function buildPlanExitFreshResult(planPath: string) {
 		content: [
 			{
 				type: "text" as const,
-				text: "The user selected clean-session implementation. Stop now; /build-fresh is starting automatically.",
+				text: "Fresh-session implementation selected.",
 			},
 		],
 		details: { approved: true, action: "implement-fresh" as const, mode: "plan" as const, planPath },
@@ -206,7 +207,7 @@ export function buildPlanExitStayResult(planPath: string, cancelled: boolean) {
 		content: [
 			{
 				type: "text" as const,
-				text: "The user chose to stay in Plan mode. Stop now and wait for their next message before doing any further planning or taking any other action.",
+				text: "Remaining in Plan mode.",
 			},
 		],
 		details: { approved: false, mode: "plan" as const, planPath, cancelled },
@@ -275,10 +276,38 @@ export interface PlanTask {
 	decisions: Array<{ topic: string; outcome: "include" | "discussion" }>;
 }
 
+export interface PlanOutcome {
+	kind: "awaiting_validation" | "blocked" | "waiting_for_input" | "still_working";
+	reason: string;
+	userAction?: string;
+}
+
 export interface PlanLifecycle {
 	sequence: number;
 	status: "open" | "completed";
 	task?: PlanTask;
+	outcome?: PlanOutcome;
+}
+
+export interface CompletionReconciliation {
+	sequence: number;
+	sessionId: string;
+	eligible: boolean;
+	consumed: boolean;
+	handled: boolean;
+	failed: boolean;
+	terminal: boolean;
+}
+
+export function shouldReconcileCompletion(state: CompletionReconciliation | undefined, attached: number | null, mode: Mode, sessionId: string, hasExecution: boolean, idle: boolean, pending: boolean): boolean {
+	return !!state && state.sequence === attached && state.sessionId === sessionId && mode === "build" && !hasExecution && idle && !pending && state.eligible && state.terminal && !state.consumed && !state.handled && !state.failed;
+}
+
+export function decodeCompletionReconciliation(value: unknown): CompletionReconciliation | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const r = value as CompletionReconciliation;
+	if (!Number.isSafeInteger(r.sequence) || r.sequence < 0 || typeof r.sessionId !== "string" || ![r.eligible, r.consumed, r.handled, r.failed, r.terminal].every((v) => typeof v === "boolean")) return undefined;
+	return { ...r };
 }
 
 export function decodePlanLifecycle(value: unknown): PlanLifecycle | undefined {
@@ -289,8 +318,24 @@ export function decodePlanLifecycle(value: unknown): PlanLifecycle | undefined {
 	const task = candidate.task;
 	const validTask = task && typeof task.title === "string" && typeof task.scope === "string" &&
 		Array.isArray(task.decisions) && task.decisions.every((d) => d && typeof d.topic === "string" && (d.outcome === "include" || d.outcome === "discussion"));
+	const outcome = candidate.outcome;
+	const validOutcome = outcome && ["awaiting_validation", "blocked", "waiting_for_input", "still_working"].includes(outcome.kind) && typeof outcome.reason === "string" && (outcome.userAction === undefined || typeof outcome.userAction === "string");
 	return { sequence: candidate.sequence!, status: candidate.status,
+		...(validOutcome ? { outcome: { ...outcome } } : {}),
 		...(validTask ? { task: { title: cleanTaskTitle(task.title), scope: task.scope, decisions: task.decisions.map((d) => ({ ...d })) } } : {}) };
+}
+
+export type PlanFileState = "saved" | "absent" | "unavailable";
+
+export function inspectPlanFile(file: string): PlanFileState {
+	try { return fs.statSync(file).isFile() ? "saved" : "unavailable"; }
+	catch (error) { return (error as NodeJS.ErrnoException).code === "ENOENT" ? "absent" : "unavailable"; }
+}
+
+export function describePlanFileState(file: string, state: PlanFileState): string {
+	if (state === "saved") return `Saved plan file: ${file}. Read it only when relevant to the current work.`;
+	if (state === "absent") return `No plan file exists. Reserved path for future writing: ${file}. Do not read this absent file.`;
+	return `Plan file unavailable: ${file}. Its existence could not be confirmed; do not assume it is absent or discard its task.`;
 }
 
 export interface SavedPlanRecord {

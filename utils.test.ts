@@ -317,7 +317,7 @@ test("declining plan exit stays in Plan mode and terminates the run", () => {
 		planPath: "/tmp/plan.md",
 		cancelled: false,
 	});
-	assert.match(declined.content[0].text, /Stop now and wait for their next message/);
+	assert.equal(declined.content[0].text, "Remaining in Plan mode.");
 
 	const cancelled = buildPlanExitStayResult("/tmp/plan.md", true);
 	assert.equal(cancelled.terminate, true);
@@ -367,7 +367,7 @@ test("fresh implementation selection terminates and preserves the handoff", () =
 		mode: "plan",
 		planPath: "/tmp/plan.md",
 	});
-	assert.match(result.content[0].text, /starting automatically/);
+	assert.equal(result.content[0].text, "Fresh-session implementation selected.");
 	const plan = "first line\nlast line";
 	const handoff = buildFreshImplementationHandoff(plan);
 	assert.match(handoff, /Full tool access is restored/);

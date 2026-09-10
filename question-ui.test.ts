@@ -43,6 +43,23 @@ function makeContext(select: (title: string, options: string[], opts?: { signal?
 	};
 }
 
+test("question output preserves answers without coaching and distinguishes rendering states", async () => {
+	const { tool } = getQuestionTool();
+	const { context } = makeContext(async () => "Yes");
+	const result = await tool.execute("answer", { questions: [prompt("Continue?")] }, undefined, undefined, context);
+	assert.match(result.content[0].text, /^Answers:/);
+	assert.doesNotMatch(result.content[0].text, /You can now continue/);
+	const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text };
+	for (const expanded of [false, true]) {
+		const render = (r: any, isPartial = false, isError = false) => tool.renderResult(r, { expanded, isPartial }, theme, { isError }).render(100).join("\n").trimEnd();
+		assert.match(render(result), /Yes/);
+		assert.match(render({ content: [{ type: "text", text: "Connection failed" }] }, false, true), /Connection failed/);
+		assert.equal(render({ content: [], details: {} }), "Answer status unavailable");
+		assert.equal(render(result, true), "Awaiting answers…");
+		assert.equal(render({ content: [], details: { cancelled: true } }), "Question(s) skipped");
+	}
+});
+
 test("cancelling a selector terminates cleanly and reports a skipped question", async () => {
 	let receivedSignal: AbortSignal | undefined;
 	const controller = new AbortController();

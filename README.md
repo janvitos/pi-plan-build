@@ -152,6 +152,24 @@ To try the behavior in a disposable session: enter `/plan`, ask for a login-fix 
 
 Use `/plan new` for an unrelated planning task before the current plan is finished. It preserves the previous plan's file, metadata, decisions, and step progress as a paused record, and clears its pending fresh-session handoff. Lifecycle commands require an idle agent. Cancelling step execution does not mark a plan complete.
 
+### Finishing planned implementation
+
+The agent owns completion: after implementation and all required checks pass, it calls `plan_complete` before announcing completion. Optional feedback such as trying the appearance after a reload is not an acceptance gate. Required user-only validation must not be silently waived.
+
+When work is unfinished, Build exposes `plan_finish`. `awaiting_validation` requires a concrete essential user action and pauses/detaches the plan while preserving its progress. `blocked`, `waiting_for_input`, and `still_working` record a reason and leave it attached and unfinished. The outcome appears in context and plan listings. Successful resumed normal implementation supersedes the earlier outcome. A later validation confirmation should explicitly identify and resume the paused plan before completion.
+
+For normal saved-plan Build implementation, the extension can issue one hidden bookkeeping reminder if the agent ends normally without recording an outcome. Eligibility comes from approved normal implementation or a successful project edit/write—not idle state, final-answer wording, or arbitrary shell commands. The reminder never authorizes extra implementation/tests or implies success. Interruptions, errors, pending input, detached work, Plan mode, and step execution do not trigger it. Attempts are consumed before dispatch and are not replayed on reload. If ignored, the plan stays unfinished; no repeat loop or forced completion occurs. Shell-only work outside the approved flow may not trigger the safeguard, so explicit agent finishing remains the primary contract.
+
+### Tool status and agent guidance
+
+Planning and question tool results describe user-relevant outcomes: mode changes, completion, step progress, answers, errors, and essential user actions. Raw results are concise too, so RPC clients and renderer fallbacks do not receive full mode reminders or agent coaching. Default and expanded renderers preserve actual failures; partial results do not claim success or cancellation. Agent-only continuation, approval, and completion instructions remain in tool guidance and hidden model context, with termination and handoff behavior unchanged. Hidden (`display: false`) means hidden in the normal UI, not inaccessible through session/API data.
+
+### Reserved paths and compact task results
+
+A reserved plan path does not mean a Markdown file exists. Agent context explicitly distinguishes saved files, absent files reserved for future writing, and unavailable files. Detached Build work needs no plan lookup or metadata initialization. When restoring Build sessions, empty legacy or previously migrated open slots with no metadata, progress, or existing file are detached and omitted from resumable inventories; numbering is retained. Genuine unsaved tasks with title/scope metadata or execution state are preserved, as are records whose files cannot be checked safely.
+
+`plan_task` returns concise action results instead of full instruction blocks. Expand a result to inspect attachment/path/file-state details; `list` and `/plan list` show a readable inventory. Current planning restrictions and attachment context are supplied privately to the model before its next response. Identical metadata updates do not save redundant state, and agent guidance discourages repeated bookkeeping calls.
+
 ### Unrelated Build work and paused plans
 
 Build allows free discussion and independent coding. Questions, tangents, research, and related changes normally keep the same attachment. A clear request such as “pause this and fix X” authorizes the agent to detach the plan and handle X without asking again. For an independent coding request whose relationship is ambiguous, the agent asks once whether to include it in the current task or pause the plan and work separately. It remembers your decision. Small detached fixes require no new plan.

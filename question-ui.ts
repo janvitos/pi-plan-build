@@ -119,7 +119,7 @@ export function registerQuestionTool(pi: ExtensionAPI): void {
 			}
 			const formatted = formatQuestionAnswers(answers);
 			return {
-				content: [{ type: "text", text: `User has answered your questions: ${formatted}. You can now continue with the user's answers in mind.` }],
+				content: [{ type: "text", text: `Answers: ${formatted}` }],
 				details: { answers },
 			};
 		},
@@ -127,10 +127,12 @@ export function registerQuestionTool(pi: ExtensionAPI): void {
 			const count = Array.isArray(args.questions) ? args.questions.length : 0;
 			return new Text(theme.fg("toolTitle", theme.bold(`question (${count})`)), 0, 0);
 		},
-		renderResult(result, _options, theme) {
+		renderResult(result, options, theme, context) {
+			if (context.isError) return new Text(theme.fg("error", result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n") || "Question failed"), 0, 0);
+			if (options.isPartial) return new Text(theme.fg("muted", "Awaiting answers…"), 0, 0);
 			const details = result.details as { answers?: QuestionAnswer[]; cancelled?: boolean } | undefined;
 			if (details?.cancelled) return new Text(theme.fg("warning", "Question(s) skipped"), 0, 0);
-			if (!details?.answers) return new Text(theme.fg("warning", "Question cancelled"), 0, 0);
+			if (!details?.answers) return new Text(theme.fg("muted", "Answer status unavailable"), 0, 0);
 			return new Text(details.answers.map((a) => `${theme.fg("success", "✓")} ${a.header}: ${a.answers.join(", ")}`).join("\n"), 0, 0);
 		},
 	});

@@ -22,6 +22,7 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		setThinkingLevel() {},
 		setModel: async () => true,
 		sendUserMessage: (text: string) => events.push({ kind: "dispatch", text }),
+		sendMessage: (message: any, options: any) => events.push({ kind: "internal", message, options }),
 		on: (name: string, handler: any) => handlers.set(name, [...(handlers.get(name) ?? []), handler]),
 		registerCommand: (name: string, command: any) => commands.set(name, command),
 		registerTool: (tool: any) => tools.set(tool.name, tool),
@@ -42,7 +43,7 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		},
 	};
 	const ctx = {
-		mode: "rpc", hasUI: true, cwd: dir, isIdle: () => idle,
+		mode: "rpc", hasUI: true, cwd: dir, isIdle: () => idle, hasPendingMessages: () => false,
 		model: { provider: "test", id: "test" },
 		modelRegistry: { find: () => ({ provider: "test", id: "test" }) },
 		sessionManager: { getEntries: () => entries, getBranch: () => entries, getSessionId: () => sessionId, getSessionFile: () => undefined },
@@ -65,10 +66,11 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		return name === "before_agent_start" ? { ...result, messages } : result;
 	}
 	return {
-		ctx, pi, events, commands,
+		ctx, pi, events, commands, tools,
 		entries, active: () => active, setIdle: (value: boolean) => { idle = value; },
 		event: emit,
 		prompt: async (text: string) => {
+			await emit("input", { source: "interactive", text });
 			const result = await emit("before_agent_start", { prompt: text });
 			// Pi constructs this sequence before the agent loop emits/render its messages.
 			const messages = [{ role: "user", content: text }, ...result.messages.map((message: any) => ({ role: "custom", ...message }))];
@@ -94,6 +96,216 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		state: () => entries.filter((entry) => entry.customType === "pi-plan-build-state").at(-1).data,
 	};
 }
+
+test("planning tool renderers preserve errors and never report success for partial or missing results", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-visible-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		const entered = await h.tool("plan_enter");
+		assert.equal(entered.content[0].text, "Switched to Plan mode.");
+		const hidden = await h.event("context", { messages: [] });
+		assert.match(hidden.messages.at(-1).content, /Plan mode is active/);
+		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
+		fs.writeFileSync(file, "# Plan\n");
+		const approved = await h.tool("plan_exit");
+		assert.equal(approved.content[0].text, "Plan approved; switched to Build mode.");
+		const buildContext = await h.event("context", { messages: [] });
+		assert.match(buildContext.messages.at(-1).content, /Build mode permits/);
+		const completed = await h.tool("plan_complete");
+		assert.equal(completed.content[0].text, "Plan complete.");
+		const samples: Record<string, any> = { plan_enter: entered, plan_exit: approved, plan_complete: completed };
+		for (const name of ["plan_enter", "plan_exit", "plan_complete", "plan_finish", "plan_task", "plan_step_control", "plan_step_complete"]) {
+			const tool = h.tools.get(name);
+			for (const expanded of [false, true]) {
+				const render = (result: any, isPartial: boolean, isError: boolean) => tool.renderResult(result, { expanded, isPartial }, h.ctx.ui.theme, { isError }).render(140).join("\n");
+				assert.match(render({ content: [{ type: "text", text: "Actual failure" }] }, false, true), /Actual failure/, name);
+				assert.match(render({ content: [{ type: "text", text: "Actual failure" }] }, true, true), /Actual failure/, name);
+				const partial = render(samples[name] ?? { content: [{ type: "text", text: "Success sentinel" }], details: {} }, true, false);
+				assert.doesNotMatch(partial, /Success sentinel|Switched to|Plan complete\.|Plan approved;/, name);
+				const empty = render({ content: [], details: {} }, false, false);
+				assert.doesNotMatch(empty, /Switched to|Plan complete\.|Remaining in Plan mode|cancelled/i, name);
+				if (samples[name]) assert.doesNotMatch(render(samples[name], false, false), /system-reminder|Summarize the implementation|Stop now|execute the plan now/);
+			}
+		}
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("completion reconciliation is one-shot and unfinished outcomes preserve the right state", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-reconcile-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		fs.mkdirSync(path.join(dir, "plans"));
+		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
+		const markdown = "# Work\n\n## Implementation Steps\n1. Work\n";
+		fs.writeFileSync(file, markdown);
+		const fixture = () => [{ type: "custom", customType: "pi-plan-build-state", data: { version: 1, selectedMode: "build", plan: { sequence: 1, status: "open", task: { title: "Work", scope: "Work", decisions: [] } } } }];
+		const settle = async (h: ReturnType<typeof harness>, stopReason = "stop") => {
+			await h.event("agent_end", { messages: [{ role: "assistant", stopReason, content: [{ type: "text", text: "Summary" }] }] });
+			await h.event("agent_settled");
+		};
+		const mutation = (h: ReturnType<typeof harness>) => h.event("tool_result", { toolName: "edit", input: { path: path.join(dir, "project.ts") }, isError: false });
+		const h = harness(dir, fixture());
+		await h.event("session_start", { reason: "resume" });
+		await h.prompt("Implement the plan");
+		await mutation(h);
+		await settle(h);
+		assert.equal(h.events.filter((e) => e.kind === "internal").length, 1);
+		const reminder = h.events.find((e) => e.kind === "internal");
+		assert.equal(reminder.message.display, false);
+		assert.equal(reminder.options.triggerTurn, true);
+		assert.match(reminder.message.content, /not permission for more implementation/);
+		assert.equal(h.state().reconciliation.consumed, true);
+		await h.event("before_agent_start", { prompt: "" });
+		await mutation(h);
+		await settle(h);
+		assert.equal(h.events.filter((e) => e.kind === "internal").length, 1);
+		const restored = harness(dir, structuredClone(h.entries));
+		await restored.event("session_start", { reason: "reload" });
+		await settle(restored);
+		assert.equal(restored.events.filter((e) => e.kind === "internal").length, 0, "reload never replays a reminder");
+		await h.prompt("Continue implementing");
+		await mutation(h);
+		await settle(h);
+		assert.equal(h.events.filter((e) => e.kind === "internal").length, 2, "new user work gets its own one-shot budget");
+		await h.tool("plan_complete");
+		assert.equal(h.state().collection.attached, null);
+		for (const skip of ["conversation", "aborted", "error", "tool-error", "pending", "pause", "plan", "step", "complete", "blocked"]) {
+			const f = fixture() as any[];
+			if (skip === "step") f[0].data.execution = createPlanExecution(markdown);
+			const check = harness(dir, f);
+			await check.event("session_start", { reason: "resume" });
+			await check.prompt("Work");
+			if (skip !== "conversation") await mutation(check);
+			if (skip === "pending") check.ctx.hasPendingMessages = () => true;
+			if (skip === "tool-error") await check.event("tool_result", { toolName: "bash", input: {}, isError: true });
+			if (skip === "pause") await check.tool("plan_task", { action: "pause", expectedAttached: 1 });
+			if (skip === "plan") await check.command("");
+			if (skip === "complete") await check.tool("plan_complete");
+			if (skip === "blocked") await check.tool("plan_finish", { expectedAttached: 1, outcome: "blocked", reason: "Missing credential" });
+			await settle(check, skip === "aborted" || skip === "error" ? skip : "stop");
+			assert.equal(check.events.filter((e) => e.kind === "internal").length, 0, skip);
+		}
+		const pending = harness(dir, fixture());
+		await pending.event("session_start", { reason: "resume" });
+		await pending.prompt("Implement");
+		await mutation(pending);
+		await assert.rejects(pending.tool("plan_finish", { expectedAttached: 9, outcome: "blocked", reason: "Blocked" }), /Stale/);
+		await assert.rejects(pending.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Hardware check" }), /userAction/);
+		await pending.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Hardware needed", userAction: "Run the hardware acceptance check" });
+		await settle(pending);
+		assert.equal(pending.state().collection.attached, null);
+		assert.equal(pending.state().collection.records[0].plan.status, "open");
+		assert.equal(pending.state().collection.records[0].plan.outcome.userAction, "Run the hardware acceptance check");
+		assert.equal(pending.events.filter((e) => e.kind === "internal").length, 0);
+		assert.equal(fs.readFileSync(file, "utf8"), markdown);
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("empty historical Build slots are detached but genuine plans and reservations survive", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-phantom-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		for (const migrated of [false, true]) {
+			const plan = { sequence: 1, status: "open" };
+			const data = { version: 1, selectedMode: "build", plan, ...(migrated ? { collection: { records: [{ plan }], attached: 1, counter: 1 } } : {}) };
+			const h = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data }]);
+			await h.event("session_start", { reason: "resume" });
+			assert.equal(h.state().collection.attached, null);
+			assert.deepEqual(h.state().collection.records, []);
+			assert.equal(h.state().collection.counter, 1);
+			const context = await h.event("context", { messages: [] });
+			assert.match(context.messages.at(-1).content, /no plan lookup or task initialization is required/i);
+			assert.doesNotMatch(context.messages.at(-1).content, /session-001\.md/);
+			await h.command("");
+			assert.equal(h.state().collection.attached, 2);
+			const planning = await h.event("context", { messages: [] });
+			assert.match(planning.messages.at(-1).content, /Planning slot reserved/);
+			assert.match(planning.messages.at(-1).content, /Do not read this absent file/);
+		}
+		for (const kind of ["metadata", "file", "execution", "reservation", "unavailable"] as const) {
+			const id = kind;
+			const file = makePlanPath(path.join(dir, "plans"), id, 1);
+			if (kind === "file") fs.writeFileSync(file, "# Real saved plan\n");
+			if (kind === "unavailable") fs.mkdirSync(file);
+			const plan = { sequence: 1, status: "open", ...(kind === "metadata" ? { task: { title: "Unsaved planning", scope: "Legitimate scope", decisions: [] } } : {}) };
+			const data = { version: 1, selectedMode: kind === "reservation" ? "plan" : "build", plan, ...(kind === "execution" ? { execution: createPlanExecution("# Work\n\n## Implementation Steps\n1. Work\n") } : {}) };
+			const h = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data }], id);
+			await h.event("session_start", { reason: "resume" });
+			assert.equal(h.state().collection.attached, 1, kind);
+			const context = await h.event("context", { messages: [] });
+			assert.match(context.messages.at(-1).content, kind === "file" || kind === "execution" ? /Saved plan file/ : kind === "unavailable" ? /Plan file unavailable/ : /Do not read this absent file/);
+			if (kind === "file") assert.equal(fs.readFileSync(file, "utf8"), "# Real saved plan\n");
+		}
+		// A fork must check the source before treating its not-yet-copied destination as empty.
+		const source = makePlanPath(path.join(dir, "plans"), "source", 1);
+		fs.writeFileSync(source, "# Source plan\n");
+		const fork = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data: { version: 1, selectedMode: "build", planSessionId: "source", plan: { sequence: 1, status: "open" } } }], "child");
+		await fork.event("session_start", { reason: "fork" });
+		assert.equal(fork.state().collection.attached, 1);
+		assert.equal(fs.readFileSync(makePlanPath(path.join(dir, "plans"), "child", 1), "utf8"), "# Source plan\n");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("task results are compact while hidden context retains current planning constraints", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-output-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		await h.command("");
+		const renderer = h.tools.get("plan_task");
+		const result = await h.tool("plan_task", { action: "update", sequence: 1, title: "Fix login", scope: "Login redirects" });
+		assert.equal(result.content[0].text, "Plan title/scope updated: Fix login");
+		assert.equal(result.details.fileState, "absent");
+		const count = h.entries.length;
+		const unchanged = await h.tool("plan_task", { action: "update", sequence: 1, title: "Fix login", scope: "Login redirects" });
+		assert.match(unchanged.content[0].text, /Plan unchanged/);
+		assert.equal(h.entries.length, count);
+		const rendered = renderer.renderResult(result, { expanded: false, isPartial: false }, h.ctx.ui.theme, {}).render(120).join("\n");
+		assert.match(rendered, /Fix login/);
+		assert.doesNotMatch(rendered, /Plan mode is active|system-reminder|Task metadata/);
+		const expanded = renderer.renderResult(result, { expanded: true, isPartial: false }, h.ctx.ui.theme, {}).render(120).join("\n");
+		assert.match(expanded, /Attachment: 1/);
+		assert.match(expanded, /absent/);
+		assert.doesNotThrow(() => renderer.renderCall({}, h.ctx.ui.theme).render(80));
+		const partial = renderer.renderResult(result, { expanded: false, isPartial: true }, h.ctx.ui.theme, {}).render(80).join("\n");
+		assert.doesNotMatch(partial, /updated:/);
+		const error = renderer.renderResult({ content: [{ type: "text", text: "Stale attachment" }] }, { expanded: true, isPartial: false }, h.ctx.ui.theme, { isError: true }).render(80).join("\n");
+		assert.match(error, /Stale attachment/);
+		const context = await h.event("context", { messages: [] });
+		assert.match(context.messages.at(-1).content, /Plan mode is active/);
+		assert.match(context.messages.at(-1).content, /Do not read this absent file/);
+		await h.build();
+		const paused = await h.tool("plan_task", { action: "pause", expectedAttached: 1 });
+		assert.equal(paused.content[0].text, "Plan paused: Fix login");
+		const list = await h.tool("plan_task", { action: "list" });
+		assert.match(list.content[0].text, /1: Fix login \[paused; absent\]/);
+		assert.doesNotMatch(list.content[0].text, /Build mode permits/);
+		const resumed = await h.tool("plan_task", { action: "resume", expectedAttached: null, targetSequence: 1 });
+		assert.equal(resumed.content[0].text, "Plan resumed: Fix login");
+		const buildContext = await h.event("context", { messages: [] });
+		assert.match(buildContext.messages.at(-1).content, /Build mode permits/);
+		assert.match(buildContext.messages.at(-1).content, /Active task sequence \(internal\): 1/);
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
 
 test("multiple plans detach, resume, fork, and complete without losing paused progress", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-attachment-"));
