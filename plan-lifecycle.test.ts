@@ -107,6 +107,7 @@ test("planning tool renderers preserve errors and never report success for parti
 		assert.equal(entered.content[0].text, "Switched to Plan mode.");
 		const hidden = await h.event("context", { messages: [] });
 		assert.match(hidden.messages.at(-1).content, /Plan mode is active/);
+		await h.command("new");
 		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
 		fs.writeFileSync(file, "# Plan\n");
 		const approved = await h.tool("plan_exit");
@@ -202,6 +203,25 @@ test("completion reconciliation is one-shot and unfinished outcomes preserve the
 		assert.equal(pending.state().collection.attached, null);
 		assert.equal(pending.state().collection.records[0].plan.status, "open");
 		assert.equal(pending.state().collection.records[0].plan.outcome.userAction, "Run the hardware acceptance check");
+		await pending.command("");
+		await pending.prompt("Discuss the validation result");
+		await pending.event("session_start", { reason: "reload" });
+		assert.equal(pending.state().collection.attached, null);
+		assert.equal(pending.state().collection.records.length, 1);
+		assert.equal(pending.state().collection.counter, 1);
+		assert.equal((await pending.event("tool_call", { toolName: "write", input: { path: file } })).block, true);
+		await assert.rejects(pending.tool("plan_exit"), /No attached plan/);
+		const listed = await pending.tool("plan_task", { action: "list" });
+		assert.match(listed.content[0].text, /Current attachment: none/);
+		assert.match(listed.content[0].text, /Awaiting validation/);
+		assert.doesNotMatch(listed.content[0].text, /hardware acceptance|\.md/);
+		const detailsText = pending.tools.get("plan_task").renderResult(listed, { expanded: true, isPartial: false }, pending.ctx.ui.theme, {}).render(160).join("\n");
+		assert.match(detailsText, /Run the hardware acceptance check/);
+		const pendingContext = await pending.event("context", { messages: [] });
+		assert.match(pendingContext.messages.at(-1).content, /Run the hardware acceptance check/);
+		await pending.tool("plan_task", { action: "resume", expectedAttached: null, targetSequence: 1 });
+		assert.equal(pending.state().collection.attached, 1);
+		await assert.rejects(pending.tool("plan_task", { action: "resume", expectedAttached: null, targetSequence: 1 }), /expected none; actual 1/);
 		assert.equal(pending.events.filter((e) => e.kind === "internal").length, 0);
 		assert.equal(fs.readFileSync(file, "utf8"), markdown);
 	} finally {
@@ -227,10 +247,11 @@ test("empty historical Build slots are detached but genuine plans and reservatio
 			assert.match(context.messages.at(-1).content, /no plan lookup or task initialization is required/i);
 			assert.doesNotMatch(context.messages.at(-1).content, /session-001\.md/);
 			await h.command("");
-			assert.equal(h.state().collection.attached, 2);
+			assert.equal(h.state().collection.attached, null);
+			assert.equal(h.state().collection.counter, 1);
 			const planning = await h.event("context", { messages: [] });
-			assert.match(planning.messages.at(-1).content, /Planning slot reserved/);
-			assert.match(planning.messages.at(-1).content, /Do not read this absent file/);
+			assert.match(planning.messages.at(-1).content, /Current attachment: none/);
+			assert.match(planning.messages.at(-1).content, /No canonical writable plan path exists/);
 		}
 		for (const kind of ["metadata", "file", "execution", "reservation", "unavailable"] as const) {
 			const id = kind;
@@ -241,9 +262,9 @@ test("empty historical Build slots are detached but genuine plans and reservatio
 			const data = { version: 1, selectedMode: kind === "reservation" ? "plan" : "build", plan, ...(kind === "execution" ? { execution: createPlanExecution("# Work\n\n## Implementation Steps\n1. Work\n") } : {}) };
 			const h = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data }], id);
 			await h.event("session_start", { reason: "resume" });
-			assert.equal(h.state().collection.attached, 1, kind);
+			assert.equal(h.state().collection.attached, kind === "reservation" ? null : 1, kind);
 			const context = await h.event("context", { messages: [] });
-			assert.match(context.messages.at(-1).content, kind === "file" || kind === "execution" ? /Saved plan file/ : kind === "unavailable" ? /Plan file unavailable/ : /Do not read this absent file/);
+			assert.match(context.messages.at(-1).content, kind === "file" || kind === "execution" ? /Saved plan file/ : kind === "unavailable" ? /Plan file unavailable/ : kind === "reservation" ? /Current attachment: none/ : /Do not read this absent file/);
 			if (kind === "file") assert.equal(fs.readFileSync(file, "utf8"), "# Real saved plan\n");
 		}
 		// A fork must check the source before treating its not-yet-copied destination as empty.
@@ -266,7 +287,7 @@ test("task results are compact while hidden context retains current planning con
 	try {
 		const h = harness(dir);
 		await h.event("session_start", { reason: "startup" });
-		await h.command("");
+		await h.command("new");
 		const renderer = h.tools.get("plan_task");
 		const result = await h.tool("plan_task", { action: "update", sequence: 1, title: "Fix login", scope: "Login redirects" });
 		assert.equal(result.content[0].text, "Plan title/scope updated: Fix login");
@@ -293,7 +314,7 @@ test("task results are compact while hidden context retains current planning con
 		const paused = await h.tool("plan_task", { action: "pause", expectedAttached: 1 });
 		assert.equal(paused.content[0].text, "Plan paused: Fix login");
 		const list = await h.tool("plan_task", { action: "list" });
-		assert.match(list.content[0].text, /1: Fix login \[paused; absent\]/);
+		assert.match(list.content[0].text, /1 · Fix login · paused/);
 		assert.doesNotMatch(list.content[0].text, /Build mode permits/);
 		const resumed = await h.tool("plan_task", { action: "resume", expectedAttached: null, targetSequence: 1 });
 		assert.equal(resumed.content[0].text, "Plan resumed: Fix login");
@@ -342,7 +363,8 @@ test("multiple plans detach, resume, fork, and complete without losing paused pr
 		await assert.rejects(h.tool("plan_task", { action: "resume", expectedAttached: 1, targetSequence: 1 }), /Stale/);
 		await assert.rejects(h.tool("plan_task", { action: "resume", expectedAttached: null }), /targetSequence/);
 		await h.command("");
-		assert.equal(h.state().collection.attached, 2, "Plan entry never silently resumes A");
+		assert.equal(h.state().collection.attached, null, "Plan entry neither creates nor resumes a plan");
+		await h.command("new");
 		await h.tool("plan_task", { action: "update", sequence: 2, title: "Billing", scope: "Export invoices" });
 		const fileB = makePlanPath(path.join(dir, "plans"), "session", 2);
 		fs.writeFileSync(fileB, "# Billing\n");
@@ -401,6 +423,7 @@ test("titles follow unfinished plans across modes, saved-file refreshes, and com
 		assert.deepEqual(h.state().collection.records, []);
 		await h.command("");
 		assert.equal(status(), "plan", "an empty Plan slot has no task label");
+		await h.command("new");
 		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
 		fs.writeFileSync(file, "# Saved heading\n");
 		await h.event("tool_result", { toolName: "write", input: { path: file }, isError: false });
@@ -429,6 +452,7 @@ test("titles follow unfinished plans across modes, saved-file refreshes, and com
 		assert.equal(status(), "plan", "re-entering Plan after completion has no task label");
 		await h.event("session_start", { reason: "reload" });
 		assert.equal(status(), "plan", "an empty reserved slot remains untitled without a placeholder after reload");
+		await h.command("new");
 		await h.tool("plan_task", { action: "update", sequence: 2, title: "Export billing", scope: "Export invoices" });
 		await h.build();
 		assert.equal(status(), "Export billing");
@@ -445,7 +469,7 @@ test("task identity and decisions survive restore while separate tasks preserve 
 	try {
 		const h = harness(dir);
 		await h.event("session_start", { reason: "startup" });
-		await h.command("");
+		await h.command("new");
 		assert.ok(h.active().includes("plan_task"));
 		await h.tool("plan_task", { action: "update", sequence: 1, title: "Fix login redirects", scope: "Fix redirects" });
 		const first = makePlanPath(path.join(dir, "plans"), "session", 1);
@@ -505,7 +529,7 @@ test("plan lifecycle keeps revisions, preserves completed plans, and restores th
 	try {
 		const h = harness(dir);
 		await h.event("session_start", { reason: "startup" });
-		await h.command("");
+		await h.command("new");
 		const first = makePlanPath(path.join(dir, "plans"), "session", 1);
 		assert.equal(fs.existsSync(first), false, "discussion does not create a file");
 		fs.writeFileSync(first, "# First task\n");
@@ -529,6 +553,8 @@ test("plan lifecycle keeps revisions, preserves completed plans, and restores th
 		assert.equal(h.active().includes("plan_complete"), false);
 		assert.equal(fs.readFileSync(first, "utf8"), "# First task\n", "completion preserves the approved plan");
 		await h.command("");
+		assert.equal(h.state().collection.attached, null);
+		await h.command("new");
 		assert.equal(h.state().plan.sequence, 2);
 		assert.equal(fs.readFileSync(first, "utf8"), "# First task\n");
 		await h.event("before_agent_start");
@@ -575,6 +601,8 @@ test("legacy plan migration and fork copies preserve the source file", async () 
 		await fork.command("done");
 		assert.equal(fork.state().plan.status, "completed");
 		await fork.command("");
+		assert.equal(fork.state().collection.attached, null);
+		await fork.command("new");
 		assert.equal(fork.state().plan.sequence, 1);
 		assert.equal(fs.readFileSync(legacy, "utf8"), "legacy plan");
 		await fork.event("session_shutdown");
@@ -603,6 +631,8 @@ test("final step completion rotates the plan, while cancellation keeps it unfini
 		assert.equal(h.state().execution, undefined);
 		assert.equal(fs.readFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), "utf8"), markdown, "step completion leaves the numbered plan unchanged");
 		await h.command("");
+		assert.equal(h.state().collection.attached, null);
+		await h.command("new");
 		assert.equal(h.state().plan.sequence, 2);
 		await h.event("session_shutdown");
 		const cancelled = harness(dir, structuredClone(entries));
@@ -630,7 +660,7 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 				const h = harness(dir);
 				await h.event("session_start", { reason: "startup" });
 				assert.equal(h.events.some(e => e.customType === "pi-plan-build-notice"), false, "ordinary startup does not announce fresh implementation");
-				await h.command("");
+				await h.command("new");
 				await h.tool("plan_task", { action: "update", sequence: 1, title: "Approved task title", scope: "Implement approved plan" });
 				h.ctx.mode = mode;
 				h.ctx.ui.select = async () => choice as any;
@@ -771,7 +801,7 @@ test("failed fresh-session setup does not announce success or start implementati
 	try {
 		const h = harness(dir);
 		await h.event("session_start", { reason: "startup" });
-		await h.command("");
+		await h.command("new");
 		fs.writeFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), "# Approved plan\n");
 		h.ctx.ui.select = async () => PLAN_EXIT_FRESH_CHOICE;
 		await h.tool("plan_exit");

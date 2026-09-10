@@ -389,14 +389,20 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		});
 	}
 
-	function planInventory(): string {
-		const items = inventoryItems();
-		return items.length ? items.map((item) => `${item.sequence}: ${item.title} [${item.state}; ${item.fileState}] — ${item.path}${item.outcome ? ` — ${item.outcome.kind}: ${item.outcome.reason}${item.outcome.userAction ? `; User: ${item.outcome.userAction}` : ""}` : ""}`).join("\n") : "No tracked plans.";
+	function planInventory(expanded = false): string {
+		const items = inventoryItems().filter((item) => expanded || item.state !== "reserved");
+		const header = `Current attachment: ${collection.attached ?? "none"}${collection.attached !== null ? ` (${planLifecycle.task?.title ?? "empty reservation"})` : ""}`;
+		const rows = items.map((item) => expanded
+			? `${item.sequence}: ${item.title} [${item.state}; ${item.fileState}] — ${item.path}${item.outcome ? ` — ${item.outcome.kind}: ${item.outcome.reason}${item.outcome.userAction ? `; User: ${item.outcome.userAction}` : ""}` : ""}`
+			: `${item.sequence} · ${item.title} · ${item.state === "paused" && item.outcome?.kind === "awaiting_validation" ? "Awaiting validation" : item.state}`);
+		return `${header}\n${rows.length ? rows.join("\n") : "No tracked plans."}`;
 	}
 
 	function describeTask(): string {
-		const inventory = planInventory();
-		if (collection.attached === null) return `No plan is attached. Handle the user's request directly; no plan lookup or task initialization is required. Detached work must not advance or complete paused plans. Resume only on explicit user direction.\n${inventory}`;
+		const inventory = planInventory(true);
+		if (collection.attached === null) return (runMode ?? selectedMode) === "plan"
+			? `Current attachment: none. Plan mode permits read-only discussion without selecting a task. No canonical writable plan path exists. When the user clearly requests a new planning deliverable, use plan_task new with expectedAttached null; when they clearly ask to continue a paused task, resume that target. Ask only when intent is ambiguous. Mode switches and discussion alone must not allocate or resume a plan.\n${inventory}`
+			: `No plan is attached. Handle the user's request directly; no plan lookup or task initialization is required. Detached work must not advance or complete paused plans. Resume only on explicit user direction.\n${inventory}`;
 		const fileState = inspectPlanFile(planPath);
 		const empty = !planLifecycle.task && !execution && fileState === "absent";
 		const identity = empty ? `Planning slot reserved (internal sequence ${planLifecycle.sequence}). No task identity established and no plan saved.` : `Active task sequence (internal): ${planLifecycle.sequence}. Task metadata: ${JSON.stringify(planLifecycle.task ?? null)}. Latest outcome: ${JSON.stringify(planLifecycle.outcome ?? null)}.`;
@@ -488,7 +494,6 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	}
 
 	async function selectMode(mode: Mode, ctx: ExtensionContext, source: "manual" | "tool"): Promise<void> {
-		if (mode === "plan" && (collection.attached === null || planLifecycle.status === "completed") && (source === "tool" || ctx.isIdle())) startNewPlan(ctx);
 		if (mode === selectedMode && (source === "manual" || mode === runMode)) return;
 		const previous = selectedMode;
 		if (mode !== "build" && reconciliation) reconciliation.handled = true;
@@ -741,7 +746,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const action = params.action;
 			if (action === "list") return taskResult("list", "");
 			const expected = params.expectedAttached !== undefined ? params.expectedAttached : params.sequence;
-			if (expected === undefined || expected !== collection.attached) throw new Error("Stale task sequence/attachment; list plans and use the current attachment");
+			if (expected === undefined || expected !== collection.attached) throw new Error(`Stale task sequence/attachment: expected ${expected === undefined ? "not supplied" : expected === null ? "none" : expected}; actual ${collection.attached ?? "none"}${collection.attached !== null ? ` (${planLifecycle.task?.title ?? "empty reservation"})` : ""}. Reconsider the requested action using this current attachment; the resume target is separate.`);
 			if (action === "pause" || action === "resume") {
 				const previousTitle = planLifecycle.task?.title ?? "Untitled task";
 				if (action === "pause") detachPlan(ctx);
@@ -784,9 +789,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		},
 		renderResult(result, { expanded, isPartial }, theme, context) {
 			if (isPartial && !context.isError) return new Text(theme.fg("muted", "Updating plan task…"), 0, 0);
-			const details = result.details as { attached?: number | null; planPath?: string; fileState?: string } | undefined;
+			const details = result.details as { attached?: number | null; planPath?: string; fileState?: string; plans?: Array<{ sequence: number; title: string; path: string; fileState: string; outcome?: PlanOutcome }> } | undefined;
 			let text = result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n");
-			if (expanded && !context.isError && details) text += `\nAttachment: ${details.attached ?? "none"}${details.planPath ? `\n${details.planPath} (${details.fileState})` : ""}`;
+			if (expanded && !context.isError && details) {
+				text += `\nAttachment: ${details.attached ?? "none"}${details.planPath ? `\n${details.planPath} (${details.fileState})` : ""}`;
+				for (const item of details.plans ?? []) text += `\n${item.sequence}: ${item.title}\n${item.path} (${item.fileState})${item.outcome ? `\n${item.outcome.reason}${item.outcome.userAction ? `\nUser action: ${item.outcome.userAction}` : ""}` : ""}`;
+			}
 			return new Text(theme.fg(context.isError ? "error" : "muted", text), 0, 0);
 		},
 	});
@@ -810,14 +818,18 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			planLifecycle = { ...planLifecycle, outcome: { kind: params.outcome as PlanOutcome["kind"], reason: params.reason.trim(), ...(params.userAction?.trim() ? { userAction: params.userAction.trim() } : {}) } };
 			if (reconciliation) reconciliation.handled = true;
 			const sequence = collection.attached;
+			const title = planLifecycle.task?.title ?? `Plan ${sequence}`;
 			if (params.outcome === "awaiting_validation") detachPlan(ctx);
 			else persist();
-			return { content: [{ type: "text", text: `Plan ${sequence}: ${params.outcome === "awaiting_validation" ? "paused awaiting essential user validation" : params.outcome}. ${params.reason}${params.userAction ? ` User action: ${params.userAction}` : ""}` }], details: { sequence, outcome: planLifecycle.outcome, attached: collection.attached } };
+			return { content: [{ type: "text", text: params.outcome === "awaiting_validation" ? `Plan paused: ${title}\nAwaiting essential user validation.` : `${title}: ${params.outcome.replaceAll("_", " ")}.` }], details: { sequence, title, planPath, fileState: inspectPlanFile(planPath), outcome: planLifecycle.outcome, attached: collection.attached } };
 		},
 		renderCall(_args, theme) { return new Text(theme.fg("toolTitle", "Record plan outcome"), 0, 0); },
 		renderResult(result, options, theme, context) {
 			if (options.isPartial && !context.isError) return new Text(theme.fg("muted", "Recording plan outcome…"), 0, 0);
-			return new Text(theme.fg(context.isError ? "error" : "muted", result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n") || "No outcome available",), 0, 0);
+			let text = result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n") || "No outcome available";
+			const details = result.details as { planPath?: string; fileState?: string; outcome?: PlanOutcome } | undefined;
+			if (options.expanded && !context.isError && details) text += `${details.planPath ? `\n${details.planPath} (${details.fileState})` : ""}${details.outcome ? `\n${details.outcome.reason}${details.outcome.userAction ? `\nUser action: ${details.outcome.userAction}` : ""}` : ""}`;
+			return new Text(theme.fg(context.isError ? "error" : "muted", text), 0, 0);
 		},
 	});
 
@@ -1218,7 +1230,6 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		applyTools(runMode);
 		let content: string | undefined;
 		if (runMode === "plan") {
-			if (collection.attached === null || planLifecycle.status === "completed") startNewPlan(ctx);
 			await ensurePlanDirectory();
 			content = buildPlanReminder(describePlanFile());
 		} else if (activePlanStep(execution)) {
@@ -1271,7 +1282,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			collection = { records: [], attached: null, counter: 0 };
 			planLifecycle = { sequence: 0, status: "completed" };
 		}
-		if ((decodeModeState(raw)?.selectedMode ?? selectedMode) === "build") {
+		{
 			collection.records = collection.records.filter((record) => {
 				if (record.plan.status !== "open" || record.plan.task || record.execution) return true;
 				const file = planPathFor(record.plan.sequence, ctx);
