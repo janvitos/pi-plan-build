@@ -61,7 +61,7 @@ export class PlanPanel implements Component {
 			"",
 			"- Write “Proceed” to start the next step.",
 			"- Ask to edit, skip, or mark a step complete.",
-			"- Ask to pause, resume, or cancel the plan.",
+			"- Ask to pause, resume, or cancel execution.",
 			"- Ask to hide or show this panel.",
 			"",
 			"You can use your own words.",

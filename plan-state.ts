@@ -1,10 +1,11 @@
 import { decodePlanExecution, type PlanExecutionState } from "./plan-execution.ts";
 import { decodePlanCollection, decodePlanLifecycle, type PlanCollection, type PlanFileState, type PlanLifecycle, type PlanOutcome, type PlanTask, type Mode } from "./utils.ts";
 
+export const STATE_VERSION = 3;
 export const STATE_TYPE = "pi-plan-build-state";
 export const LEGACY_STATE_TYPE = "opencode-modes-state";
 export interface StoredState {
-	version: 2;
+	version: typeof STATE_VERSION;
 	selectedMode: Mode;
 	collection: PlanCollection;
 	toolsBeforeModes: string[];
@@ -26,14 +27,17 @@ export interface LegacyState {
 	reconciliation?: unknown;
 }
 
-/** One migration boundary. A present but unusable collection never falls back to its legacy mirror. */
+/** One compatibility boundary. A present but unusable collection never falls back to its legacy mirror. */
 export function restoreCollection(raw: LegacyState | undefined, inspect: (sequence: number) => PlanFileState, inspectSource?: (sequence: number) => PlanFileState): PlanCollection {
-	if (raw?.version !== undefined && ![1, 2].includes(raw.version)) throw new Error("Unsupported plan state version");
+	if (raw?.version !== undefined && ![1, 2, STATE_VERSION].includes(raw.version)) throw new Error("Unsupported plan state version");
 	let collection: PlanCollection;
-	if (raw && ("collection" in raw || raw.version === 2)) {
-		const decoded = decodePlanCollection(raw.collection);
+	const hasCollection = !!raw && ("collection" in raw || raw.version === 2 || raw.version === STATE_VERSION);
+	if (hasCollection) {
+		const decoded = decodePlanCollection(raw!.collection);
 		if (!decoded) throw new Error("Malformed plan collection; refusing to discard tracked plans");
-		collection = decoded;
+		// Detached records from the former multi-plan workflow are inert history.
+		// Preserve them structurally; do not migrate, attach, or surface them.
+		return decoded;
 	} else {
 		const execution = decodePlanExecution(raw?.execution);
 		const plan = decodePlanLifecycle(raw?.plan);
@@ -89,23 +93,17 @@ export class PlanState {
 	}
 	newPlan(sequence: number, task?: PlanTask): void {
 		this.assertUsable();
+		if (this.attached) throw new Error("Complete or explicitly abandon the current plan before starting another");
 		if (!Number.isSafeInteger(sequence) || sequence <= this.collection.counter) throw new Error("Invalid plan allocation");
 		this.collection.records.push({ plan: { sequence, status: "open", ...(task ? { task } : {}) } });
 		this.collection.attached = sequence;
 		this.collection.counter = sequence;
 	}
-	resume(sequence: number): void {
-		this.assertUsable();
-		if (!this.collection.records.some((r) => r.plan.sequence === sequence && r.plan.status === "open")) throw new Error("No unfinished plan with that sequence");
-		this.collection.attached = sequence;
-	}
-	pause(): void { this.assertUsable(); this.collection.attached = null; }
 	updateTask(task: PlanTask): void { this.requireAttached().plan = { ...this.plan, task }; }
 	outcome(outcome: PlanOutcome | undefined): void {
 		const record = this.requireAttached();
 		const { outcome: _previous, ...plan } = record.plan;
 		record.plan = { ...plan, ...(outcome ? { outcome } : {}) };
-		if (outcome?.kind === "awaiting_validation") this.collection.attached = null;
 	}
 	updateExecution(execution: PlanExecutionState | undefined): void {
 		const record = this.requireAttached();
@@ -114,8 +112,17 @@ export class PlanState {
 	}
 	complete(): void {
 		const record = this.requireAttached();
-		const { outcome: _outcome, ...plan } = record.plan;
+		const { outcome: _outcome, abandonReason: _reason, ...plan } = record.plan;
 		record.plan = { ...plan, status: "completed" };
+		delete record.execution;
+		this.collection.attached = null;
+	}
+	abandon(reason: string): void {
+		const record = this.requireAttached();
+		const explanation = reason.trim();
+		if (!explanation) throw new Error("Abandoning a plan requires a reason");
+		const { outcome: _outcome, ...plan } = record.plan;
+		record.plan = { ...plan, status: "abandoned", abandonReason: explanation };
 		delete record.execution;
 		this.collection.attached = null;
 	}

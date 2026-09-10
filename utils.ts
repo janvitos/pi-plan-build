@@ -54,16 +54,26 @@ export function formatModeRail(mode: Mode, theme: ModeStatusTheme, glyph = "│"
 	return formatModeColor(mode, glyph, theme);
 }
 
+export function formatPlanLabel(title: string | undefined, awaitingValidation = false, width = Infinity): string {
+	const clean = cleanTaskTitle(title ?? "");
+	if (!awaitingValidation) return truncateToWidth(clean, width, "…");
+	const status = width >= 19 ? "Awaiting validation" : "Validation";
+	const available = width - visibleWidth(status) - 3;
+	const prefix = clean && available > 0 ? truncateToWidth(clean, available, "…") : "";
+	return truncateToWidth(prefix ? `${prefix} · ${status}` : status, width, "…");
+}
+
 export function formatModeTopBorder(
 	mode: Mode,
 	width: number,
 	topRightCorner: string,
 	theme: ModeStatusTheme,
 	title?: string,
+	awaitingValidation = false,
 ): string {
 	if (width <= 2) return "";
-	if (!title) return `${formatModeColor(mode, `╭${"─".repeat(width - 2)}`, theme)}${topRightCorner}`;
-	const label = title ? truncateToWidth(` ${cleanTaskTitle(title)} `, Math.max(0, width - 3), "…") : "";
+	if (!title && !awaitingValidation) return `${formatModeColor(mode, `╭${"─".repeat(width - 2)}`, theme)}${topRightCorner}`;
+	const label = truncateToWidth(` ${formatPlanLabel(title, awaitingValidation, Math.max(0, width - 4))} `, Math.max(0, width - 2), "…");
 	return `${formatModeColor(mode, "╭", theme)}${label ? theme.fg("accent", label) : ""}${formatModeColor(mode, `${"─".repeat(Math.max(0, width - 2 - visibleWidth(label)))}`, theme)}${topRightCorner}`;
 }
 
@@ -257,7 +267,7 @@ export function extractPlanTitle(markdown: string): string | undefined {
 }
 
 export function displayedPlanTitle(_mode: Mode, plan: PlanLifecycle, savedPlan: boolean, heading?: string): string | undefined {
-	if (plan.status === "completed") return undefined;
+	if (plan.status !== "open") return undefined;
 	if (!plan.task && !savedPlan) return undefined;
 	return cleanTaskTitle(plan.task?.title ?? "") || heading || "Untitled task";
 }
@@ -276,9 +286,10 @@ export interface PlanOutcome {
 
 export interface PlanLifecycle {
 	sequence: number;
-	status: "open" | "completed";
+	status: "open" | "completed" | "abandoned";
 	task?: PlanTask;
 	outcome?: PlanOutcome;
+	abandonReason?: string;
 }
 
 export interface CompletionReconciliation {
@@ -306,15 +317,18 @@ export function decodePlanLifecycle(value: unknown): PlanLifecycle | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const candidate = value as Partial<PlanLifecycle>;
 	if (!Number.isSafeInteger(candidate.sequence) || candidate.sequence! < 0 ||
-		(candidate.status !== "open" && candidate.status !== "completed")) return undefined;
+		(candidate.status !== "open" && candidate.status !== "completed" && candidate.status !== "abandoned")) return undefined;
 	const task = candidate.task;
 	const validTask = task && typeof task.title === "string" && typeof task.scope === "string" &&
 		Array.isArray(task.decisions) && task.decisions.every((d) => d && typeof d.topic === "string" && (d.outcome === "include" || d.outcome === "discussion"));
 	const outcome = candidate.outcome;
 	const validOutcome = outcome && ["awaiting_validation", "blocked", "waiting_for_input", "still_working"].includes(outcome.kind) && typeof outcome.reason === "string" && (outcome.userAction === undefined || typeof outcome.userAction === "string");
-	if (candidate.task !== undefined && !validTask || candidate.outcome !== undefined && !validOutcome) return undefined;
+	if (candidate.task !== undefined && !validTask || candidate.outcome !== undefined && !validOutcome ||
+		candidate.abandonReason !== undefined && typeof candidate.abandonReason !== "string") return undefined;
+	if (candidate.status === "abandoned" && !candidate.abandonReason?.trim()) return undefined;
 	return { sequence: candidate.sequence!, status: candidate.status,
-		...(validOutcome ? { outcome: { ...outcome } } : {}),
+		...(candidate.status === "open" && validOutcome ? { outcome: { ...outcome } } : {}),
+		...(candidate.status === "abandoned" ? { abandonReason: candidate.abandonReason!.trim() } : {}),
 		...(validTask ? { task: { title: cleanTaskTitle(task.title), scope: task.scope, decisions: task.decisions.map((d) => ({ ...d })) } } : {}) };
 }
 
@@ -354,7 +368,7 @@ export function decodePlanCollection(value: unknown): PlanCollection | undefined
 		if (raw.execution !== undefined && !execution) return undefined;
 		records.push({ plan, ...(execution ? { execution } : {}) });
 	}
-	if (data.attached !== null && !records.some((r) => r.plan.sequence === data.attached && r.plan.status === "open")) return undefined;
+	if (data.attached !== null && (!Number.isSafeInteger(data.attached) || !records.some((r) => r.plan.sequence === data.attached && r.plan.status === "open"))) return undefined;
 	return { records, attached: data.attached!, counter: Math.max(data.counter!, ...records.map((r) => r.plan.sequence)) };
 }
 

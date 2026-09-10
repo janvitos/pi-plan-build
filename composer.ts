@@ -2,7 +2,7 @@ import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendi
 import { HStack, matchesKey, truncateToWidth, visibleWidth, isViewportTUI, type Component, type TUI, type ViewportTUI } from "@earendil-works/pi-tui";
 import { PlanPanel } from "./plan-panel.ts";
 import type { PlanExecutionState } from "./plan-execution.ts";
-import { formatModeRail, formatModeMetadata, formatModeTopBorder, nextMode, nextThinkingLevel, ownsUiSlot, renderModeComposer, shouldReduceOptionalUi, type Mode } from "./utils.ts";
+import { formatPlanLabel, formatModeRail, formatModeMetadata, formatModeTopBorder, nextMode, nextThinkingLevel, ownsUiSlot, renderModeComposer, shouldReduceOptionalUi, type Mode } from "./utils.ts";
 
 type EditorFactory = NonNullable<ReturnType<ExtensionContext["ui"]["getEditorComponent"]>>;
 const STATUS_KEY = "pi-plan-build-mode";
@@ -13,7 +13,7 @@ const PANEL_WIDTH = 64;
 export function createComposer(
 	pi: ExtensionAPI,
 	shortcuts: { toggleMode: string[]; toggleModeInEditor: string[] },
-	view: () => { mode: Mode; title?: string; execution?: PlanExecutionState },
+	view: () => { mode: Mode; title?: string; awaitingValidation?: boolean; execution?: PlanExecutionState },
 	selectMode: (mode: Mode, ctx: ExtensionContext) => void,
 ) {
 	let ctx: ExtensionContext | undefined;
@@ -43,8 +43,8 @@ export function createComposer(
 	}
 	function status() {
 		if (!ctx) return;
-		const { mode, title } = view();
-		ctx.ui.setStatus(STATUS_KEY, title ? ctx.ui.theme.fg("accent", title) : formatModeRail(mode, ctx.ui.theme, ctx.ui.theme.bold(mode)));
+		const { mode, title, awaitingValidation } = view();
+		ctx.ui.setStatus(STATUS_KEY, title || awaitingValidation ? ctx.ui.theme.fg("accent", formatPlanLabel(title, awaitingValidation)) : formatModeRail(mode, ctx.ui.theme, ctx.ui.theme.bold(mode)));
 	}
 	function conflict(context = ctx): boolean {
 		if (!context) return false;
@@ -103,9 +103,9 @@ export function createComposer(
 				if (this.getPaddingX() !== railWidth) this.setPaddingX(railWidth);
 				const lines = super.render(width);
 				if (paddingWidth !== railWidth || !ctx) return lines;
-				const { mode, title } = view();
+				const { mode, title, awaitingValidation } = view();
 				const metadata = formatModeMetadata(mode, pi.getThinkingLevel(), ctx.ui.theme, this.borderColor, { modelName: ctx.model?.id ?? "no-model", modelProvider: ctx.model?.provider, rail: "" });
-				return renderModeComposer(lines, formatModeTopBorder(mode, width, this.borderColor("╮"), ctx.ui.theme, title), `${formatModeRail(mode, ctx.ui.theme)} `, this.borderColor("│"), metadata, formatModeRail(mode, ctx.ui.theme, "╰"), railWidth, width, { truncate: (line, max) => truncateToWidth(line, max, ""), measure: visibleWidth }, (text) => this.borderColor(text));
+				return renderModeComposer(lines, formatModeTopBorder(mode, width, this.borderColor("╮"), ctx.ui.theme, title, awaitingValidation), `${formatModeRail(mode, ctx.ui.theme)} `, this.borderColor("│"), metadata, formatModeRail(mode, ctx.ui.theme, "╰"), railWidth, width, { truncate: (line, max) => truncateToWidth(line, max, ""), measure: visibleWidth }, (text) => this.borderColor(text));
 			}
 			override handleInput(data: string): void {
 				if (!reduced && !this.isShowingAutocomplete() && shortcuts.toggleModeInEditor.some((shortcut) => matchesKey(data, shortcut as Parameters<typeof matchesKey>[1]))) {

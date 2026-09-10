@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { buildFreshImplementationHandoff, makePlanPath, type FreshImplementationRequest, type PlanTask } from "./utils.ts";
-import { STATE_TYPE, type StoredState } from "./plan-state.ts";
+import { STATE_VERSION, STATE_TYPE, type StoredState } from "./plan-state.ts";
 
 export interface ApprovedHandoff extends FreshImplementationRequest {
 	readonly task?: PlanTask;
@@ -71,7 +71,7 @@ export async function startFreshHandoff(pi: ExtensionAPI, ctx: ExtensionCommandC
 					sessionManager.appendModelChange(request.model.provider, request.model.id);
 					sessionManager.appendThinkingLevelChange(request.thinkingLevel);
 					sessionManager.appendCustomEntry(STATE_TYPE, {
-						version: 2,
+						version: STATE_VERSION,
 						selectedMode: "build",
 						pendingFreshAnnouncement: true,
 						toolsBeforeModes: sourceTools,

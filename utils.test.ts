@@ -22,12 +22,14 @@ import {
 	classifyPlanExitChoice,
 	decodeModeState,
 	decodePlanCollection,
+	decodePlanLifecycle,
 	displayedPlanTitle,
 	extractPlanTitle,
 	extractPromptHistory,
 	formatModeMetadata,
 	formatModeRail,
 	formatModeTopBorder,
+	formatPlanLabel,
 	formatQuestionAnswers,
 	isAllowedPlanMutation,
 	makePlanPath,
@@ -45,6 +47,18 @@ import {
 	sanitizeSessionId,
 	shouldReduceOptionalUi,
 } from "./utils.ts";
+
+test("validation status survives long titles and narrow Unicode layouts", () => {
+	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
+	const title = "A".repeat(160);
+	assert.match(formatModeTopBorder("build", 220, "╮", theme, title, true), /Awaiting validation/);
+	assert.equal(formatPlanLabel(title, true), `${title} · Awaiting validation`);
+	for (const width of [1, 2, 3, 4, 8, 20, 24, 40, 70, 220]) {
+		const line = formatModeTopBorder("build", width, "╮", theme, "修復 🔑".repeat(40), true);
+		assert.ok(visibleWidth(line) <= width);
+		if (width >= 24) assert.match(line, /Awaiting validation/);
+	}
+});
 
 test("plan border shows only a safe title and fits narrow Unicode layouts", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
@@ -97,12 +111,15 @@ test("saved plan headings supply only a safe display fallback for unfinished tas
 		assert.equal(displayedPlanTitle(mode, open, true, "Saved title"), "Saved title");
 		assert.equal(displayedPlanTitle(mode, { ...open, task: { title: "Metadata", scope: "Scope", decisions: [] } }, true, "Saved title"), "Metadata");
 		assert.equal(displayedPlanTitle(mode, { ...open, status: "completed" }, true, "Saved title"), undefined);
+		assert.equal(displayedPlanTitle(mode, { ...open, status: "abandoned", abandonReason: "No longer needed" }, true, "Saved title"), undefined);
 	}
 });
 
-test("plan collection decoder rejects dangling attachments and preserves paused records", () => {
-	const records = [{ plan: { sequence: 1, status: "open" } }, { plan: { sequence: 2, status: "completed" } }];
-	assert.deepEqual(decodePlanCollection({ records, attached: null, counter: 0 }), { records, attached: null, counter: 2 });
+test("plan collection decoder rejects dangling attachments and preserves inert detached records", () => {
+	const records = [{ plan: { sequence: 1, status: "open" } }, { plan: { sequence: 2, status: "completed" } }, { plan: { sequence: 3, status: "abandoned", abandonReason: "Superseded" } }];
+	assert.deepEqual(decodePlanCollection({ records, attached: null, counter: 0 }), { records, attached: null, counter: 3 });
+	assert.deepEqual(decodePlanLifecycle({ sequence: 3, status: "abandoned", abandonReason: " Superseded ", outcome: { kind: "blocked", reason: "old" } }), { sequence: 3, status: "abandoned", abandonReason: "Superseded" });
+	assert.equal(decodePlanLifecycle({ sequence: 3, status: "abandoned" }), undefined);
 	assert.equal(decodePlanCollection({ records, attached: 99, counter: 2 }), undefined);
 	assert.equal(decodePlanCollection({ records, attached: 2, counter: 2 }), undefined);
 	assert.equal(decodePlanCollection({ records: [records[0], records[0]], attached: 1, counter: 2 }), undefined);

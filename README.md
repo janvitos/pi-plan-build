@@ -2,17 +2,17 @@
 
 **Plan safely, approve explicitly, then implement here or in a clean session.**
 
-A [Pi coding agent](https://github.com/earendil-works/pi-mono) extension with persistent Plan/Build modes, guarded plan-file editing, interactive questions, complete plan review, multi-plan pause/resume, and optional step execution.
+A [Pi coding agent](https://github.com/earendil-works/pi-mono) extension with persistent Plan/Build modes, one current unfinished plan, guarded plan-file editing, interactive questions, complete plan review, and optional step execution.
 
 ## Workflow
 
 1. Start in **Build** for ordinary discussion and coding. Small fixes need no plan.
 2. Select **Plan** with `/plan`, `Alt+M`, or the default editor `Tab` shortcut. This changes permissions, **not task selection**. Discuss and research read-only; no Markdown is written merely by entering Plan.
-3. When a planning deliverable is clear, the agent selects a new task or explicitly resumes the intended paused one. `/plan new` and `/plan resume [sequence]` are manual equivalents. Finalize or explicitly revise only the attached canonical plan file, then call `plan_exit` for review and approval.
+3. When a planning deliverable is clear, the agent creates the current task; `/plan new` is the manual equivalent. Finalize or explicitly revise only its canonical plan file, then call `plan_exit` for review and approval.
 4. Approve implementation **here**, in a **clean linked session**, or **step by step** (experimental fullscreen UI). Staying in Plan—or Escape—stops the run and waits for your next message.
-5. After implementation and required verification, the agent records completion. Essential user-only validation instead pauses the unfinished plan with precise instructions; optional feedback does not hold completion open.
+5. After implementation and required verification, the agent records completion. Essential user-only validation keeps the same plan attached, visibly marked **Awaiting validation**, with precise instructions. Optional feedback does not hold completion open.
 
-One task retains its file, identity, decisions, and progress through mode changes and revisions. Approval and idleness never imply completion. `/plan pause` detaches a task for unrelated work; **pausing step execution** retains its attachment and progress but permits no implementation until explicitly resumed. Multiple paused plans may coexist; only one is attached. Completed files remain preserved.
+One task retains its file, identity, decisions, and progress through mode changes and revisions. Approval and idleness never imply completion. Before starting another plan, complete the current plan or explicitly abandon it. Abandonment preserves the file but never implies success and cannot be resumed. **Pausing step execution** is separate: it retains the current plan and progress but permits no implementation until execution is resumed.
 
 ## Presentation
 
@@ -26,7 +26,7 @@ One task retains its file, identity, decisions, and progress through mode change
 
 The rounded composer uses the current theme’s `warning` color in Plan and `thinkingLow` in Build on the top-left border and continuous solid `│` left rail. The right rail uses Pi’s border color. The unfinished attached task’s title sits in the top border; mode, model, provider, and thinking level sit in the bottom border. Text truncates to terminal width. Model/thinking changes update the display live.
 
-Titles stay through mode changes and step-execution pauses, disappear on detachment/completion, and change on task selection. Metadata takes precedence over the first nonempty top-level Markdown heading outside fenced code. An existing unfinished file without a title displays `Untitled task`; empty reservations do not. No scope is inferred from the display fallback.
+Titles stay through mode changes and execution pauses, gain an `· Awaiting validation` suffix when applicable, disappear on completion/abandonment, and change only when the task identity changes. Metadata takes precedence over the first nonempty top-level Markdown heading outside fenced code. An existing unfinished file without a title displays `Untitled task`; empty reservations do not. No scope is inferred from the display fallback.
 
 Submitted user messages retain their original mode-colored rail after mode changes and session restoration. Recreated custom editors restore the latest 100 active-branch user prompts for Up/Down history. Pi Plan Build leaves the footer untouched; its keyed status is a fallback when another extension owns the composer.
 
@@ -62,11 +62,10 @@ Do not load multiple npm/Git/local copies simultaneously.
 | `Alt+M` | Default global Build/Plan toggle |
 | `Tab` | In the custom composer, toggle when autocomplete is closed; accept a suggestion when open |
 | `/plan-settings` | Choose a shortcut preset or locate custom configuration |
-| `/plan` | Select read-only Plan mode without allocating or resuming a task |
-| `/plan new` | Start a separate plan; preserve the old unfinished attachment as paused |
-| `/plan pause` | Detach the current plan |
-| `/plan resume [sequence]` | Resume the sole paused plan, or select one when ambiguous |
-| `/plan list` | Compact inventory of identities and attachment/outcome states |
+| `/plan` | Select read-only Plan mode without allocating a task |
+| `/plan new` | Start a plan only when no current unfinished plan exists |
+| `/plan abandon` | Confirm explicit abandonment; preserve the file without implying success |
+| `/plan list` | Show the current plan and its state |
 | `/plan done` | In Build, explicitly mark the saved implementation complete |
 | `/build` | Select Build mode |
 | `pi --plan` | Start in Plan mode |
@@ -99,21 +98,21 @@ Use Pi `modifier+key` syntax (`ctrl+shift+m`, `f6`; navigation names include `pa
 
 Canonical plans live at `~/.pi/agent/plans/<session-id>-001.md`, `-002.md`, etc. Existing unnumbered `<session-id>.md` files remain usable without renaming. Reserved paths are for future writing, not proof that a file exists. Context distinguishes saved, absent, and unavailable files. An unavailable file never justifies discarding its task.
 
-`plan_task` provides `list`, `pause`, `resume`, `update`, `include`, `discussion`, and Plan-only `new`. Mutations require `expectedAttached` (current sequence or `null`; legacy `sequence` remains accepted). Resume separately requires `targetSequence`. Stale calls fail without retargeting. Titles matching multiple plans require clarification. Transitions must finish in a separate tool batch before dependent edits or shell calls.
+`plan_task` provides `list`, `update`, `include`, `discussion`, Plan-only `new`, and explicit `abandon`. Mutations require `expectedAttached` (current sequence or `null`; legacy `sequence` remains accepted). Stale calls fail without retargeting. Abandonment requires explicit user direction and a concise reason. Deprecated `pause`/`resume` inputs are accepted only to return non-mutating upgrade guidance. Transitions must finish in a separate tool batch before dependent edits or shell calls.
 
-The agent establishes a concise title/scope once. Later updates are only for user-driven material deliverable/constraint changes, explicit renames, or mistaken-identity corrections—not progress, findings, techniques, or message paraphrases. Those belong in conversation and the eventual plan. `include`/`discussion` record explicit task-boundary decisions, reused after resume/compaction.
+The agent establishes a concise title/scope once. Later updates are only for user-driven material deliverable/constraint changes, explicit renames, or mistaken-identity corrections—not progress, findings, techniques, or message paraphrases. Those belong in conversation and the eventual plan. `include`/`discussion` record explicit task-boundary decisions.
 
-Questions, research, tangents, and related changes assume continuity. For a concrete independent request whose relationship is ambiguous, the agent asks whether to include it, work separately, or discuss only. Explicit “pause this and fix X” authorizes detachment without another question; unanswered questions grant no consent. Boundary judgment is agent-assisted, not an automatic topic detector.
+Questions, research, tangents, and related changes assume continuity. For a concrete independent deliverable, the agent asks whether to include it or finish/abandon the current plan before starting another. Discussion alone needs no lifecycle change; unanswered questions grant no consent. Boundary judgment is agent-assisted, not an automatic topic detector.
 
-Detaching removes the active path, title, panel, step tools, and implementation guidance without losing progress. Resume preserves another unfinished attachment as paused, changes no mode, and grants no new step approval. Build edit/write guards protect all tracked plan files, including paused and completed records.
+Build edit/write guards protect every tracked current or historical plan file.
 
 ### Persistence and model context
 
-One versioned collection stores records, attachment, and the allocation high-water mark; no duplicate current-plan or execution mirrors are saved. Meaningful transitions save a snapshot once; identical snapshots, reads, lists, and ordinary model requests do not. Restoration migrates legacy formats and retains completed records, unsaved metadata/outcomes, and step progress. Only unmistakably empty open reservations are normalized away, retaining numbering. Malformed modern state is reported and disables mutations instead of falling back to a partial legacy mirror.
+One versioned collection stores records, the current attachment, and the allocation high-water mark; no duplicate current-plan or execution mirrors are saved. Meaningful transitions save a snapshot once; identical snapshots, reads, lists, and ordinary model requests do not. Restoration retains completed/abandoned records, unsaved metadata/outcomes, and step progress. Old detached records from the former multi-plan workflow remain untouched as hidden inert history: they are not listed, counted, resumed, selected, or migrated. Malformed modern state is reported and disables mutations instead of falling back to partial data.
 
-Reload/tree navigation restores branch state while allocation honors the session-wide high-water mark and existing files. Forks copy tracked files to child paths without overwriting source files. Fresh implementation transfers **only the selected approved plan**, not the other paused tasks or planning conversation.
+Reload/tree navigation restores branch state while allocation honors the session-wide high-water mark and existing files. Forks copy tracked files to child paths without overwriting source files. Fresh implementation transfers **only the current approved plan**, not historical records or planning conversation.
 
-The `context` hook supplies one current mode/task block before each model request; obsolete extension-owned reminders are filtered from outgoing context without deleting transcript history. Detached Build with no unfinished plans receives none. With paused plans it receives only a compact availability/explicit-selection notice; use `plan_task list` and expanded results for full paths and validation instructions. Attached contexts include current outcome facts and, when applicable, executable-step or waiting/paused restrictions—not competing whole-plan instructions. File facts refresh at restoration, selection, canonical edit/write results, and user-run boundaries; action-time safety checks do not rely on display caches.
+The `context` hook supplies one current mode/task block before each model request; obsolete extension-owned reminders are filtered from outgoing context without deleting transcript history. Build with no current plan receives none. Current contexts include outcome facts and, when applicable, executable-step or execution-waiting restrictions. Awaiting-validation context includes the exact required user action until it is resolved. File facts refresh at restoration, current selection, canonical edit/write results, and user-run boundaries; action-time safety checks do not rely on display caches.
 
 ## Approval and completion
 
@@ -132,12 +131,12 @@ Staying or Escape says “I’ll stay in Plan mode and wait for your next instru
 
 For normal implementation, the agent calls `plan_complete` after all approved work and required verification pass. `/plan done` is the manual equivalent. `plan_finish` records unfinished outcomes:
 
-- `awaiting_validation`: requires an essential `userAction`, pauses/detaches, and preserves progress.
-- `blocked`, `waiting_for_input`, `still_working`: record a reason and remain attached.
+- `awaiting_validation`: requires an essential `userAction` and keeps the plan attached, open, titled, and visibly marked until resolved.
+- `blocked`, `waiting_for_input`, `still_working`: record a reason and keep the plan attached.
 
-The agent explains essential user checks once in its final response. Full requirements remain in expanded results and attached context until explicitly superseded. Later validation confirmation must identify and resume the correct paused plan before completion. Optional appearance feedback is not required validation.
+The result states clearly that implementation is finished but the plan remains open, then shows the required action. During step execution, it identifies only that step's implementation as finished. The agent explains that action once in its final response, while full requirements remain in current context and expanded results. A successful user report resolves the validation request; this same plan can complete directly only when all approved work and required verification are finished, or the user explicitly directs completion. A failed report keeps it current for remediation. Optional appearance feedback is not required validation.
 
-A normal saved-plan Build run can receive **one** hidden outcome-reconciliation reminder after approved implementation or a successful project edit/write. It requires a normal terminal response and no recorded outcome. Errors, interruptions, pending input, detached/conversational work, Plan, and step execution do not trigger it. The reminder authorizes no more implementation/tests and infers no success. Its consumed marker is saved before dispatch, preventing replay across restoration; ignoring it leaves the plan unfinished without looping. Shell-only work outside approval may not arm it, so explicit agent finishing remains the primary contract.
+A normal saved-plan Build run can receive **one** hidden outcome-reconciliation reminder after approved implementation or a successful project edit/write. It requires a normal terminal response and no recorded outcome. Errors, interruptions, pending input, work without a current plan, conversation-only turns, Plan, and step execution do not trigger it. The reminder authorizes no more implementation/tests and infers no success. Its consumed marker is saved before dispatch, preventing replay across restoration; ignoring it leaves the plan unfinished without looping. Shell-only work outside approval may not arm it, so explicit agent finishing remains the primary contract.
 
 Tool output stays compact and preserves errors even during partial output. Expanded inventory and Markdown completion summaries retain specialized rendering. Interactive `question` supports structured choices and custom answers. Hidden model guidance is hidden in the normal UI, not inaccessible through session/API data.
 
@@ -166,9 +165,9 @@ Legacy unchecked `- [ ]` items remain supported; checked/nested items and fenced
 
 Use ordinary prompts: “Proceed,” “Start step 2,” “I already verified this step,” “Change step 3 to …,” “Skip this step,” “Pause execution,” “Resume execution,” “Hide/show the panel,” or “Cancel step execution.” The agent interprets clear intent; hypothetical or ambiguous discussion does not advance progress.
 
-`plan_step_control start` approves a ready step. The agent implements **only that step**, verifies applicable behavior, calls `plan_step_complete`, and waits before the next. Explicit manual completion of a ready step records already-done work; it does **not** authorize implementation. Paused active steps retain progress but cannot authorize edit/write/bash/powershell mutations or receive implementation instructions until explicitly resumed.
+`plan_step_control start` approves a ready step. The agent implements **only that step**, verifies applicable behavior, calls `plan_step_complete`, and waits before the next. Explicit manual completion of a ready step records already-done work; it does **not** authorize implementation. Paused active steps retain progress but cannot authorize edit/write/bash/powershell mutations or receive implementation instructions until explicitly resumed. Essential user validation pauses execution—not the plan—and keeps the active step. A successful report may complete that step without authorizing further implementation; a failed report resumes the same step for remediation.
 
-Progress, summaries, revisions, and panel visibility survive restoration. Completing/skipping the final step marks the plan complete, removes the panel/guards, and renders a Markdown summary. Cancelling step execution removes its guards/panel but leaves the plan unfinished. In regular/reduced UI, restored progress remains controllable through prompts; no overlay fallback is used.
+Progress, summaries, revisions, and panel visibility survive restoration. Completing/skipping the final step marks the plan complete, removes the panel/guards, and renders a Markdown summary. Cancelling step execution removes its guards/panel but leaves the plan unfinished and preserves any required validation request. Confirming that request does not imply that remaining plan steps are complete. In regular/reduced UI, restored progress remains controllable through prompts; no overlay fallback is used.
 
 The layout integration uses public fullscreen primitives plus a guarded read of the runtime layout root, since Pi’s API currently exposes a setter but no getter. Ownership is checked before installation and teardown.
 
@@ -187,7 +186,7 @@ npm test
 npm pack --dry-run
 ```
 
-The Node suites cover accumulated context, canonical persistence/migration, branch allocation, tool-event ordering and guards, paused execution, Markdown parsing/revision, UI ownership/width, shortcuts/autocomplete/history, transcript rails, questions, handoff ordering/recovery, and bounded reconciliation.
+The Node suites cover accumulated context, canonical persistence and inert legacy records, branch allocation, tool-event ordering and guards, awaiting validation, paused execution, Markdown parsing/revision, UI ownership/width, shortcuts/autocomplete/history, transcript rails, questions, handoff ordering/recovery, and bounded reconciliation.
 
 Runtime responsibilities are split between `plan-state.ts`, `plan-context.ts`, `plan-markdown.ts`, `plan-execution.ts`, `composer.ts`, `handoff.ts`, and `tool-presentation.ts`; `index.ts` wires commands, tools, and events. Smaller question/panel/shortcut/rail modules remain independent.
 

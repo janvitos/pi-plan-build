@@ -6,7 +6,7 @@ import { Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { pendingOrError, resultText } from "./tool-presentation.ts";
 import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE } from "./plan-context.ts";
-import { PlanState, restoreCollection, allocationHighWater, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
+import { PlanState, restoreCollection, allocationHighWater, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
 import { registerQuestionTool } from "./question-ui.ts";
 import { loadShortcutConfig, saveShortcutPreset, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
@@ -15,6 +15,7 @@ import {
 	PLAN_STEP_COMPLETE_DESCRIPTION,
 } from "./prompts.ts";
 import {
+	activePlanStep,
 	executablePlanStep,
 	completePlanStep,
 	createPlanExecution,
@@ -102,7 +103,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let toolsBeforeModes: string[] = [];
 	let currentContext: ExtensionContext | undefined;
 	let freshImplementationRequest: ApprovedHandoff | undefined;
-	const composer = createComposer(pi, shortcutConfig, () => ({ mode: selectedMode, title: currentPlanTitle(), execution: plans.execution }), (mode, ctx) => { void selectMode(mode, ctx, "manual"); });
+	const composer = createComposer(pi, shortcutConfig, () => ({ mode: selectedMode, title: currentPlanTitle(), awaitingValidation: plans.attached?.plan.outcome?.kind === "awaiting_validation", execution: plans.execution }), (mode, ctx) => { void selectMode(mode, ctx, "manual"); });
 	const displayUserMessageText = (text: string): string | undefined => {
 		const skillBlock = parseSkillBlock(text);
 		return skillBlock ? skillBlock.userMessage || undefined : text || undefined;
@@ -147,7 +148,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		new Text(theme.fg("warning", typeof message.content === "string" ? message.content : ""), 0, 0));
 
 	function stateData(): StoredState {
-		return { version: 2, selectedMode, collection: plans.collection, toolsBeforeModes, planSessionId: currentContext?.sessionManager.getSessionId(), ...(pendingFreshAnnouncement ? { pendingFreshAnnouncement: true } : {}), ...(reconciliation?.consumed ? { reconciliation: { sequence: reconciliation.sequence, sessionId: reconciliation.sessionId, consumed: true as const } } : {}) };
+		return { version: STATE_VERSION, selectedMode, collection: plans.collection, toolsBeforeModes, planSessionId: currentContext?.sessionManager.getSessionId(), ...(pendingFreshAnnouncement ? { pendingFreshAnnouncement: true } : {}), ...(reconciliation?.consumed ? { reconciliation: { sequence: reconciliation.sequence, sessionId: reconciliation.sessionId, consumed: true as const } } : {}) };
 	}
 
 	function persist(): void {
@@ -166,7 +167,21 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	}
 
 	function currentPlanTitle(): string | undefined {
-		return plans.collection.attached === null ? undefined : displayedPlanTitle(selectedMode, plans.plan, savedPlanExists, savedPlanHeading);
+		if (plans.collection.attached === null) return undefined;
+		const title = displayedPlanTitle(selectedMode, plans.plan, savedPlanExists, savedPlanHeading);
+		return title;
+	}
+
+	function completablePlanStep() {
+		return executablePlanStep(plans.execution) ?? (plans.plan.outcome?.kind === "awaiting_validation" ? activePlanStep(plans.execution) : undefined);
+	}
+
+	function completeExecutionStep(id: string, summary?: string): string | undefined {
+		const execution = plans.execution!;
+		const validated = plans.plan.outcome?.kind === "awaiting_validation" && execution.status === "paused" && activePlanStep(execution)?.id === id;
+		const next = completePlanStep(validated ? pausePlanExecution(execution) : execution, id, summary);
+		if (validated) plans.outcome(undefined);
+		return applyExecutionTransition(next);
 	}
 
 	function refreshSavedPlanTitle(knownState?: typeof savedPlanState): void {
@@ -218,7 +233,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				...(plans.collection.attached !== null && !plans.execution && plans.plan.status === "open" && savedPlanExists ? ["plan_complete", "plan_finish"] : []),
 				...(plans.collection.attached !== null && plans.execution ? ["plan_finish"] : []),
 				...(plans.execution && plans.execution.status !== "completed" ? ["plan_step_control"] : []),
-				...(executablePlanStep(plans.execution) ? ["plan_step_complete"] : []),
+				...(plans.collection.attached !== null && completablePlanStep() ? ["plan_step_complete"] : []),
 			]));
 		}
 	}
@@ -227,29 +242,25 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		await fs.promises.mkdir(path.join(getAgentDir(), "plans"), { recursive: true });
 	}
 
-	function inventoryItems() {
-		return plans.collection.records.map(({ plan, execution: progress }) => {
-			const file = currentContext ? planPathFor(plan.sequence, currentContext) : "";
-			const fileState = file ? inspectPlanFile(file) : "unavailable" as const;
-			return { sequence: plan.sequence, title: plan.task?.title ?? "Untitled task", state: plan.status === "completed" ? "completed" : !plan.task && !progress && fileState === "absent" ? "reserved" : plans.collection.attached === plan.sequence ? "attached" : "paused", path: file, fileState, ...(plan.outcome ? { outcome: plan.outcome } : {}) };
-		});
+	function currentPlanItem() {
+		if (!plans.attached) return undefined;
+		const plan = plans.plan;
+		return { sequence: plan.sequence, title: plan.task?.title ?? savedPlanHeading ?? "Untitled task", state: plan.outcome?.kind === "awaiting_validation" ? "awaiting_validation" : "current", path: currentPlanPath(), fileState: savedPlanState, ...(plan.outcome ? { outcome: plan.outcome } : {}) };
 	}
 
-	function planInventory(expanded = false, inventory = inventoryItems()): string {
+	function planInventory(): string {
 		plans.assertUsable();
-		const items = inventory.filter((item) => expanded || item.state !== "reserved");
-		const header = `Current attachment: ${plans.collection.attached ?? "none"}${plans.collection.attached !== null ? ` (${plans.plan.task?.title ?? "empty reservation"})` : ""}`;
-		const rows = items.map((item) => expanded
-			? `${item.sequence}: ${item.title} [${item.state}; ${item.fileState}] — ${item.path}${item.outcome ? ` — ${item.outcome.kind}: ${item.outcome.reason}${item.outcome.userAction ? `; User: ${item.outcome.userAction}` : ""}` : ""}`
-			: `${item.sequence} · ${item.title} · ${item.state === "paused" && item.outcome?.kind === "awaiting_validation" ? "Awaiting validation" : item.state}`);
-		return `${header}\n${rows.length ? rows.join("\n") : "No tracked plans."}`;
+		const item = currentPlanItem();
+		if (!item) return "Current plan: none.";
+		const status = item.state === "awaiting_validation" ? "awaiting validation" : "open";
+		return `Current plan: ${item.sequence} · ${item.title} · ${status}`;
 	}
 
 	function taskResult(action: string, title: string, changed = true) {
-		const labels: Record<string, string> = { update: "Plan title/scope updated", include: "Plan scope updated", discussion: "Discussion decision saved", new: "New plan started", pause: "Plan paused", resume: "Plan resumed" };
-		const inventory = action === "list" ? inventoryItems() : undefined;
-		const text = inventory ? planInventory(false, inventory) : `${changed ? labels[action] ?? "Plan updated" : "Plan unchanged"}: ${title}`;
-		return { content: [{ type: "text" as const, text }], details: { action, attached: plans.collection.attached, ...(plans.collection.attached !== null ? { planPath: currentPlanPath(), fileState: savedPlanState, plan: structuredClone(plans.plan) } : {}), ...(inventory ? { plans: inventory } : {}) } };
+		const labels: Record<string, string> = { update: "Plan title/scope updated", include: "Plan scope updated", discussion: "Discussion decision saved", new: "New plan started", abandon: "Plan abandoned" };
+		const item = action === "list" ? currentPlanItem() : undefined;
+		const text = action === "list" ? planInventory() : `${changed ? labels[action] ?? "Plan updated" : "Plan unchanged"}: ${title}`;
+		return { content: [{ type: "text" as const, text }], details: { action, attached: plans.collection.attached, ...(plans.collection.attached !== null ? { planPath: currentPlanPath(), fileState: savedPlanState, plan: structuredClone(plans.plan) } : {}), ...(action === "list" ? { plans: item ? [item] : [] } : {}) } };
 	}
 
 	function planPathFor(sequence: number, ctx: ExtensionContext): string {
@@ -272,18 +283,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		persist();
 	}
 
-	function detachPlan(ctx: ExtensionContext): void {
-		plans.pause();
+	function abandonCurrentPlan(reason: string, ctx: ExtensionContext): string {
+		const title = plans.plan.task?.title ?? "Untitled task";
+		plans.abandon(reason);
 		clearAttachmentRun();
 		syncAttachment(ctx);
-	}
-
-	function resumePlan(sequence: number, ctx: ExtensionContext): void {
-		plans.assertUsable();
-		if (plans.collection.attached === sequence) return;
-		plans.resume(sequence);
-		clearAttachmentRun();
-		syncAttachment(ctx);
+		return title;
 	}
 
 	function startNewPlan(ctx: ExtensionContext, task?: PlanLifecycle["task"]): void {
@@ -303,7 +308,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	function completeCurrentPlan(): void {
 		plans.assertUsable();
 		if ((runMode ?? selectedMode) !== "build") throw new Error("Switch to Build mode before completing implementation");
-		if (plans.collection.attached === null) throw new Error("No attached plan to complete; resume the intended plan first");
+		if (plans.collection.attached === null) throw new Error("No current plan to complete");
 		if (plans.execution) throw new Error("Complete or cancel the step-by-step execution first");
 		if (!fs.existsSync(currentPlanPath())) throw new Error("No saved plan to complete");
 		if (reconciliation) reconciliation.handled = true;
@@ -334,44 +339,25 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	}
 
 	pi.registerCommand("plan", {
-		description: "Plan mode and plan lifecycle: new, done, pause, resume [sequence], list",
-		getArgumentCompletions: (prefix) => ["new", "done", "pause", "resume", "list"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value })),
+		description: "Plan mode and lifecycle: new, done, abandon, list",
+		getArgumentCompletions: (prefix) => ["new", "done", "abandon", "list"].filter((value) => value.startsWith(prefix)).map((value) => ({ value, label: value })),
 		handler: async (args, ctx) => {
 			const [action, target, ...extra] = args.trim().split(/\s+/);
 			if (!action) return selectMode("plan", ctx, "manual");
-			if (!["new", "done", "pause", "resume", "list"].includes(action) || extra.length || (target && action !== "resume")) {
-				ctx.ui.notify("Usage: /plan [new|done|pause|resume [sequence]|list]", "warning");
+			if (!["new", "done", "abandon", "list", "pause", "resume"].includes(action) || extra.length || (target && action !== "resume")) {
+				ctx.ui.notify("Usage: /plan [new|done|abandon|list]", "warning");
 				return;
 			}
 			if (!ctx.isIdle()) {
-				ctx.ui.notify("Wait for the agent to finish before changing the active plan.", "warning");
+				ctx.ui.notify("Wait for the agent to finish before changing the current plan.", "warning");
+				return;
+			}
+			if (action === "pause" || action === "resume") {
+				ctx.ui.notify("Plan pause/resume is no longer supported. Complete or explicitly abandon the current plan before starting another.", "warning");
 				return;
 			}
 			if (action === "list") {
 				ctx.ui.notify(planInventory(), "info");
-				return;
-			}
-			if (action === "pause" || action === "resume") {
-				try {
-					if (action === "pause") detachPlan(ctx);
-					else {
-						const paused = plans.collection.records.filter((r) => r.plan.status === "open" && r.plan.sequence !== plans.collection.attached);
-						let sequence = target === undefined ? undefined : /^\d+$/.test(target) ? Number(target) : NaN;
-						if (sequence === undefined && paused.length === 1) sequence = paused[0].plan.sequence;
-						if (sequence === undefined) {
-							if (!paused.length) throw new Error("No paused unfinished plans");
-							if (!ctx.hasUI) throw new Error("Specify a plan sequence to resume");
-							const labels = paused.map((r) => `${r.plan.sequence}: ${r.plan.task?.title ?? "Untitled task"}`);
-							const choice = await ctx.ui.select("Resume which plan?", labels);
-							if (choice === undefined) return;
-							const index = labels.indexOf(choice);
-							if (index < 0) return;
-							sequence = paused[index].plan.sequence;
-						}
-						resumePlan(sequence, ctx);
-					}
-					ctx.ui.notify(action === "pause" ? "Plan paused; unrelated work is detached." : `Resumed ${plans.plan.task?.title ?? plans.plan.sequence}.`, "info");
-				} catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"); }
 				return;
 			}
 			if (action === "done") {
@@ -383,12 +369,24 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				}
 				return;
 			}
-			plans.assertUsable();
-			selectedMode = "plan";
-			runMode = undefined;
-			startNewPlan(ctx);
-			await ensurePlanDirectory();
-			ctx.ui.notify(`New plan: ${shorten(currentPlanPath(), ctx.cwd)}. Previous plan files are preserved.`, "info");
+			if (action === "abandon") {
+				try {
+					if (!plans.attached) throw new Error("No current plan to abandon");
+					if (!ctx.hasUI || !await ctx.ui.confirm("Abandon current plan?", `${plans.plan.task?.title ?? "Untitled task"}\n\nThe plan file will be preserved, but this plan cannot be resumed.`)) return;
+					const title = abandonCurrentPlan("Explicitly abandoned by the user through /plan abandon.", ctx);
+					ctx.ui.notify(`Plan abandoned: ${title}. Its file was preserved.`, "info");
+				} catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"); }
+				return;
+			}
+			try {
+				plans.assertUsable();
+				if (plans.attached) throw new Error("Complete or explicitly abandon the current plan before starting another");
+				selectedMode = "plan";
+				runMode = undefined;
+				startNewPlan(ctx);
+				await ensurePlanDirectory();
+				ctx.ui.notify(`New plan: ${shorten(currentPlanPath(), ctx.cwd)}. Previous plan files are preserved.`, "info");
+			} catch (error) { ctx.ui.notify(error instanceof Error ? error.message : String(error), "warning"); }
 		},
 	});
 	pi.registerCommand("build", {
@@ -432,7 +430,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const request = freshImplementationRequest;
 			if (request && (plans.collection.attached === null || handoffSequence !== plans.collection.attached)) {
 				freshImplementationRequest = undefined;
-				ctx.ui.notify("The approved plan is no longer attached. Select its implementation action again.", "warning");
+				ctx.ui.notify("The approved plan is no longer current. Select its implementation action again.", "warning");
 				return;
 			}
 			if (!request) {
@@ -457,16 +455,17 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_task",
 		label: "Plan Task",
-		description: "Manage plan attachment in Plan or Build without editing Markdown. list returns plan identities; pause detaches and preserves progress; resume attaches targetSequence, preserving any current plan as paused. For mutations supply expectedAttached (current sequence or null); legacy sequence is also accepted. update establishes identity once, then changes it only for user-driven material changes to the deliverable/defining constraints, explicit renames, or correction of mistaken identity. Never use update as a progress log or running summary of findings, techniques, or discussion. include and discussion record explicit task-boundary decisions, not ordinary tangents or design decisions. new is Plan-only. Pause/resume only on explicit user direction or a confirmed boundary decision. An ambiguous title requires clarification, not guessing. Keep transitions separate from project edits and shell calls; await the updated attachment.",
-		promptGuidelines: ["Use plan_task to establish concise task identity once. Later updates require a user-driven material change to the deliverable/defining constraints, an explicit rename, or correction of mistaken identity. Do not log progress, findings, proposed/rejected techniques, implementation adjustments, or message paraphrases. Use include/discussion only for explicit task-boundary decisions. Use plan_task action new only when the user explicitly requests or confirms a separate plan. Never silently replace scope with unrelated work."],
+		description: "Manage the single current plan without editing Markdown. list reports only the current plan. new is Plan-only and requires no current plan. abandon is irreversible lifecycle closure, preserves the file, requires explicit user direction and a reason, and never implies success. update establishes identity once, then changes it only for user-driven material deliverable/constraint changes, explicit renames, or correction of mistaken identity. include/discussion record explicit task-boundary decisions. Supply expectedAttached (current sequence or null); legacy sequence is accepted. Deprecated pause/resume inputs never mutate state. Keep lifecycle transitions separate from dependent project edits and shell calls.",
+		promptGuidelines: ["Use plan_task to establish concise task identity once. Later updates require a user-driven material change to the deliverable/defining constraints, an explicit rename, or correction of mistaken identity. Do not log progress, findings, proposed/rejected techniques, implementation adjustments, or message paraphrases. Use include/discussion only for explicit task-boundary decisions. Start a new plan only when no current plan exists. If the user explicitly abandons the current plan, call plan_task abandon with its expected attachment and a concise reason; otherwise complete the current plan before starting another."],
 		parameters: Type.Object({
-			action: Type.String({ enum: ["list", "pause", "resume", "update", "include", "discussion", "new"] }),
+			action: Type.String({ enum: ["list", "pause", "resume", "update", "include", "discussion", "new", "abandon"] }),
 			sequence: Type.Optional(Type.Integer({ minimum: 0 })),
 			expectedAttached: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
 			targetSequence: Type.Optional(Type.Integer({ minimum: 0 })),
 			title: Type.Optional(Type.String({ maxLength: 160 })),
 			scope: Type.Optional(Type.String({ maxLength: 4000 })),
 			topic: Type.Optional(Type.String({ maxLength: 1000 })),
+			reason: Type.Optional(Type.String({ maxLength: 1000 })),
 		}),
 		executionMode: "sequential",
 		async execute(_id, params, signal, _onUpdate, ctx) {
@@ -475,19 +474,17 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			plans.assertUsable();
 			if (action === "list") return taskResult("list", "");
 			const expected = params.expectedAttached !== undefined ? params.expectedAttached : params.sequence;
-			if (expected === undefined || expected !== plans.collection.attached) throw new Error(`Stale task sequence/attachment: expected ${expected === undefined ? "not supplied" : expected === null ? "none" : expected}; actual ${plans.collection.attached ?? "none"}${plans.collection.attached !== null ? ` (${plans.plan.task?.title ?? "empty reservation"})` : ""}. Reconsider the requested action using this current attachment; the resume target is separate.`);
-			if (action === "pause" || action === "resume") {
-				const previousTitle = plans.attached?.plan.task?.title ?? "Untitled task";
-				if (action === "pause") detachPlan(ctx);
-				else {
-					if (params.targetSequence === undefined) throw new Error("Resume requires an explicit targetSequence; list plans to resolve identity");
-					resumePlan(params.targetSequence, ctx);
-				}
-				return taskResult(action, action === "pause" ? previousTitle : plans.plan.task?.title ?? "Untitled task");
+			if (expected === undefined || expected !== plans.collection.attached) throw new Error(`Stale task sequence/attachment: expected ${expected === undefined ? "not supplied" : expected === null ? "none" : expected}; actual ${plans.collection.attached ?? "none"}${plans.collection.attached !== null ? ` (${plans.plan.task?.title ?? "empty reservation"})` : ""}. Reconsider the requested action using this current plan.`);
+			if (action === "pause" || action === "resume") throw new Error("Plan pause/resume is no longer supported. Complete or explicitly abandon the current plan before starting another.");
+			if (action === "abandon") {
+				if (!plans.attached) throw new Error("No current plan to abandon");
+				if (!params.reason?.trim()) throw new Error("Abandoning a plan requires a concise reason based on explicit user direction");
+				return taskResult("abandon", abandonCurrentPlan(params.reason, ctx));
 			}
 			if (!["update", "include", "discussion", "new"].includes(action)) throw new Error("Unknown task action");
 			if (action === "new" && (runMode ?? selectedMode) !== "plan") throw new Error("New plans require Plan mode");
-			if (action !== "new" && plans.collection.attached === null) throw new Error("No attached plan; resume a plan before changing its metadata");
+			if (action === "new" && plans.attached) throw new Error("Complete or explicitly abandon the current plan before starting another");
+			if (action !== "new" && plans.collection.attached === null) throw new Error("No current plan; start one before changing task metadata");
 			const existing = action === "new" ? undefined : plans.plan.task;
 			const title = cleanTaskTitle(params.title ?? existing?.title ?? "");
 			const scope = (params.scope ?? existing?.scope ?? "").trim();
@@ -531,7 +528,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_finish",
 		label: "Record Plan Outcome",
-		description: "Before a final planned-work summary, record an unfinished Build outcome. For completed work with all required verification passed, use plan_complete instead. awaiting_validation requires an essential userAction and pauses/detaches the plan; optional feedback is not a blocker. blocked, waiting_for_input, and still_working keep the attachment unfinished. Never use this to imply tests passed or to complete steps.",
+		description: "Before a final planned-work summary, record an unfinished Build outcome. For completed work with all required verification passed, use plan_complete instead. awaiting_validation requires an essential userAction and keeps the plan attached and visibly open until the user reports success or explicitly directs completion; optional feedback is not a blocker. During step execution it pauses mutation authority while preserving the active step. blocked, waiting_for_input, and still_working also keep the current plan unfinished. Never use this to imply tests passed or to complete steps.",
 		parameters: Type.Object({
 			expectedAttached: Type.Integer({ minimum: 0 }),
 			outcome: Type.String({ enum: ["awaiting_validation", "blocked", "waiting_for_input", "still_working"] }),
@@ -542,18 +539,24 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		async execute(_id, params, _signal, _update, ctx) {
 			plans.assertUsable();
 			if ((runMode ?? selectedMode) !== "build") throw new Error("plan_finish requires Build mode");
-			if (plans.collection.attached === null || params.expectedAttached !== plans.collection.attached) throw new Error("Stale attachment; resume the intended unfinished plan first");
+			if (plans.collection.attached === null || params.expectedAttached !== plans.collection.attached) throw new Error("Stale attachment; reconsider the outcome against the current unfinished plan");
 			if (!["awaiting_validation", "blocked", "waiting_for_input", "still_working"].includes(params.outcome) || !params.reason.trim()) throw new Error("A valid outcome and explanation are required");
 			if (params.outcome === "awaiting_validation" && !params.userAction?.trim()) throw new Error("Essential user validation requires a concrete userAction");
 			const sequence = plans.collection.attached;
 			const title = plans.plan.task?.title ?? `Plan ${sequence}`;
 			const file = currentPlanPath();
+			if (params.outcome === "awaiting_validation" && plans.execution) {
+				if (!activePlanStep(plans.execution)) throw new Error("Only an active implementation step can await essential validation");
+				if (plans.execution.status === "running") plans.updateExecution(pausePlanExecution(plans.execution));
+			}
 			const outcome = { kind: params.outcome as PlanOutcome["kind"], reason: params.reason.trim(), ...(params.userAction?.trim() ? { userAction: params.userAction.trim() } : {}) };
 			plans.outcome(outcome);
 			if (reconciliation) reconciliation.handled = true;
-			if (params.outcome === "awaiting_validation") clearAttachmentRun();
 			syncAttachment(ctx);
-			return { content: [{ type: "text", text: params.outcome === "awaiting_validation" ? `Plan paused: ${title}\nAwaiting essential user validation.` : `${title}: ${params.outcome.replaceAll("_", " ")}.` }], details: { sequence, title, planPath: file, fileState: inspectPlanFile(file), outcome, attached: plans.collection.attached } };
+			const text = params.outcome === "awaiting_validation"
+				? `${plans.execution ? "This step's implementation" : "Implementation"} is finished, but this plan remains open: ${title}\nWaiting for your validation before marking it complete.\n\nRequired validation:\n${outcome.userAction}`
+				: `${title}: ${params.outcome.replaceAll("_", " ")}.`;
+			return { content: [{ type: "text", text }], details: { sequence, title, planPath: file, fileState: savedPlanState, outcome, attached: plans.collection.attached } };
 		},
 		renderCall(_args, theme) { return new Text(theme.fg("toolTitle", "Record plan outcome"), 0, 0); },
 		renderResult(result, options, theme, context) {
@@ -568,7 +571,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_complete",
 		label: "Complete Plan",
-		description: "Mark the current saved plan complete only after its implementation and required verification are finished, or the user explicitly confirms completion. Do not call for partial work, pauses, errors, or merely approving a plan. Preserves the plan file; the next planning task gets a new file.",
+		description: "Mark the current saved plan complete only after its implementation and required verification are finished, or the user explicitly confirms completion or waives pending validation. Do not call for partial work, errors, or merely approving a plan. Preserves the plan file; the next planning task gets a new file.",
 		promptGuidelines: ["Before announcing finished planned implementation, call plan_complete when all required work and verification have passed. Do not wait for ceremonial user acceptance or optional feedback. Use plan_finish for unfinished outcomes; never infer completion solely from a turn ending."],
 		parameters: EMPTY_PARAMETERS,
 		executionMode: "sequential",
@@ -617,7 +620,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_step_control",
 		label: "Control Plan Execution",
-		description: `Use this tool to translate the user's natural-language instructions into one step-by-step plan action. Available actions: start a ready step, complete a clearly finished ready step, skip a ready step, revise an unimplemented instruction, pause/resume or cancel execution, or hide/show the visual plan panel. Interpret clear user intent semantically, including direct completion statements, but do not advance based on hypothetical, uncertain, or unrelated conversation.`,
+		description: `Use this tool to translate the user's natural-language instructions into one step-execution action. Available actions: start a ready step, complete a clearly finished ready step or a paused active step whose required user validation explicitly succeeded, skip a ready step, revise an unimplemented instruction, pause/resume or cancel execution, or hide/show the visual plan panel. A successful validation report authorizes only completion; a failed report may resume the same active step for remediation. Do not advance based on hypothetical, uncertain, or unrelated conversation.`,
 		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("start"),
@@ -639,7 +642,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if ((runMode ?? selectedMode) !== "build") throw new Error("Step control requires Build mode");
 			if (!plans.execution) throw new Error("No step-by-step plan is active");
 			const target = params.step === undefined
-				? plans.execution.steps.find((step) => step.status === "ready")
+				? params.action === "complete" && plans.plan.outcome?.kind === "awaiting_validation"
+					? activePlanStep(plans.execution)
+					: plans.execution.steps.find((step) => step.status === "ready")
 				: plans.execution.steps[Math.floor(params.step) - 1];
 			const finish = (message: string, extraDetails?: { planCompleted?: boolean }) => ({
 				content: [{ type: "text" as const, text: message }],
@@ -662,6 +667,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (plans.execution.status === "completed") throw new Error("The plan is already complete");
 			if (params.action === "pause" || params.action === "resume") {
 				if ((params.action === "pause") === (plans.execution.status === "paused")) return finish(`Plan execution is already ${params.action === "pause" ? "paused" : "running"}.`);
+				if (params.action === "resume" && plans.plan.outcome?.kind === "awaiting_validation") plans.outcome(undefined);
 				updateExecution(pausePlanExecution(plans.execution));
 				return finish(`Plan execution is now ${params.action === "pause" ? "paused" : "running"}.`);
 			}
@@ -674,7 +680,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				return finish("The requested step is approved. Its implementation is starting in a follow-up turn.");
 			}
 			if (params.action === "complete") {
-				const completion = applyExecutionTransition(completePlanStep(plans.execution, target.id));
+				const completion = completeExecutionStep(target.id);
 				return finish(
 					completion ?? "The step was marked complete. The next step is ready and awaits user instruction.",
 					{ planCompleted: completion !== undefined },
@@ -728,9 +734,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		executionMode: "sequential",
 		async execute(_toolCallId, params) {
 			plans.assertUsable();
-			const step = executablePlanStep(plans.execution);
+			const step = completablePlanStep();
 			if (!plans.execution || !step) throw new Error("No plan step is currently active");
-			const completion = applyExecutionTransition(completePlanStep(plans.execution, step.id, params.summary));
+			const completion = completeExecutionStep(step.id, params.summary);
 			return {
 				content: [{ type: "text", text: completion ?? "The step was completed. The next step is ready and awaits user instruction." }],
 				details: { stepId: step.id, completed: true, planCompleted: completion !== undefined },
@@ -914,7 +920,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		if (plans.error && (MANAGED_TOOLS.has(event.toolName) && event.toolName !== "question" && event.toolName !== "plan_enter" || ["edit", "write", "bash", "powershell"].includes(event.toolName))) return { block: true, reason: `Plan state unavailable: ${plans.error}. Restore usable state before mutations.` };
 		if (["edit", "write", "bash", "powershell", "plan_complete", "plan_finish", "plan_step_control", "plan_step_complete", "plan_exit"].includes(event.toolName)) {
 			const latestAssistant = [...ctx.sessionManager.getBranch()].reverse().find((entry) => entry.type === "message" && entry.message.role === "assistant");
-			if (latestAssistant?.type === "message" && latestAssistant.message.role === "assistant" && latestAssistant.message.content.some((part) => part.type === "toolCall" && part.name === "plan_task" && (part.arguments as { action?: string })?.action !== "list")) {
+			if (latestAssistant?.type === "message" && latestAssistant.message.role === "assistant" && latestAssistant.message.content.some((part) => part.type === "toolCall" && part.name === "plan_task" && !["list", "pause", "resume"].includes((part.arguments as { action?: string })?.action ?? ""))) {
 				return { block: true, reason: "Await plan_task in a separate tool batch before dependent edits, shell commands, or execution actions." };
 			}
 		}
@@ -923,7 +929,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (isAllowedPlanMutation(ctx.cwd, inputPath, currentPlanPath()) || plans.collection.records.some((r) => isAllowedPlanMutation(ctx.cwd, inputPath, planPathFor(r.plan.sequence, ctx)))) {
 				return {
 					block: true,
-					reason: "Tracked plan files, including paused plans, are read-only in Build mode. Do not add completion markers or otherwise update its steps; report completion through plan_step_complete during step-by-step execution or plan_complete after normal implementation and verification.",
+					reason: "Current and historical plan files are read-only in Build mode. Do not add completion markers or otherwise update their steps; report completion through plan_step_complete during step execution or plan_complete after normal implementation and verification.",
 				};
 			}
 		}
@@ -1088,7 +1094,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			attachedFileChanged = true;
 		}
 		if (attachedFileChanged) refreshSavedPlanTitle();
-		if (raw?.version !== 2 && (plans.collection.records.length || plans.collection.counter)) {
+		if (raw?.version !== STATE_VERSION && (plans.collection.records.length || plans.collection.counter)) {
 			lastSnapshot = "";
 			persist(); // One meaningful migration, including the fork-source session identity.
 		}

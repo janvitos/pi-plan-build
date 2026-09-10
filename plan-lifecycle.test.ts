@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { Check } from "typebox/value";
 import { eventHandlers } from "./test-events.ts";
-import { restoreCollection, allocationHighWater } from "./plan-state.ts";
+import { STATE_VERSION, restoreCollection, allocationHighWater } from "./plan-state.ts";
 import planBuildModes from "./index.ts";
 import { createPlanExecution } from "./plan-execution.ts";
 import { decodePlanLifecycle, makePlanPath, PLAN_EXIT_APPROVE_CHOICE, PLAN_EXIT_FRESH_CHOICE, PLAN_EXIT_STAY_CHOICE, PLAN_ACTION_ANNOUNCEMENTS } from "./utils.ts";
@@ -53,6 +53,7 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		ui: {
 			getEditorComponent: () => undefined, setEditorComponent() {}, setStatus: (_key: string, text: string) => events.push({ kind: "status", text }),
 			notify: (text: string) => events.push({ kind: "notify", text }),
+			confirm: async () => true,
 			select: async () => PLAN_EXIT_APPROVE_CHOICE,
 			theme: { fg: (_: string, text: string) => text, bold: (text: string) => text },
 		},
@@ -63,7 +64,7 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 	}
 	function state() {
 		const raw = entries.filter((entry) => entry.customType === "pi-plan-build-state").at(-1)?.data;
-		return raw ?? { version: 2, selectedMode: "build", collection: { records: [], attached: null, counter: 0 } };
+		return raw ?? { version: 3, selectedMode: "build", collection: { records: [], attached: null, counter: 0 } };
 	}
 	function record() {
 		const collection = state().collection;
@@ -195,7 +196,7 @@ test("completion reconciliation is one-shot and unfinished outcomes preserve the
 		assert.equal(h.events.filter((e) => e.kind === "internal").length, 2, "new user work gets its own one-shot budget");
 		await h.tool("plan_complete");
 		assert.equal(h.state().collection.attached, null);
-		for (const skip of ["conversation", "aborted", "error", "tool-error", "pending", "pause", "plan", "step", "complete", "blocked"]) {
+		for (const skip of ["conversation", "aborted", "error", "tool-error", "pending", "plan", "step", "complete", "blocked"]) {
 			const f = fixture() as any[];
 			if (skip === "step") f[0].data.execution = createPlanExecution(markdown);
 			const check = harness(dir, f);
@@ -204,7 +205,6 @@ test("completion reconciliation is one-shot and unfinished outcomes preserve the
 			if (skip !== "conversation") await mutation(check);
 			if (skip === "pending") check.ctx.hasPendingMessages = () => true;
 			if (skip === "tool-error") await check.event("tool_result", { toolName: "bash", input: {}, isError: true });
-			if (skip === "pause") await check.tool("plan_task", { action: "pause", expectedAttached: 1 });
 			if (skip === "plan") await check.command("");
 			if (skip === "complete") await check.tool("plan_complete");
 			if (skip === "blocked") await check.tool("plan_finish", { expectedAttached: 1, outcome: "blocked", reason: "Missing credential" });
@@ -217,31 +217,31 @@ test("completion reconciliation is one-shot and unfinished outcomes preserve the
 		await mutation(pending);
 		await assert.rejects(pending.tool("plan_finish", { expectedAttached: 9, outcome: "blocked", reason: "Blocked" }), /Stale/);
 		await assert.rejects(pending.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Hardware check" }), /userAction/);
-		await pending.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Hardware needed", userAction: "Run the hardware acceptance check" });
+		const awaiting = await pending.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Hardware needed", userAction: "Run the hardware acceptance check" });
+		assert.match(awaiting.content[0].text, /plan remains open/);
+		assert.match(awaiting.content[0].text, /Run the hardware acceptance check/);
 		await settle(pending);
-		assert.equal(pending.state().collection.attached, null);
+		assert.equal(pending.state().collection.attached, 1);
 		assert.equal(pending.state().collection.records[0].plan.status, "open");
 		assert.equal(pending.state().collection.records[0].plan.outcome.userAction, "Run the hardware acceptance check");
-		await pending.command("");
 		await pending.prompt("Discuss the validation result");
 		await pending.event("session_start", { reason: "reload" });
-		assert.equal(pending.state().collection.attached, null);
+		assert.equal(pending.state().collection.attached, 1);
 		assert.equal(pending.state().collection.records.length, 1);
 		assert.equal(pending.state().collection.counter, 1);
 		assert.equal((await pending.event("tool_call", { toolName: "write", input: { path: file } })).block, true);
-		await assert.rejects(pending.tool("plan_exit"), /No attached plan/);
 		const listed = await pending.tool("plan_task", { action: "list" });
-		assert.match(listed.content[0].text, /Current attachment: none/);
-		assert.match(listed.content[0].text, /Awaiting validation/);
+		assert.match(listed.content[0].text, /Current plan: 1 · Work · awaiting validation/);
 		assert.doesNotMatch(listed.content[0].text, /hardware acceptance|\.md/);
 		const detailsText = pending.tools.get("plan_task").renderResult(listed, { expanded: true, isPartial: false }, pending.ctx.ui.theme, {}).render(160).join("\n");
 		assert.match(detailsText, /Run the hardware acceptance check/);
 		const pendingContext = await pending.event("context", { messages: [] });
-		assert.match(pendingContext.messages.at(-1).content, /essential pending validation/);
-		assert.doesNotMatch(pendingContext.messages.at(-1).content, /Run the hardware acceptance check|\.md/);
-		await pending.tool("plan_task", { action: "resume", expectedAttached: null, targetSequence: 1 });
-		assert.equal(pending.state().collection.attached, 1);
-		await assert.rejects(pending.tool("plan_task", { action: "resume", expectedAttached: null, targetSequence: 1 }), /expected none; actual 1/);
+		assert.match(pendingContext.messages.at(-1).content, /plan remains open and current/);
+		assert.match(pendingContext.messages.at(-1).content, /Run the hardware acceptance check/);
+		assert.doesNotMatch(pendingContext.messages.at(-1).content, /resume another plan/);
+		await pending.tool("plan_complete");
+		assert.equal(pending.state().collection.attached, null);
+		assert.equal(pending.state().collection.records[0].plan.status, "completed");
 		assert.equal(pending.events.filter((e) => e.kind === "internal").length, 0);
 		assert.equal(fs.readFileSync(file, "utf8"), markdown);
 	} finally {
@@ -255,24 +255,30 @@ test("empty historical Build slots are detached but genuine plans and reservatio
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-phantom-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	try {
-		for (const migrated of [false, true]) {
-			const plan = { sequence: 1, status: "open" };
-			const data = { version: 1, selectedMode: "build", plan, ...(migrated ? { collection: { records: [{ plan }], attached: 1, counter: 1 } } : {}) };
-			const h = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data }]);
-			await h.event("session_start", { reason: "resume" });
-			assert.equal(h.state().collection.attached, null);
-			assert.deepEqual(h.state().collection.records, []);
-			assert.equal(h.state().collection.counter, 1);
-			const context = await h.event("context", { messages: [] });
-			assert.deepEqual(context.messages, [], "ordinary detached Build has no lifecycle block");
-			await h.command("");
-			assert.equal(h.state().collection.attached, null);
-			assert.equal(h.state().collection.counter, 1);
-			const planning = await h.event("context", { messages: [] });
-			assert.match(planning.messages.at(-1).content, /Current attachment: none/);
-			assert.match(planning.messages.at(-1).content, /No canonical writable plan path exists/);
-		}
+		const legacy = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data: { version: 1, selectedMode: "build", plan: { sequence: 1, status: "open" } } }]);
+		await legacy.event("session_start", { reason: "resume" });
+		assert.equal(legacy.state().collection.attached, null);
+		assert.deepEqual(legacy.state().collection.records, []);
+		assert.equal(legacy.state().collection.counter, 1);
+		assert.deepEqual((await legacy.event("context", { messages: [] })).messages, [], "ordinary Build without a current plan has no lifecycle block");
+		await legacy.command("");
+		assert.match((await legacy.event("context", { messages: [] })).messages.at(-1).content, /Current plan: none/);
+
 		fs.mkdirSync(path.join(dir, "plans"), { recursive: true });
+		const inertFile = makePlanPath(path.join(dir, "plans"), "session", 1);
+		fs.writeFileSync(inertFile, "# Old paused work\n");
+		const inertPlan = { sequence: 1, status: "open", task: { title: "Old paused work", scope: "Preserve only", decisions: [] } };
+		const inert = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data: { version: 2, selectedMode: "build", collection: { records: [{ plan: inertPlan }], attached: null, counter: 1 } } }]);
+		await inert.event("session_start", { reason: "resume" });
+		assert.deepEqual(inert.state().collection.records, [{ plan: inertPlan }]);
+		assert.deepEqual((await inert.event("context", { messages: [] })).messages, []);
+		assert.equal((await inert.tool("plan_task", { action: "list" })).content[0].text, "Current plan: none.");
+		await inert.command("");
+		await inert.command("new");
+		assert.equal(inert.state().collection.attached, 2);
+		assert.deepEqual(inert.state().collection.records[0], { plan: inertPlan }, "detached legacy data remains inert and unchanged");
+		assert.equal((await inert.event("tool_call", { toolName: "write", input: { path: inertFile } })).block, true);
+		assert.equal(fs.readFileSync(inertFile, "utf8"), "# Old paused work\n");
 		for (const kind of ["metadata", "file", "execution", "reservation", "unavailable"] as const) {
 			const id = kind;
 			const file = makePlanPath(path.join(dir, "plans"), id, 1);
@@ -284,7 +290,7 @@ test("empty historical Build slots are detached but genuine plans and reservatio
 			await h.event("session_start", { reason: "resume" });
 			assert.equal(h.state().collection.attached, kind === "reservation" ? null : 1, kind);
 			const context = await h.event("context", { messages: [] });
-			assert.match(context.messages.at(-1).content, kind === "file" || kind === "execution" ? /Saved plan file/ : kind === "unavailable" ? /Plan file unavailable/ : kind === "reservation" ? /Current attachment: none/ : /Do not read this absent file/);
+			assert.match(context.messages.at(-1).content, kind === "file" || kind === "execution" ? /Saved plan file/ : kind === "unavailable" ? /Plan file unavailable/ : kind === "reservation" ? /Current plan: none/ : /Do not read this absent file/);
 			if (kind === "file") assert.equal(fs.readFileSync(file, "utf8"), "# Real saved plan\n");
 		}
 		// A fork must check the source before treating its not-yet-copied destination as empty.
@@ -331,16 +337,14 @@ test("task results are compact while hidden context retains current planning con
 		assert.match(context.messages.at(-1).content, /Plan mode is active/);
 		assert.match(context.messages.at(-1).content, /Do not read this absent file/);
 		await h.build();
-		const paused = await h.tool("plan_task", { action: "pause", expectedAttached: 1 });
-		assert.equal(paused.content[0].text, "Plan paused: Fix login");
+		await assert.rejects(h.tool("plan_task", { action: "pause", expectedAttached: 1 }), /no longer supported/);
+		assert.equal(h.state().collection.attached, 1, "deprecated pause is side-effect free");
 		const list = await h.tool("plan_task", { action: "list" });
-		assert.match(list.content[0].text, /1 · Fix login · paused/);
-		assert.doesNotMatch(list.content[0].text, /Build mode permits/);
-		const resumed = await h.tool("plan_task", { action: "resume", expectedAttached: null, targetSequence: 1 });
-		assert.equal(resumed.content[0].text, "Plan resumed: Fix login");
+		assert.match(list.content[0].text, /Current plan: 1 · Fix login · open/);
+		assert.doesNotMatch(list.content[0].text, /Build mode permits|paused/);
 		const buildContext = await h.event("context", { messages: [] });
 		assert.match(buildContext.messages.at(-1).content, /Build mode permits/);
-		assert.match(buildContext.messages.at(-1).content, /Active task sequence \(internal\): 1/);
+		assert.match(buildContext.messages.at(-1).content, /Current task sequence \(internal\): 1/);
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
@@ -348,8 +352,8 @@ test("task results are compact while hidden context retains current planning con
 	}
 });
 
-test("multiple plans detach, resume, fork, and complete without losing paused progress", async () => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-attachment-"));
+test("the current plan cannot be replaced and explicit abandonment preserves history", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-single-current-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	try {
 		fs.mkdirSync(path.join(dir, "plans"));
@@ -358,71 +362,38 @@ test("multiple plans detach, resume, fork, and complete without losing paused pr
 		fs.writeFileSync(fileA, markdown);
 		const progress = createPlanExecution(markdown);
 		progress.steps[0].status = "active";
-		const entries = [{ type: "custom", customType: "pi-plan-build-state", data: { version: 1, selectedMode: "build", planSessionId: "session", plan: { sequence: 1, status: "open", task: { title: "Login", scope: "Login redirects", decisions: [] } }, execution: progress } }];
+		const entries = [{ type: "custom", customType: "pi-plan-build-state", data: { version: 2, selectedMode: "build", planSessionId: "session", collection: { records: [{ plan: { sequence: 1, status: "open", task: { title: "Login", scope: "Login redirects", decisions: [] } }, execution: progress }], attached: 1, counter: 1 } } }];
 		const h = harness(dir, entries);
-		h.ctx.ui.getEditorComponent = () => (() => {}) as any;
 		await h.event("session_start", { reason: "resume" });
+		await assert.rejects(h.tool("plan_task", { action: "pause", expectedAttached: 1 }), /no longer supported/);
 		assert.equal(h.state().collection.attached, 1);
-		await h.tool("plan_task", { action: "include", expectedAttached: 1, topic: "Logout", scope: "Login and logout redirects" });
-		const attachedBranch = structuredClone(h.entries);
-		h.entries.push({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "plan_task", arguments: { action: "pause" } }] } });
-		for (const toolName of ["write", "bash", "plan_step_complete"]) assert.equal((await h.event("tool_call", { toolName, input: { path: path.join(dir, "unrelated.ts") } })).block, true);
-		await h.tool("plan_task", { action: "pause", expectedAttached: 1 });
-		assert.equal(h.state().collection.attached, null);
-		assert.equal(h.state().collection.attached, null);
-		assert.equal(h.events.filter((e) => e.kind === "status").at(-1).text, "build");
-		assert.ok(!h.active().includes("plan_step_complete"));
-		assert.ok(!h.active().includes("plan_step_control"));
-		h.entries.push({ type: "message", message: { role: "assistant", content: [] } });
-		assert.equal(await h.event("tool_call", { toolName: "write", input: { path: path.join(dir, "unrelated.ts") } }), undefined);
-		assert.equal((await h.event("tool_call", { toolName: "write", input: { path: fileA } })).block, true);
-		await assert.rejects(h.tool("plan_complete"), /No attached/);
-		await assert.rejects(h.tool("plan_step_complete", { summary: "unrelated fix" }), /No plan step/);
-		const detached = await h.event("context", { messages: [] });
-		assert.match(detached.messages.at(-1).content, /No plan is attached/);
-		await assert.rejects(h.tool("plan_task", { action: "resume", expectedAttached: 1, targetSequence: 1 }), /Stale/);
-		await assert.rejects(h.tool("plan_task", { action: "resume", expectedAttached: null }), /targetSequence/);
 		await h.command("");
-		assert.equal(h.state().collection.attached, null, "Plan entry neither creates nor resumes a plan");
-		await h.command("new");
-		await h.tool("plan_task", { action: "update", sequence: 2, title: "Billing", scope: "Export invoices" });
+		await assert.rejects(h.tool("plan_task", { action: "new", expectedAttached: 1, title: "Billing", scope: "Export invoices" }), /Complete or explicitly abandon/);
+		assert.equal(h.state().collection.records.length, 1);
+		await h.command("resume 99");
+		assert.match(h.events.filter((e) => e.kind === "notify").at(-1).text, /no longer supported/);
+		assert.equal(h.state().collection.attached, 1, "deprecated command is side-effect free");
+		h.ctx.ui.confirm = async () => false;
+		await h.command("abandon");
+		assert.equal(h.state().collection.attached, 1, "cancelled abandonment changes nothing");
+		h.ctx.ui.confirm = async () => true;
+		const abandoned = await h.tool("plan_task", { action: "abandon", expectedAttached: 1, reason: "User chose to discontinue login work" });
+		assert.match(abandoned.content[0].text, /Plan abandoned: Login/);
+		assert.equal(h.state().collection.attached, null);
+		assert.equal(h.state().collection.records[0].plan.status, "abandoned");
+		assert.equal(h.state().collection.records[0].plan.abandonReason, "User chose to discontinue login work");
+		assert.equal(h.state().collection.records[0].execution, undefined);
+		assert.equal(fs.readFileSync(fileA, "utf8"), markdown);
+		await h.tool("plan_task", { action: "new", expectedAttached: null, title: "Billing", scope: "Export invoices" });
+		assert.equal(h.state().collection.attached, 2);
+		assert.equal(h.state().collection.records.length, 2);
+		assert.equal((await h.event("tool_call", { toolName: "write", input: { path: fileA } })).block, true);
 		const fileB = makePlanPath(path.join(dir, "plans"), "session", 2);
 		fs.writeFileSync(fileB, "# Billing\n");
-		await h.build();
-		await h.tool("plan_task", { action: "resume", expectedAttached: 2, targetSequence: 1 });
-		assert.deepEqual(h.record()?.execution, progress);
-		assert.equal(h.state().collection.records.find((r: any) => r.plan.sequence === 2).plan.status, "open");
-		await h.command("pause");
-		const beforeCancel = structuredClone(h.state().collection);
-		h.ctx.ui.select = async () => undefined as any;
-		await h.command("resume");
-		assert.deepEqual(h.state().collection, beforeCancel, "cancelled ambiguous selection changes nothing");
-		await h.command("resume 1");
-		const restored = harness(dir, structuredClone(h.entries));
-		await restored.event("session_start", { reason: "reload" });
-		assert.equal(restored.state().collection.attached, 1);
-		assert.equal(restored.record().plan.task.scope, "Login and logout redirects");
-		assert.deepEqual(restored.record()?.execution, progress);
-		const fork = harness(dir, structuredClone(restored.entries), "fork");
+		const fork = harness(dir, structuredClone(h.entries), "fork");
 		await fork.event("session_start", { reason: "fork" });
 		assert.equal(fs.readFileSync(makePlanPath(path.join(dir, "plans"), "fork", 1), "utf8"), markdown);
 		assert.equal(fs.readFileSync(makePlanPath(path.join(dir, "plans"), "fork", 2), "utf8"), "# Billing\n");
-		await restored.tool("plan_step_complete", { summary: "Login verified" });
-		assert.equal(restored.state().collection.attached, null);
-		assert.equal(restored.state().collection.records.find((r: any) => r.plan.sequence === 1).plan.status, "completed");
-		assert.equal(restored.state().collection.records.find((r: any) => r.plan.sequence === 2).plan.status, "open");
-		await restored.tool("plan_task", { action: "resume", expectedAttached: null, targetSequence: 2 });
-		assert.equal(restored.record().plan.task.title, "Billing");
-		assert.equal(fs.readFileSync(fileA, "utf8"), markdown);
-		assert.equal(fs.readFileSync(fileB, "utf8"), "# Billing\n");
-		// Navigating to a prior branch restores that branch's attachment and progress.
-		const historical = harness(dir, attachedBranch);
-		await historical.event("session_start", { reason: "resume" });
-		await historical.tool("plan_task", { action: "pause", expectedAttached: 1 });
-		historical.entries.pop();
-		await historical.event("session_tree");
-		const historyContext = await historical.event("context", { messages: [] });
-		assert.match(historyContext.messages.at(-1).content, /Active task sequence \(internal\): 1/);
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
@@ -466,6 +437,10 @@ test("titles follow unfinished plans across modes, saved-file refreshes, and com
 		await h.event("tool_result", { toolName: "write", input: { path: file }, isError: false });
 		assert.equal(status(), "Fix redirects", "metadata takes precedence");
 		await h.build();
+		await h.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs browser confirmation", userAction: "Confirm the login redirect in a browser" });
+		assert.equal(status(), "Fix redirects · Awaiting validation");
+		await h.event("session_start", { reason: "reload" });
+		assert.equal(status(), "Fix redirects · Awaiting validation", "validation status remains visible after restoration");
 		await h.tool("plan_complete");
 		assert.equal(status(), "build", "completion refreshes status immediately");
 		await h.command("");
@@ -513,12 +488,13 @@ test("task identity and decisions survive restore while separate tasks preserve 
 		await restored.prompt("Continue discussing");
 		assert.ok(restored.events.some((e) => e.kind === "status" && e.text === "Fix login redirects"));
 		await assert.rejects(restored.tool("plan_task", { action: "new", sequence: 0, title: "Wrong", scope: "Wrong" }), /Stale/);
-		await assert.rejects(restored.tool("plan_task", { action: "new", sequence: 1 }), /title and scope/);
+		await assert.rejects(restored.tool("plan_task", { action: "new", sequence: 1 }), /Complete or explicitly abandon/);
 		restored.ctx.ui.select = async () => PLAN_EXIT_FRESH_CHOICE;
 		await restored.tool("plan_exit");
 		restored.entries.push({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "plan_task" }, { type: "toolCall", name: "write" }] } });
 		assert.equal((await restored.event("tool_call", { toolName: "write", input: { path: first } })).block, true);
-		const result = await restored.tool("plan_task", { action: "new", sequence: 1, title: "Billing exports", scope: "Export invoices" });
+		await restored.tool("plan_task", { action: "abandon", expectedAttached: 1, reason: "User redirected to billing exports" });
+		const result = await restored.tool("plan_task", { action: "new", expectedAttached: null, title: "Billing exports", scope: "Export invoices" });
 		const second = makePlanPath(path.join(dir, "plans"), "session", 2);
 		assert.equal(result.details.planPath, second);
 		assert.match(result.content[0].text, /Billing exports/);
@@ -591,11 +567,12 @@ test("plan lifecycle keeps revisions, preserves completed plans, and restores th
 		assert.equal(restored.record().plan.sequence, 2, "busy runs cannot change plan identity");
 		restored.setIdle(true);
 		await restored.command("new");
-		assert.equal(restored.record().plan.sequence, 3);
+		assert.equal(restored.record().plan.sequence, 2, "a current plan cannot be silently replaced");
+		assert.match(restored.events.filter((e) => e.kind === "notify").at(-1).text, /Complete or explicitly abandon/);
 		assert.equal(fs.readFileSync(second, "utf8"), "# Second task\n");
 		await restored.build();
 		await restored.command("done");
-		assert.equal(restored.record().plan.status, "open", "cannot complete an unwritten plan");
+		assert.equal(restored.record().plan.status, "completed");
 		await restored.event("session_shutdown");
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -604,7 +581,7 @@ test("plan lifecycle keeps revisions, preserves completed plans, and restores th
 	}
 });
 
-test("legacy plan migration and fork copies preserve the source file", async () => {
+test("legacy unnumbered plans and fork copies preserve the source file", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-legacy-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	try {
@@ -685,10 +662,6 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 				h.ctx.mode = mode;
 				h.ctx.ui.select = async () => choice as any;
 				fs.writeFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), "# Approved plan\n");
-				if (choice === PLAN_EXIT_FRESH_CHOICE) {
-					await h.tool("plan_task", { action: "new", sequence: 1, title: "Paused work", scope: "Other work" });
-					await h.tool("plan_task", { action: "resume", expectedAttached: h.state().collection.attached, targetSequence: 1 });
-				}
 				h.events.length = 0;
 				const result = await h.tool("plan_exit");
 				const notices = h.events.filter(e => e.kind === "entry" && e.customType === "pi-plan-build-notice");
@@ -706,13 +679,13 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 							appendCustomEntry: (customType: string, data: any) => child.entries.push({ type: "custom", customType, data }),
 						});
 						assert.equal(child.state().pendingFreshAnnouncement, true);
+						assert.equal(child.state().version, STATE_VERSION);
 						assert.equal(child.record().plan.task.title, "Approved task title");
 						assert.equal(destination.length, 0);
 						await h.event("session_shutdown");
 						await child.event("session_start", { reason: "new" });
 						assert.equal(child.state().pendingFreshAnnouncement, true);
 						assert.equal(child.state().collection.records.length, 1);
-						assert.ok(h.state().collection.records.some((r: any) => r.plan.task?.title === "Paused work"));
 						assert.equal(destination.some(e => e.kind === "render" || e.text === PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"]), false);
 						await withSession({
 							...child.ctx,
@@ -866,7 +839,7 @@ test("accumulated context is current, bounded, and read-only with one snapshot p
 		let count = snapshots();
 		await h.callTool("plan_task", { action: "new", expectedAttached: null, title: "Stable task", scope: "Stable scope" });
 		assert.equal(snapshots(), count + 1, "new plus metadata commits once");
-		assert.equal(h.state().version, 2);
+		assert.equal(h.state().version, 3);
 		assert.equal("plan" in h.state(), false);
 		assert.equal("execution" in h.state(), false);
 		const obsolete = { role: "custom", customType: "pi-plan-build-reminder", content: "Obsolete implementation" };
@@ -899,7 +872,7 @@ test("accumulated context is current, bounded, and read-only with one snapshot p
 			for (let i = 0; i < 5; i++) await h.event("context", { messages: [] });
 			assert.equal(inspections, 0, "model requests do not inspect plan files");
 			await h.tool("plan_task", { action: "list" });
-			assert.equal(inspections, 1, "explicit inventory inspects each file once");
+			assert.equal(inspections, 0, "current-plan status reuses the cached file state");
 		} finally { fs.statSync = originalStat; }
 		await h.callTool("plan_exit");
 		assert.ok(h.active().includes("plan_complete"));
@@ -940,7 +913,28 @@ test("paused active steps block both shells and edits until explicit resume; sta
 		await h.callTool("plan_step_control", { action: "resume" });
 		assert.ok(h.active().includes("plan_step_complete"));
 		assert.match((await h.event("context", { messages: [] })).messages[0].content, /Implement only step 1/);
-		await h.callTool("plan_step_complete", { summary: "First verified" });
+		const waiting = await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user observation", userAction: "Confirm that the first step behaves correctly" });
+		assert.match(waiting.content[0].text, /This step's implementation is finished/);
+		assert.match(waiting.content[0].text, /plan remains open/);
+		const cancelled = harness(dir, structuredClone(h.entries));
+		await cancelled.event("session_start", { reason: "reload" });
+		await cancelled.callTool("plan_step_control", { action: "cancel" });
+		assert.equal(cancelled.record().plan.status, "open");
+		assert.equal(cancelled.record().plan.outcome.userAction, "Confirm that the first step behaves correctly");
+		const cancelledContext = (await cancelled.event("context", { messages: [] })).messages[0].content;
+		assert.match(cancelledContext, /only after all approved implementation and required verification/);
+		assert.match(cancelledContext, /cancelled step execution is not evidence/);
+		await cancelled.event("session_shutdown");
+		assert.equal(h.state().collection.attached, 1);
+		assert.equal(h.record().execution.status, "paused");
+		assert.ok(h.active().includes("plan_step_complete"), "user-confirmed active validation can complete without resuming implementation");
+		assert.equal((await h.event("tool_call", { toolName: "edit", input: { path: path.join(dir, "project.ts") } })).block, true);
+		assert.match((await h.event("context", { messages: [] })).messages[0].content, /Confirm that the first step behaves correctly/);
+		await h.callTool("plan_step_complete", { summary: "User confirmed the first step" });
+		assert.equal(h.record().plan.outcome, undefined);
+		assert.equal(h.record().execution.status, "running");
+		assert.equal(h.record().execution.steps[0].status, "completed");
+		assert.equal(h.record().execution.steps[1].status, "ready");
 		const changed = markdown.replace("2. Second", "2. Different instruction");
 		fs.writeFileSync(file, changed);
 		await assert.rejects(h.callTool("plan_step_control", { action: "revise", instruction: "Revised" }), /changed/);
@@ -948,6 +942,57 @@ test("paused active steps block both shells and edits until explicit resume; sta
 		fs.writeFileSync(file, markdown);
 		await h.callTool("plan_step_control", { action: "revise", instruction: "Revised" });
 		assert.equal(fs.readFileSync(file, "utf8"), markdown.replace("Second", "Revised"));
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("failed user validation resumes the same active step for remediation", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-validation-remediation-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		fs.mkdirSync(path.join(dir, "plans"));
+		const markdown = "# Validate\n## Implementation Steps\n1. Check behavior\n";
+		fs.writeFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), markdown);
+		const execution = createPlanExecution(markdown);
+		execution.steps[0].status = "active";
+		const h = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data: { version: 1, selectedMode: "build", plan: { sequence: 1, status: "open" }, execution } }]);
+		await h.event("session_start", { reason: "resume" });
+		await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user observation", userAction: "Report whether the behavior fails" });
+		assert.equal(h.record().execution.status, "paused");
+		await h.callTool("plan_step_control", { action: "resume" });
+		assert.equal(h.record().execution.status, "running");
+		assert.equal(h.record().execution.steps[0].status, "active");
+		assert.equal(h.record().plan.outcome, undefined);
+		assert.equal(await h.event("tool_call", { toolName: "edit", input: { path: path.join(dir, "project.ts") } }), undefined);
+		await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Recheck", userAction: "Confirm the fix" });
+		await h.callTool("plan_step_control", { action: "complete" });
+		assert.equal(h.state().collection.attached, null);
+		assert.equal(h.record().plan.status, "completed");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("current-format restoration fails closed and unchanged reloads do not persist", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-version-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		for (const collection of [undefined, null, {}]) {
+			const data = { version: STATE_VERSION, selectedMode: "build", plan: { sequence: 1, status: "open" }, ...(collection !== undefined ? { collection } : {}) };
+			assert.throws(() => restoreCollection(data as any, () => "absent"), /Malformed plan collection/);
+			const h = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data }]);
+			await h.event("session_start", { reason: "reload" });
+			assert.equal(h.events.filter(e => e.kind === "entry").length, 0);
+			await h.event("session_shutdown");
+		}
+		const data = { version: STATE_VERSION, selectedMode: "build", collection: { records: [{ plan: { sequence: 1, status: "open", task: { title: "Current", scope: "Scope", decisions: [] } } }], attached: 1, counter: 1 } };
+		const h = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data }]);
+		for (let i = 0; i < 3; i++) await h.event("session_start", { reason: "reload" });
+		assert.equal(h.events.filter(e => e.kind === "entry").length, 0);
+		await h.event("session_shutdown");
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
