@@ -8,6 +8,7 @@ import { convertToLlm, ToolExecutionComponent, initTheme } from "@earendil-works
 import { eventHandlers } from "./test-events.ts";
 import { STATE_VERSION, restoreCollection, allocationHighWater } from "./plan-state.ts";
 import planBuildModes from "./index.ts";
+import { COMPLETION_GUIDANCE } from "./prompts.ts";
 import { createPlanExecution } from "./plan-execution.ts";
 import { decodePlanLifecycle, makePlanPath, PLAN_EXIT_APPROVE_CHOICE, PLAN_EXIT_FRESH_CHOICE, PLAN_EXIT_STAY_CHOICE, PLAN_ACTION_ANNOUNCEMENTS } from "./utils.ts";
 
@@ -117,6 +118,85 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		},
 	};
 }
+
+test("completion safeguards separate file availability from evidence and retain step guards", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-completion-safeguards-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		for (const kind of ["removed", "unavailable", "execution"] as const) {
+			const folder = path.join(dir, kind);
+			fs.mkdirSync(path.join(folder, "plans"), { recursive: true });
+			const file = makePlanPath(path.join(folder, "plans"), "session", 1);
+			const markdown = "# Task\n\n## Implementation Steps\n1. Implement task\n";
+			fs.writeFileSync(file, markdown);
+			const h = harness(folder, [{ type: "custom", customType: "pi-plan-build-state", data: {
+				version: 1, selectedMode: "build", plan: { sequence: 1, status: "open", task: { title: "Saved task", scope: "Implement task", decisions: [] } },
+				...(kind === "execution" ? { execution: createPlanExecution(markdown) } : {}),
+			} }]);
+			await h.event("session_start", { reason: "resume" });
+			if (kind === "execution") {
+				assert.ok(!h.active().includes("plan_complete"));
+				await assert.rejects(h.tool("plan_complete"), /Complete or cancel the step-by-step execution first/);
+				assert.equal(h.state().collection.attached, 1);
+				assert.equal(fs.readFileSync(file, "utf8"), markdown);
+			} else {
+				fs.unlinkSync(file);
+				if (kind === "unavailable") fs.mkdirSync(file);
+				await h.callTool("plan_finish", { expectedAttached: 1, outcome: "blocked", reason: "Missing scope prevents assessing completion" });
+				assert.equal(h.state().collection.attached, 1);
+				assert.equal(h.record().plan.outcome.kind, "blocked");
+				await h.prompt("Close this plan explicitly; do not claim that verification passed.");
+				await h.callTool("plan_complete");
+				assert.equal(h.state().collection.attached, null);
+				assert.equal(h.record().plan.status, "completed");
+				if (kind === "unavailable") assert.deepEqual(fs.readdirSync(file), []);
+				else assert.equal(fs.existsSync(file), false);
+			}
+			for (const guidance of [COMPLETION_GUIDANCE, h.tools.get("plan_complete").promptGuidelines.join(" ")]) {
+				assert.match(guidance, /missing scope prevents assessing completion/i);
+				assert.match(guidance, /plan_finish blocked/);
+				assert.match(guidance, /not evidence/i);
+				assert.match(guidance, /unperformed checks passed/);
+				assert.match(guidance, /alone require extra confirmation/);
+			}
+			await h.event("session_shutdown");
+		}
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("metadata-only plans expose outcomes in Build and complete without creating Markdown", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-metadata-completion-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		assert.ok(!h.active().includes("plan_complete"));
+		await assert.rejects(h.tool("plan_complete"), /No current plan/);
+		await h.command("");
+		const created = await h.callTool("plan_task", { action: "new", expectedAttached: null, title: "Metadata-only task", scope: "Complete without Markdown" });
+		assert.ok(!h.active().includes("plan_complete"));
+		await assert.rejects(h.tool("plan_complete"), /Switch to Build/);
+		await h.build();
+		assert.ok(h.active().includes("plan_complete"));
+		assert.ok(h.active().includes("plan_finish"));
+		await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user observation", userAction: "Confirm the title appearance" });
+		assert.equal(h.state().collection.attached, 1);
+		await h.callTool("plan_complete");
+		assert.equal(h.state().collection.attached, null);
+		assert.equal(h.record().plan.status, "completed");
+		assert.equal(fs.existsSync(created.details.planPath), false);
+		assert.ok(!h.active().includes("plan_complete"));
+		assert.ok(!h.active().includes("plan_finish"));
+		assert.ok(!h.events.filter((event) => event.kind === "status").at(-1)?.text?.includes("Metadata-only task"));
+		await h.event("session_shutdown");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
 
 test("fresh Plan sessions receive full guidance before accepted scope becomes a saved plan", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-fresh-guidance-"));

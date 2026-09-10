@@ -229,7 +229,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				"question",
 				"plan_enter",
 				"plan_task",
-				...(plans.collection.attached !== null && !plans.execution && plans.plan.status === "open" && savedPlanState === "saved" ? ["plan_complete", "plan_finish"] : []),
+				...(plans.collection.attached !== null && !plans.execution && plans.plan.status === "open" ? ["plan_complete", "plan_finish"] : []),
 				...(plans.collection.attached !== null && plans.execution ? ["plan_finish"] : []),
 				...(plans.execution && plans.execution.status !== "completed" ? ["plan_step_control"] : []),
 				...(plans.collection.attached !== null && completablePlanStep() ? ["plan_step_complete"] : []),
@@ -312,7 +312,6 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		if ((runMode ?? selectedMode) !== "build") throw new Error("Switch to Build mode before completing implementation");
 		if (plans.collection.attached === null) throw new Error("No current plan to complete");
 		if (plans.execution) throw new Error("Complete or cancel the step-by-step execution first");
-		if (!fs.existsSync(currentPlanPath())) throw new Error("No saved plan to complete");
 		closeCurrentPlan();
 	}
 
@@ -574,8 +573,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_complete",
 		label: "Complete Plan",
-		description: "Mark the current saved plan complete only after its implementation and required verification are finished, or the user explicitly confirms completion or waives pending validation. Do not call for partial work, errors, or merely approving a plan. Preserves the plan file; the next planning task gets a new file.",
-		promptGuidelines: ["Before announcing finished planned implementation, call plan_complete when all required work and verification have passed. Do not wait for ceremonial user acceptance or optional feedback. Use plan_finish for unfinished outcomes; never infer completion solely from a turn ending."],
+		description: "Mark the current plan complete (including metadata-only plans without saved Markdown) only after its implementation and required verification are finished, or the user explicitly confirms completion or waives pending validation. Do not call for partial work, errors, or merely approving a plan. Preserves the plan file; the next planning task gets a new file.",
+		promptGuidelines: ["Before announcing finished planned implementation, call plan_complete when all required work and verification have passed. Do not wait for ceremonial user acceptance or optional feedback. Use plan_finish for unfinished outcomes; never infer completion solely from a turn ending. Saved Markdown is not required for completion. Missing or unavailable files are not evidence of finished work and do not alone require extra confirmation. If missing scope prevents assessing completion, use plan_finish blocked. Explicit user-directed closure does not establish that unperformed checks passed."],
 		parameters: EMPTY_PARAMETERS,
 		executionMode: "sequential",
 		async execute() {

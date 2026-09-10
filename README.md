@@ -133,7 +133,9 @@ Staying or Escape says “I’ll stay in Plan mode and wait for your next instru
 
 The implement-here approval result explicitly instructs execution within the approved authorization boundaries; acknowledgment or initial inspection alone is not completion. Separate deployment/restart approvals still apply, and genuine blockers or interruptions may stop work. Ordinary Build discussion does not itself authorize implementation.
 
-For normal implementation, the agent calls `plan_complete` after all approved work and required verification pass. `/plan done` is the manual equivalent. `plan_finish` records unfinished outcomes:
+For normal implementation, the agent calls `plan_complete` after all approved work and required verification pass. `/plan done` is the manual equivalent. Completion does not require saved Markdown; metadata-only plans can complete too. Missing or unavailable files are not evidence that work finished and do not alone require extra confirmation. If missing scope prevents assessing completion, the agent records `blocked`. Explicit user-directed closure closes tracking without claiming unperformed checks passed. Build-mode, attachment, usable-state, and step-execution guards still apply.
+
+`plan_finish` records unfinished outcomes:
 
 - `awaiting_validation`: requires an essential `userAction` and keeps the plan attached, open, titled, and visibly marked until resolved.
 - `blocked`, `waiting_for_input`, `still_working`: record a reason and keep the plan attached.
