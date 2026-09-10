@@ -395,7 +395,7 @@ test("plan guidance supports conversation before persisted finalization", () => 
 	assert.match(reminder, /answer normally without writing Markdown or calling plan_exit/);
 	assert.match(reminder, /continue discussion normally until ready/);
 	assert.match(reminder, /explicitly asked to finalize/);
-	assert.match(reminder, /write the complete plan at the attached canonical path and call plan_exit/);
+	assert.match(reminder, /write the complete plan at its returned canonical path, and call plan_exit/);
 	assert.match(reminder, /brief `## Verification` section/);
 	assert.match(reminder, /standalone bold labels without colons/i);
 	assert.match(reminder, /`\*\*Agent\*\*`/);

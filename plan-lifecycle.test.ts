@@ -118,6 +118,51 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 	};
 }
 
+test("fresh Plan sessions receive full guidance before accepted scope becomes a saved plan", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-fresh-guidance-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		await h.command("");
+		const discussion = await h.prompt("Could reward names show item hover previews?");
+		const guidance = discussion.find((m: any) => m.customType === "pi-plan-build-task").content;
+		assert.match(guidance, /## Finalization/);
+		assert.match(guidance, /## Verification policy/);
+		assert.match(guidance, /Current plan: none/);
+		assert.match(guidance, /expectedAttached: null/);
+		assert.match(guidance, /informational agreement, or discussion alone does not create a task/);
+		assert.match(guidance, /scope for plan preparation, not implementation/);
+		assert.match(guidance, /call plan_exit/);
+		assert.match(guidance, /Do not wait for the exact words/);
+		assert.equal(h.state().collection.attached, null);
+		assert.deepEqual(h.state().collection.records, []);
+		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
+		assert.equal(fs.existsSync(file), false);
+		await h.prompt("Approved.");
+		assert.equal(h.state().collection.attached, null, "approval interpretation stays agent-assisted, not a keyword trigger");
+		const created = await h.callTool("plan_task", { action: "new", expectedAttached: null, title: "Reward hover previews", scope: "Show actual reward item previews" });
+		assert.equal(created.details.planPath, file);
+		assert.equal(fs.existsSync(file), false);
+		// A later tool batch may write only the returned canonical path.
+		h.entries.push({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "write", arguments: { path: file } }] } });
+		assert.equal(await h.event("tool_call", { toolName: "write", input: { path: file } }), undefined);
+		assert.equal((await h.event("tool_call", { toolName: "write", input: { path: path.join(dir, "project.ts") } })).block, true);
+		fs.mkdirSync(path.dirname(file), { recursive: true });
+		fs.writeFileSync(file, "# Reward hover previews\n\n## Verification\nInspect generated hover content.\n\n## Implementation Steps\n1. Add actual item previews.\n");
+		await h.event("tool_result", { toolName: "write", input: { path: file }, isError: false });
+		assert.equal(h.state().selectedMode, "plan", "saving a plan does not approve implementation");
+		const approved = await h.callTool("plan_exit");
+		assert.equal(approved.details.approved, true);
+		assert.equal(h.state().selectedMode, "build");
+		assert.equal(h.record().plan.status, "open");
+		await h.event("session_shutdown");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("planning tool renderers preserve errors and never report success for partial or missing results", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-visible-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;

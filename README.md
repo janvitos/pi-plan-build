@@ -8,7 +8,7 @@ A [Pi coding agent](https://github.com/earendil-works/pi-mono) extension with pe
 
 1. Start in **Build** for ordinary discussion and coding. Small fixes need no plan.
 2. Select **Plan** with `/plan`, `Alt+M`, or the default editor `Tab` shortcut. This changes permissions, **not task selection**. Discuss and research read-only; no Markdown is written merely by entering Plan.
-3. When a planning deliverable is clear, the agent creates the current task; `/plan new` is the manual equivalent. Finalize or explicitly revise only its canonical plan file, then call `plan_exit` for review and approval.
+3. When you request a planning deliverable or accept a concrete proposed change during planning, the agent creates the current task; `/plan new` is the manual equivalent. It waits for the returned canonical path, completes necessary read-only investigation, saves the plan, and calls `plan_exit` for review and implementation approval. Accepting scope does not authorize implementation; informational agreement alone creates no task. You need not say “make a plan” again or switch manually to Build to get a plan written.
 4. Approve implementation **here**, in a **clean linked session**, or **step by step** (experimental fullscreen UI). Staying in Plan—or Escape—stops the run and waits for your next message.
 5. After implementation and required verification, the agent records completion. Essential user-only validation keeps the same plan attached, visibly marked **Awaiting validation**, with precise instructions. Optional feedback does not hold completion open.
 
