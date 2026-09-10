@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Check } from "typebox/value";
+import { convertToLlm } from "@earendil-works/pi-coding-agent";
 import { eventHandlers } from "./test-events.ts";
 import { STATE_VERSION, restoreCollection, allocationHighWater } from "./plan-state.ts";
 import planBuildModes from "./index.ts";
@@ -131,7 +132,11 @@ test("planning tool renderers preserve errors and never report success for parti
 		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
 		fs.writeFileSync(file, "# Plan\n");
 		const approved = await h.tool("plan_exit");
-		assert.equal(approved.content[0].text, "Plan approved; switched to Build mode.");
+		assert.match(approved.content[0].text, /^Plan approved; switched to Build mode\./);
+		assert.match(approved.content[0].text, /Implement the approved plan now within its authorization boundaries/);
+		assert.match(approved.content[0].text, /acknowledgment or initial inspection alone is not completion/);
+		assert.match(approved.content[0].text, /Deployment and restarts still require any separately specified approval/);
+		assert.notEqual(approved.terminate, true);
 		const buildContext = await h.event("context", { messages: [] });
 		assert.match(buildContext.messages.at(-1).content, /Build mode permits/);
 		const completed = await h.tool("plan_complete");
@@ -153,6 +158,106 @@ test("planning tool renderers preserve errors and never report success for parti
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("operational context precedes the real request and preserves the tool-exchange tail", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-context-order-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		await h.command("new");
+		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
+		fs.writeFileSync(file, "# Approved plan\n");
+		const history: any[] = [
+			{ role: "custom", customType: "another-extension", content: "Keep this context", timestamp: 0 },
+			{ role: "custom", customType: "pi-plan-build-reminder", content: "Obsolete guidance", timestamp: 0 },
+			{ role: "user", content: [{ type: "text", text: "Implement the plan" }], timestamp: 1 },
+			{ role: "assistant", content: [{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "project.ts" } }], timestamp: 2 },
+			{ role: "toolResult", toolCallId: "read-1", toolName: "read", content: [{ type: "text", text: "File contents" }], isError: false, timestamp: 3 },
+		];
+		const original = structuredClone(history);
+		let result = await h.event("context", { messages: history });
+		assert.match(result.messages[1].content, /Plan mode is active/);
+		assert.equal(result.messages[2], history[2], "context is before the real user, not the other extension");
+		assert.match(result.messages[1].content, /not a new user request.*Do not acknowledge/);
+		await h.tool("plan_exit");
+		for (let i = 0; i < 3; i++) {
+			result = await h.event("context", { messages: result.messages });
+			assert.equal(result.messages.filter((m: any) => m.customType === "pi-plan-build-task").length, 1);
+			assert.match(result.messages[1].content, /Build mode permits/);
+			assert.doesNotMatch(result.messages[1].content, /Plan mode is active/);
+			const converted = convertToLlm(result.messages);
+			assert.equal(converted[1].role, "user", "Pi converts custom context to user-role content");
+			assert.deepEqual(converted.slice(2), convertToLlm(history.slice(2)));
+			assert.equal(converted.at(-1)?.role, "toolResult");
+		}
+		assert.deepEqual(history, original, "stored history is not rewritten");
+		await h.tool("plan_task", { action: "update", expectedAttached: 1, title: "Revised identity", scope: "Approved scope" });
+		const updated = await h.event("context", { messages: history });
+		assert.match(updated.messages[1].content, /Revised identity/);
+		const noUser = await h.event("context", { messages: history.slice(3) });
+		assert.equal(noUser.messages[0].customType, "pi-plan-build-task");
+		assert.deepEqual(noUser.messages.slice(1), history.slice(3));
+		await h.event("session_shutdown");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("reconciliation context is limited to its live follow-up, including direct continuations", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-reconcile-context-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		fs.mkdirSync(path.join(dir, "plans"));
+		fs.writeFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), "# Approved work\n");
+		for (const boundary of ["settled", "user", "reload", "tree", "abandon", "complete", "mode", "interrupted"]) {
+			const data = { version: STATE_VERSION, selectedMode: "build", collection: { records: [{ plan: { sequence: 1, status: "open" } }], attached: 1, counter: 1 } };
+			const h = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data }]);
+			await h.event("session_start", { reason: "reload" });
+			await h.prompt("Implement approved work");
+			await h.event("tool_result", { toolName: "edit", input: { path: path.join(dir, "project.ts") }, isError: false });
+			await h.event("agent_end", { messages: [{ role: "assistant", stopReason: "stop", content: [] }] });
+			await h.event("agent_settled");
+			const sent = h.events.find(e => e.kind === "internal");
+			assert.ok(sent.message.details.reconciliationId);
+			const reminder = { role: "custom", ...sent.message, timestamp: 1 };
+			const historical = { ...reminder, details: undefined, content: "Old bookkeeping restriction" };
+			const messages: any[] = [{ role: "user", content: "Implement approved work", timestamp: 0 }, historical, reminder];
+			// sendCustomMessage(triggerTurn) invokes the agent directly: no before_agent_start.
+			await h.event("agent_start");
+			await h.event("message_start", { message: reminder });
+			const outgoing = async () => (await h.event("context", { messages })).messages;
+			const live = await outgoing();
+			assert.ok(live.includes(reminder), boundary);
+			assert.ok(!live.includes(historical), "a live reminder must not reactivate older reminders");
+			assert.equal(convertToLlm(live).at(-1)?.role, "user");
+			const outcome = await h.callTool("plan_finish", { expectedAttached: 1, outcome: "still_working", reason: "Approved work remains" });
+			messages.push({ role: "assistant", content: [{ type: "toolCall", id: "finish", name: "plan_finish", arguments: {} }], timestamp: 2 });
+			messages.push({ role: "toolResult", toolCallId: "finish", toolName: "plan_finish", ...outcome, timestamp: 3 });
+			assert.ok((await outgoing()).includes(reminder), "keep the boundary through the final bookkeeping response");
+			if (boundary === "settled" || boundary === "interrupted") {
+				await h.event("agent_end", { messages: [{ role: "assistant", stopReason: boundary === "interrupted" ? "aborted" : "stop", content: [] }] });
+				await h.event("agent_settled");
+			} else if (boundary === "user") {
+				const user = { role: "user", content: "Plan approved; continue", timestamp: 4 };
+				messages.push(user);
+				await h.event("message_start", { message: user }); // Also covers queued user input without before_agent_start.
+			} else if (boundary === "reload") await h.event("session_start", { reason: "reload" });
+			else if (boundary === "tree") await h.event("session_tree");
+			else if (boundary === "abandon") await h.tool("plan_task", { action: "abandon", expectedAttached: 1, reason: "User cancelled work" });
+			else if (boundary === "complete") await h.tool("plan_complete");
+			else await h.command("");
+			assert.ok(!(await outgoing()).some((m: any) => m.customType === "pi-plan-build-reconcile"), boundary);
+			assert.equal(h.events.filter(e => e.kind === "internal").length, 1, "no automatic implementation retry");
+			assert.equal(messages.filter(m => m.customType === "pi-plan-build-reconcile").length, 2, "filtering preserves original history");
+			await h.event("session_shutdown");
+		}
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
@@ -904,8 +1009,9 @@ test("paused active steps block both shells and edits until explicit resume; sta
 		await h.callTool("plan_step_control", { action: "pause" });
 		assert.ok(!h.active().includes("plan_step_complete"));
 		const context = await h.prompt("Discuss progress");
-		assert.match(context.at(-1).content, /execution is paused/);
-		assert.doesNotMatch(context.at(-1).content, /Implement only step|Build mode permits/);
+		const operational = context.find((m: any) => m.customType === "pi-plan-build-task");
+		assert.match(operational.content, /execution is paused/);
+		assert.doesNotMatch(operational.content, /Implement only step|Build mode permits/);
 		for (const toolName of ["edit", "write", "bash", "powershell"]) {
 			assert.equal((await h.event("tool_call", { toolName, input: { path: path.join(dir, "project.ts"), command: "echo test" } })).block, true);
 		}

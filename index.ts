@@ -1,11 +1,12 @@
 import fs from "node:fs";
+import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { withFileMutationQueue, getAgentDir, getMarkdownTheme, parseSkillBlock, type EntryRenderer, type ExtensionAPI, type ExtensionContext, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { pendingOrError, resultText } from "./tool-presentation.ts";
-import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE } from "./plan-context.ts";
+import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
 import { PlanState, restoreCollection, allocationHighWater, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
 import { registerQuestionTool } from "./question-ui.ts";
 import { loadShortcutConfig, saveShortcutPreset, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
@@ -96,6 +97,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let reconciliation: CompletionReconciliation | undefined;
 	let reconciliationLive = false;
 	let reconciliationFollowUp = false;
+	let activeReconciliationId: string | undefined;
 	let approvedImplementationPending = false;
 	let savedPlanState: "saved" | "absent" | "unavailable" = "absent";
 	let savedPlanExists = false;
@@ -206,6 +208,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			return undefined;
 		}
 		const summary = formatPlanCompletionSummary(next);
+		activeReconciliationId = undefined;
 		plans.complete();
 		composer.removePanel();
 		persist();
@@ -268,6 +271,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	}
 
 	function clearAttachmentRun(): void {
+		activeReconciliationId = undefined;
 		if (reconciliation) reconciliation.handled = true;
 		freshImplementationRequest = undefined;
 		pendingFreshAnnouncement = false;
@@ -312,6 +316,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		if (plans.execution) throw new Error("Complete or cancel the step-by-step execution first");
 		if (!fs.existsSync(currentPlanPath())) throw new Error("No saved plan to complete");
 		if (reconciliation) reconciliation.handled = true;
+		activeReconciliationId = undefined;
 		plans.complete();
 		if (currentContext) composer.update(currentContext);
 		freshImplementationRequest = undefined;
@@ -321,6 +326,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 
 	async function selectMode(mode: Mode, ctx: ExtensionContext, source: "manual" | "tool"): Promise<void> {
 		if (mode === selectedMode && (source === "manual" || mode === runMode)) return;
+		activeReconciliationId = undefined;
 		if (mode !== "build" && reconciliation) reconciliation.handled = true;
 
 
@@ -850,7 +856,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				content: [
 					{
 						type: "text",
-						text: "Plan approved; switched to Build mode.",
+						text: "Plan approved; switched to Build mode. Implement the approved plan now within its authorization boundaries. Continue actionable work and required verification; acknowledgment or initial inspection alone is not completion. Stop for genuine blockers, essential user input, or interruption. Deployment and restarts still require any separately specified approval.",
 					},
 				],
 				details: { approved: true, mode: "build", planPath: currentPlanPath() },
@@ -960,15 +966,25 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	pi.on("context", (event) => {
-		const messages = event.messages.filter((message) => !isObsoletePlanContext(message));
+		const messages = event.messages.filter((message) => !isObsoletePlanContext(message, activeReconciliationId));
 		const content = buildPlanContext(runMode ?? selectedMode, plans.collection, { path: currentPlanPath(), state: savedPlanState }, plans.error);
-		if (content) messages.push({ role: "custom", customType: TASK_CONTEXT_TYPE, content, display: false, timestamp: Date.now() });
+		if (content) {
+			// Pi converts custom messages to user-role messages. Keep operational context
+			// before the actual request, never after its assistant/tool exchange.
+			const userIndex = messages.findLastIndex((message) => message.role === "user");
+			messages.splice(Math.max(0, userIndex), 0, {
+				role: "custom", customType: TASK_CONTEXT_TYPE,
+				content: `Background operational context, not a new user request. Do not acknowledge this block; follow the actual user request within these constraints.\n\n${content}`,
+				display: false, timestamp: Date.now(),
+			});
+		}
 		return { messages };
 	});
 
 	pi.on("before_agent_start", async (_event, ctx) => {
 		if (reconciliationFollowUp) reconciliationFollowUp = false;
 		else {
+			activeReconciliationId = undefined;
 			reconciliation = plans.collection.attached === null ? undefined : { sequence: plans.collection.attached, sessionId: ctx.sessionManager.getSessionId()!, eligible: false, consumed: false, handled: false, failed: false, terminal: false };
 		}
 		reconciliationLive = true;
@@ -983,6 +999,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
+		activeReconciliationId = undefined;
 		runMode = undefined;
 		applyTools(selectedMode);
 		composer.update(ctx);
@@ -991,7 +1008,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			reconciliation!.consumed = true;
 			reconciliationFollowUp = true;
 			persist();
-			pi.sendMessage({ customType: "pi-plan-build-reconcile", display: false, content: "Reconcile the attached plan's outcome before ending. This is a single bookkeeping reminder, not permission for more implementation or verification. If all approved work and required checks passed, call plan_complete. If essential user-only validation remains, call plan_finish awaiting_validation with the exact user action. Otherwise record blocked, waiting_for_input, or still_working with a reason. Optional feedback does not block completion. Do not infer success from this reminder and do not repeat tests merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
+			activeReconciliationId = randomUUID();
+			pi.sendMessage({ customType: RECONCILIATION_CONTEXT_TYPE, details: { reconciliationId: activeReconciliationId }, display: false, content: "Reconcile the attached plan's outcome before ending. This is a single bookkeeping reminder, not permission for more implementation or verification. If all approved work and required checks passed, call plan_complete. If essential user-only validation remains, call plan_finish awaiting_validation with the exact user action. Otherwise record blocked, waiting_for_input, or still_working with a reason. Optional feedback does not block completion. Do not infer success from this reminder and do not repeat tests merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
 		}
 	});
 
@@ -1001,11 +1019,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 
 	pi.on("message_start", (event) => {
 		if (event.message.role !== "user") return;
+		activeReconciliationId = undefined;
 		const text = displayUserMessageText(extractUserMessageText(event.message.content));
 		if (text) userMessageRail.addMessage(text, runMode ?? selectedMode);
 	});
 
 	function restorePlanState(raw: LegacyState | undefined, ctx: ExtensionContext, sourceSessionId?: string): void {
+		activeReconciliationId = undefined;
 		const consumed = raw?.reconciliation as { sequence?: number; sessionId?: string; consumed?: boolean } | undefined;
 		reconciliation = consumed?.consumed && Number.isSafeInteger(consumed.sequence) && typeof consumed.sessionId === "string"
 			? { sequence: consumed.sequence!, sessionId: consumed.sessionId, consumed: true, eligible: false, handled: false, failed: false, terminal: false } : undefined;
@@ -1104,6 +1124,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	pi.on("session_shutdown", async (_event, ctx) => {
+		activeReconciliationId = undefined;
 		userMessageRail.deactivate();
 		composer.dispose(ctx);
 		currentContext = undefined;
