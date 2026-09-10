@@ -24,11 +24,6 @@ ${TASK_BOUNDARY_GUIDANCE}
 ${COMPLETION_GUIDANCE}
 Current-plan context overrides stale implementation reminders; boundary judgment is agent-assisted, not an automatic topic detector.`;
 
-export const PLAN_TO_BUILD_REMINDER = `<system-reminder>
-Your operational mode has changed from plan to build. You are no longer in read-only mode.
-${VERIFICATION_GUIDANCE}
-</system-reminder>`;
-
 export function buildPlanReminder(planInfo: string): string {
 	return `<system-reminder>
 ${PLAN_READ_ONLY_GUIDANCE}

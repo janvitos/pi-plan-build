@@ -36,6 +36,9 @@ test("parses only the dedicated top-level numbered implementation steps", () => 
 		["step-3", "Verify workflow", "pending"],
 	]);
 	assert.equal(state.steps[0]?.sourceLine, 6);
+	assert.equal(Object.hasOwn(state, "selectedStepId"), false);
+	assert.equal(Object.hasOwn(startPlanStep(state, "step-1"), "selectedStepId"), false);
+	assert.equal(Object.hasOwn(completePlanStep(state, "step-1"), "selectedStepId"), false);
 });
 
 test("supports repeated numbering and legacy items in document order, excluding nested and checked items", () => {

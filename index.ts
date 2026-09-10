@@ -3,13 +3,13 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { withFileMutationQueue, getAgentDir, getMarkdownTheme, parseSkillBlock, type EntryRenderer, type ExtensionAPI, type ExtensionContext, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { Markdown, Text } from "@earendil-works/pi-tui";
+import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { pendingOrError, resultText } from "./tool-presentation.ts";
+import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker } from "./tool-presentation.ts";
 import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
-import { PlanState, restoreCollection, allocationHighWater, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
+import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
 import { registerQuestionTool } from "./question-ui.ts";
-import { loadShortcutConfig, saveShortcutPreset, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { loadShortcutConfig, saveShortcutPreset, saveSmallCapsPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
 	PLAN_ENTER_DESCRIPTION,
 	PLAN_EXIT_DESCRIPTION,
@@ -30,7 +30,7 @@ import {
 } from "./plan-execution.ts";
 import { handoffSnapshot, startFreshHandoff, type ApprovedHandoff } from "./handoff.ts";
 import { createComposer, PANEL_MIN_TERMINAL_WIDTH } from "./composer.ts";
-import { collectTranscriptModeRecords, extractUserMessageText, installUserMessageRail } from "./user-message-rail.ts";
+import { collectTranscriptModeRecords, installUserMessageRail } from "./user-message-rail.ts";
 import {
 	applyManualSelection,
 	buildFreshImplementationRequest,
@@ -48,6 +48,7 @@ import {
 	extractPlanTitle,
 	type PlanLifecycle,
 	extractPromptHistory,
+	extractUserMessageText,
 	formatModeRail,
 	isAllowedPlanMutation,
 	makePlanPath,
@@ -83,7 +84,7 @@ function shorten(filePath: string, cwd: string): string {
 
 export default function planBuildModes(pi: ExtensionAPI): void {
 	const shortcutAgentDir = getAgentDir();
-	const { config: shortcutConfig, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
+	const { config: shortcutConfig, smallCapsPlanTitle, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
 	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
 	let runMode: Mode | undefined;
@@ -95,17 +96,14 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	}
 	let handoffSequence: number | undefined;
 	let reconciliation: CompletionReconciliation | undefined;
-	let reconciliationLive = false;
 	let reconciliationFollowUp = false;
 	let activeReconciliationId: string | undefined;
-	let approvedImplementationPending = false;
 	let savedPlanState: "saved" | "absent" | "unavailable" = "absent";
-	let savedPlanExists = false;
 	let savedPlanHeading: string | undefined;
 	let toolsBeforeModes: string[] = [];
 	let currentContext: ExtensionContext | undefined;
 	let freshImplementationRequest: ApprovedHandoff | undefined;
-	const composer = createComposer(pi, shortcutConfig, () => ({ mode: selectedMode, title: currentPlanTitle(), awaitingValidation: plans.attached?.plan.outcome?.kind === "awaiting_validation", execution: plans.execution }), (mode, ctx) => { void selectMode(mode, ctx, "manual"); });
+	const composer = createComposer(pi, { ...shortcutConfig, smallCapsPlanTitle }, () => ({ mode: selectedMode, title: currentPlanTitle(), awaitingValidation: plans.attached?.plan.outcome?.kind === "awaiting_validation", execution: plans.execution }), (mode, ctx) => { void selectMode(mode, ctx, "manual"); });
 	const displayUserMessageText = (text: string): string | undefined => {
 		const skillBlock = parseSkillBlock(text);
 		return skillBlock ? skillBlock.userMessage || undefined : text || undefined;
@@ -131,6 +129,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	registerQuestionTool(pi);
+	const modeNotices = noticeTracker(pi, MODE_NOTICE_ENTRY_TYPE);
 	const renderPlanReview: EntryRenderer<{ plan: string }> = (entry) => {
 		const plan = typeof entry.data?.plan === "string" ? entry.data.plan : "Plan unavailable";
 		return new Markdown(buildPlanReviewMessage(plan), 0, 0, getMarkdownTheme());
@@ -161,17 +160,22 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		lastSnapshot = snapshot;
 	}
 
+	function syncPlanState(ctx = currentContext): void {
+		applyTools(runMode ?? selectedMode);
+		if (ctx) composer.update(ctx);
+		if (plans.execution) composer.ensurePanel();
+		else composer.removePanel();
+		persist();
+	}
+
 	function updateExecution(next: PlanExecutionState): void {
 		plans.updateExecution(next);
-		persist();
-		applyTools(runMode ?? selectedMode);
-		if (currentContext) composer.update(currentContext);
+		syncPlanState();
 	}
 
 	function currentPlanTitle(): string | undefined {
 		if (plans.collection.attached === null) return undefined;
-		const title = displayedPlanTitle(selectedMode, plans.plan, savedPlanExists, savedPlanHeading);
-		return title;
+		return displayedPlanTitle(plans.plan, savedPlanState === "saved", savedPlanHeading);
 	}
 
 	function completablePlanStep() {
@@ -188,18 +192,15 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 
 	function refreshSavedPlanTitle(knownState?: typeof savedPlanState): void {
 		savedPlanState = knownState ?? (currentPlanPath() ? inspectPlanFile(currentPlanPath()) : "absent");
-		savedPlanExists = savedPlanState === "saved";
 		savedPlanHeading = undefined;
-		if (!savedPlanExists || plans.attached?.plan.task?.title) return;
+		if (savedPlanState !== "saved" || plans.attached?.plan.task?.title) return;
 		try { savedPlanHeading = extractPlanTitle(fs.readFileSync(currentPlanPath(), "utf8")); }
 		catch { /* An unreadable saved plan must not break the composer. */ }
 	}
 
 	function cancelPlanExecution(): void {
 		plans.updateExecution(undefined);
-		composer.removePanel();
-		persist();
-		applyTools("build");
+		syncPlanState();
 	}
 
 	function applyExecutionTransition(next: PlanExecutionState): string | undefined {
@@ -208,12 +209,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			return undefined;
 		}
 		const summary = formatPlanCompletionSummary(next);
-		activeReconciliationId = undefined;
-		plans.complete();
-		composer.removePanel();
-		persist();
-		applyTools("build");
-		if (currentContext) composer.update(currentContext);
+		closeCurrentPlan();
 		return summary;
 	}
 
@@ -233,7 +229,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				"question",
 				"plan_enter",
 				"plan_task",
-				...(plans.collection.attached !== null && !plans.execution && plans.plan.status === "open" && savedPlanExists ? ["plan_complete", "plan_finish"] : []),
+				...(plans.collection.attached !== null && !plans.execution && plans.plan.status === "open" && savedPlanState === "saved" ? ["plan_complete", "plan_finish"] : []),
 				...(plans.collection.attached !== null && plans.execution ? ["plan_finish"] : []),
 				...(plans.execution && plans.execution.status !== "completed" ? ["plan_step_control"] : []),
 				...(plans.collection.attached !== null && completablePlanStep() ? ["plan_step_complete"] : []),
@@ -276,15 +272,17 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		freshImplementationRequest = undefined;
 		pendingFreshAnnouncement = false;
 		handoffSequence = undefined;
-		composer.removePanel();
 	}
 
-	function syncAttachment(ctx: ExtensionContext): void {
+	function syncAttachment(ctx = currentContext): void {
 		refreshSavedPlanTitle();
-		applyTools(runMode ?? selectedMode);
-		composer.update(ctx);
-		if (plans.execution) composer.ensurePanel();
-		persist();
+		syncPlanState(ctx);
+	}
+
+	function closeCurrentPlan(): void {
+		plans.complete();
+		clearAttachmentRun();
+		syncAttachment();
 	}
 
 	function abandonCurrentPlan(reason: string, ctx: ExtensionContext): string {
@@ -315,13 +313,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		if (plans.collection.attached === null) throw new Error("No current plan to complete");
 		if (plans.execution) throw new Error("Complete or cancel the step-by-step execution first");
 		if (!fs.existsSync(currentPlanPath())) throw new Error("No saved plan to complete");
-		if (reconciliation) reconciliation.handled = true;
-		activeReconciliationId = undefined;
-		plans.complete();
-		if (currentContext) composer.update(currentContext);
-		freshImplementationRequest = undefined;
-		persist();
-		applyTools("build");
+		closeCurrentPlan();
 	}
 
 	async function selectMode(mode: Mode, ctx: ExtensionContext, source: "manual" | "tool"): Promise<void> {
@@ -400,18 +392,30 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		handler: async (_args, ctx) => selectMode("build", ctx, "manual"),
 	});
 	pi.registerCommand("plan-settings", {
-		description: "Choose Plan/Build shortcuts or locate the custom shortcut configuration",
+		description: "Configure Plan/Build shortcuts and small-caps composer titles",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) return;
 			const customOption = "Custom (edit config file)";
+			const titleOption = `Small-caps plan titles (active: ${smallCapsPlanTitle ? "enabled" : "disabled"})`;
 			const selected = await ctx.ui.select(
 				`Plan/Build shortcuts — active: ${shortcutPresetLabel(shortcutConfig)} (global: ${shortcutConfig.toggleMode.join(", ") || "none"}; editor: ${shortcutConfig.toggleModeInEditor.join(", ") || "none"})`,
-				[...Object.keys(SHORTCUT_PRESETS), customOption],
+				[...Object.keys(SHORTCUT_PRESETS), titleOption, customOption],
 			);
 			if (!selected) return;
+			if (selected === titleOption) {
+				const choice = await ctx.ui.select("Composer-outline small-caps plan titles", ["Enabled (default)", "Disabled"]);
+				if (!choice) return;
+				try {
+					saveSmallCapsPlanTitle(shortcutAgentDir, choice === "Enabled (default)");
+					ctx.ui.notify(`Saved small-caps plan titles: ${choice}. Run /reload to apply.`, "info");
+				} catch (error) {
+					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+				}
+				return;
+			}
 			if (selected === customOption) {
 				ctx.ui.notify(
-					`Edit ${shortcutConfigPath}, then run /reload. Example: {"shortcuts":{"toggleMode":["ctrl+alt+m"],"toggleModeInEditor":["tab"]}}. Use [] to disable an action. Put Tab only in toggleModeInEditor; it switches modes when autocomplete is closed instead of requesting file completion.`,
+					`Edit ${shortcutConfigPath}, then run /reload. Example: {"smallCapsPlanTitle":false,"shortcuts":{"toggleMode":["ctrl+alt+m"],"toggleModeInEditor":["tab"]}}. Use [] to disable an action. Put Tab only in toggleModeInEditor; it switches modes when autocomplete is closed instead of requesting file completion.`,
 					"info",
 				);
 				return;
@@ -516,15 +520,14 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			}
 			return taskResult(action, task.title, changed);
 		},
-		renderCall(args, theme) {
-			return new Text(theme.fg("toolTitle", `Plan task${args.action ? ` · ${args.action}` : ""}`), 0, 0);
-		},
+		renderCall: statusCall("Updating plan task…"),
 		renderResult(result, { expanded, isPartial }, theme, context) {
-			if (isPartial && !context.isError) return new Text(theme.fg("muted", "Updating plan task…"), 0, 0);
+			const status = pendingOrError(result, { isPartial }, theme, context, "Updating plan task…", "Plan task update failed");
+			if (status) return status;
 			const details = result.details as { attached?: number | null; planPath?: string; fileState?: string; plans?: Array<{ sequence: number; title: string; path: string; fileState: string; outcome?: PlanOutcome }> } | undefined;
 			let text = resultText(result);
 			if (expanded && !context.isError && details) {
-				text += `\nAttachment: ${details.attached ?? "none"}${details.planPath ? `\n${details.planPath} (${details.fileState})` : ""}`;
+				text += `\nAttachment: ${details.attached ?? "none"}${details.planPath && !details.plans?.length ? `\n${details.planPath} (${details.fileState})` : ""}`;
 				for (const item of details.plans ?? []) text += `\n${item.sequence}: ${item.title}\n${item.path} (${item.fileState})${item.outcome ? `\n${item.outcome.reason}${item.outcome.userAction ? `\nUser action: ${item.outcome.userAction}` : ""}` : ""}`;
 			}
 			return new Text(theme.fg(context.isError ? "error" : "muted", text), 0, 0);
@@ -564,12 +567,18 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				: `${title}: ${params.outcome.replaceAll("_", " ")}.`;
 			return { content: [{ type: "text", text }], details: { sequence, title, planPath: file, fileState: savedPlanState, outcome, attached: plans.collection.attached } };
 		},
-		renderCall(_args, theme) { return new Text(theme.fg("toolTitle", "Record plan outcome"), 0, 0); },
+		renderCall: statusCall("Recording plan outcome…"),
 		renderResult(result, options, theme, context) {
-			if (options.isPartial && !context.isError) return new Text(theme.fg("muted", "Recording plan outcome…"), 0, 0);
+			const status = pendingOrError(result, options, theme, context, "Recording plan outcome…", "Recording plan outcome failed");
+			if (status) return status;
 			let text = resultText(result) || "No outcome available";
 			const details = result.details as { planPath?: string; fileState?: string; outcome?: PlanOutcome } | undefined;
-			if (options.expanded && !context.isError && details) text += `${details.planPath ? `\n${details.planPath} (${details.fileState})` : ""}${details.outcome ? `\n${details.outcome.reason}${details.outcome.userAction ? `\nUser action: ${details.outcome.userAction}` : ""}` : ""}`;
+			if (options.expanded && details) {
+				if (details.planPath) text += `\n${details.planPath} (${details.fileState})`;
+				for (const extra of [details.outcome?.reason, details.outcome?.userAction]) {
+					if (extra && !text.includes(extra)) text += `\n${extra}`;
+				}
+			}
 			return new Text(theme.fg(context.isError ? "error" : "muted", text), 0, 0);
 		},
 	});
@@ -589,11 +598,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				details: { planPath, completed: true },
 			};
 		},
-		renderCall(_args, theme) { return new Text(theme.fg("toolTitle", "Complete plan"), 0, 0); },
+		renderCall: statusCall("Completing plan…"),
 		renderResult(result, options, theme, context) {
-			const text = resultText(result);
-			if (context.isError) return new Text(theme.fg("error", text || "Plan completion failed"), 0, 0);
-			if (options.isPartial) return new Text(theme.fg("muted", "Completing plan…"), 0, 0);
+			const status = pendingOrError(result, options, theme, context, "Completing plan…", "Plan completion failed");
+			if (status) return status;
 			const details = result.details as { completed?: boolean; planPath?: string } | undefined;
 			return new Text(theme.fg(details?.completed ? "success" : "muted", details?.completed ? `Plan complete.${options.expanded && details.planPath ? `\n${details.planPath}` : ""}` : "Completion status unavailable"), 0, 0);
 		},
@@ -612,9 +620,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				details: { mode: "plan", planPath: currentPlanPath() },
 			};
 		},
-		renderCall(_args, theme) {
-			return new Text(theme.fg("toolTitle", theme.bold("Enter Plan mode")), 0, 0);
-		},
+		renderCall: statusCall("Switching to Plan mode…"),
 		renderResult(result, options, theme, context) {
 			const status = pendingOrError(result, options, theme, context, "Switching to Plan mode…", "Plan mode transition failed");
 			if (status) return status;
@@ -667,7 +673,6 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					throw new Error("The visual plan panel is disabled because another extension owns Pi's optional editor or fullscreen layout UI");
 				}
 				updateExecution({ ...plans.execution, panelVisible: params.action === "show" });
-				if (params.action === "show") composer.ensurePanel();
 				return finish(`The visual plan panel is now ${params.action === "show" ? "visible" : "hidden"}. Progress is unchanged.`);
 			}
 			if (plans.execution.status === "completed") throw new Error("The plan is already complete");
@@ -681,7 +686,6 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (params.action === "start") {
 				if (plans.execution.status === "paused") throw new Error("Resume plan execution before starting a step");
 				updateExecution(startPlanStep(plans.execution, target.id));
-				applyTools("build");
 				pi.sendUserMessage(`Implement plan step ${plans.execution.steps.findIndex((step) => step.id === target.id) + 1}: ${target.text}`, { deliverAs: "followUp" });
 				return finish("The requested step is approved. Its implementation is starting in a follow-up turn.");
 			}
@@ -713,20 +717,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			});
 			return finish("The plan step instruction was revised and is awaiting user approval.");
 		},
-		renderCall(args, theme) {
-			const requestedStep = typeof args.step === "number" && Number.isFinite(args.step) ? Math.max(1, Math.floor(args.step)) : undefined;
-			const inferredStep = requestedStep ?? (plans.execution
-				? plans.execution.steps.findIndex((step) => step.status === "ready") + 1
-				: 0);
-			const label = inferredStep > 0 ? `Step ${inferredStep}: ${args.action}` : `Plan: ${args.action}`;
-			return new Text(theme.fg("toolTitle", theme.bold(label)), 0, 0);
-		},
+		renderCall: statusCall("Updating step…"),
 		renderResult(result, options, theme, context) {
-			if (options.isPartial && !context.isError) return new Text(theme.fg("muted", "Updating step…"), 0, 0);
-			const text = result.content.find((item) => item.type === "text")?.text ?? "Step status unavailable";
-			const details = result.details as { planCompleted?: boolean } | undefined;
-			if (details?.planCompleted && !context.isError) return new Markdown(text, 0, 0, getMarkdownTheme());
-			return new Text(theme.fg(context.isError ? "error" : "success", text), 0, 0);
+			return renderStepResult(result, options, theme, context, "Updating step…", "Step status unavailable");
 		},
 	});
 
@@ -749,20 +742,15 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				terminate: true,
 			};
 		},
-		renderCall(_args, theme) {
-			return new Text(theme.fg("toolTitle", theme.bold("Complete plan step")), 0, 0);
-		},
+		renderCall: statusCall("Completing step…"),
 		renderResult(result, options, theme, context) {
-			if (options.isPartial && !context.isError) return new Text(theme.fg("muted", "Completing step…"), 0, 0);
-			const text = result.content.find((item) => item.type === "text")?.text ?? "Step completion status unavailable";
-			const details = result.details as { planCompleted?: boolean } | undefined;
-			if (details?.planCompleted && !context.isError) return new Markdown(text, 0, 0, getMarkdownTheme());
-			return new Text(theme.fg(context.isError ? "error" : "success", text), 0, 0);
+			return renderStepResult(result, options, theme, context, "Completing step…", "Step completion status unavailable");
 		},
 	});
 
 	pi.registerTool({
 		name: "plan_exit",
+		renderShell: "self",
 		label: "Exit Plan Mode",
 		description: PLAN_EXIT_DESCRIPTION,
 		promptSnippet: "Display the saved plan and request user approval",
@@ -810,14 +798,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				: classifyPlanExitChoice(selection.choice);
 			if (action !== "implement-fresh") {
 				const message = PLAN_ACTION_ANNOUNCEMENTS[action];
-				pi.appendEntry(MODE_NOTICE_ENTRY_TYPE, { message });
+				modeNotices.append(message, _toolCallId);
 				if (ctx.mode === "rpc") ctx.ui.notify(message, "info");
 			}
 			if (selection.choice === PLAN_STEP_CHOICE && stepExecution) {
 				freshImplementationRequest = undefined;
 				plans.updateExecution(stepExecution);
 				await selectMode("build", ctx, "tool");
-				updateExecution(stepExecution);
 				composer.ensurePanel();
 				pi.appendEntry(PLAN_STEP_GUIDANCE_ENTRY_TYPE);
 				return {
@@ -862,13 +849,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				details: { approved: true, mode: "build", planPath: currentPlanPath() },
 			};
 		},
-		renderCall(_args, theme) {
-			return new Text(theme.fg("toolTitle", theme.bold("Request plan approval")), 0, 0);
-		},
+		renderCall: statusCall("Processing plan approval…"),
 		renderResult(result, options, theme, context) {
 			const status = pendingOrError(result, options, theme, context, "Processing plan approval…", "Plan approval failed");
 			if (status) return status;
 			const details = result.details as { approved?: boolean; action?: string } | undefined;
+			if (!options.expanded && typeof details?.approved === "boolean" && modeNotices.has(context)) return new Container();
 			if (details?.action === "step-by-step" && !context.isError) {
 				return new Text(theme.fg("success", "Step-by-step execution ready"), 0, 0);
 			}
@@ -886,16 +872,29 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		},
 	});
 
+	// One initialization boundary for new runs, changed attachments, and restoration.
+	// Restored consumed markers are deliberately ineligible until new user work.
+	function resetReconciliation(sequence: number | null, sessionId: string, consumed = false): void {
+		activeReconciliationId = undefined;
+		reconciliationFollowUp = false;
+		reconciliation = sequence === null ? undefined : {
+			sequence, sessionId, consumed, eligible: false, handled: false, failed: false, terminal: false,
+		};
+	}
+
+	function beginReconciliation(ctx: ExtensionContext): void {
+		if (reconciliationFollowUp) reconciliationFollowUp = false;
+		else resetReconciliation(plans.collection.attached, ctx.sessionManager.getSessionId()!);
+	}
+
 	function armReconciliation(ctx: ExtensionContext): void {
 		if ((runMode ?? selectedMode) !== "build" || plans.collection.attached === null || plans.execution || inspectPlanFile(currentPlanPath()) !== "saved") return;
 		if (!reconciliation || reconciliation.sequence !== plans.collection.attached || reconciliation.sessionId !== ctx.sessionManager.getSessionId()) {
-			reconciliation = { sequence: plans.collection.attached, sessionId: ctx.sessionManager.getSessionId()!, eligible: false, consumed: false, handled: false, failed: false, terminal: false };
+			resetReconciliation(plans.collection.attached, ctx.sessionManager.getSessionId()!);
 		}
-		if (reconciliation.consumed || reconciliation.handled) return;
-		reconciliation.eligible = true;
-		reconciliationLive = true;
+		if (reconciliation!.consumed || reconciliation!.handled) return;
+		reconciliation!.eligible = true;
 		// Keep essential validation/outcome facts until an explicit outcome transition.
-
 	}
 
 	pi.on("input", (event) => {
@@ -954,17 +953,6 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		};
 	});
 
-	pi.on("before_agent_start", (_event, ctx) => {
-		if (!pendingFreshAnnouncement) return;
-		pendingFreshAnnouncement = false;
-		approvedImplementationPending = true;
-		persist();
-		const content = PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"];
-		if (ctx.mode === "rpc") ctx.ui.notify(content, "info");
-		// Returned messages follow the full user handoff in live and restored transcripts.
-		return { message: { customType: FRESH_ANNOUNCEMENT_MESSAGE_TYPE, content, display: true } };
-	});
-
 	pi.on("context", (event) => {
 		const messages = event.messages.filter((message) => !isObsoletePlanContext(message, activeReconciliationId));
 		const content = buildPlanContext(runMode ?? selectedMode, plans.collection, { path: currentPlanPath(), state: savedPlanState }, plans.error);
@@ -981,21 +969,24 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		return { messages };
 	});
 
-	pi.on("before_agent_start", async (_event, ctx) => {
-		if (reconciliationFollowUp) reconciliationFollowUp = false;
-		else {
-			activeReconciliationId = undefined;
-			reconciliation = plans.collection.attached === null ? undefined : { sequence: plans.collection.attached, sessionId: ctx.sessionManager.getSessionId()!, eligible: false, consumed: false, handled: false, failed: false, terminal: false };
+	pi.on("before_agent_start", (_event, ctx) => {
+		const announceFresh = pendingFreshAnnouncement;
+		if (announceFresh) {
+			pendingFreshAnnouncement = false;
+			persist();
 		}
-		reconciliationLive = true;
+		beginReconciliation(ctx);
 		composer.conflict(ctx);
 		runMode = selectedMode;
-		if (approvedImplementationPending) {
-			approvedImplementationPending = false;
-			armReconciliation(ctx);
-		}
+		if (announceFresh) armReconciliation(ctx);
 		refreshSavedPlanTitle();
 		applyTools(runMode);
+		if (announceFresh) {
+			const content = PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"];
+			if (ctx.mode === "rpc") ctx.ui.notify(content, "info");
+			// Returned messages follow the full user handoff in live and restored transcripts.
+			return { message: { customType: FRESH_ANNOUNCEMENT_MESSAGE_TYPE, content, display: true } };
+		}
 	});
 
 	pi.on("agent_settled", async (_event, ctx) => {
@@ -1004,7 +995,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		applyTools(selectedMode);
 		composer.update(ctx);
 		if (plans.execution && plans.execution.status !== "completed") composer.ensurePanel();
-		if (reconciliationLive && shouldReconcileCompletion(reconciliation, plans.collection.attached, selectedMode, ctx.sessionManager.getSessionId()!, !!plans.execution, ctx.isIdle(), ctx.hasPendingMessages())) {
+		if (shouldReconcileCompletion(reconciliation, plans.collection.attached, selectedMode, ctx.sessionManager.getSessionId()!, !!plans.execution, ctx.isIdle(), ctx.hasPendingMessages())) {
 			reconciliation!.consumed = true;
 			reconciliationFollowUp = true;
 			persist();
@@ -1025,12 +1016,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	function restorePlanState(raw: LegacyState | undefined, ctx: ExtensionContext, sourceSessionId?: string): void {
-		activeReconciliationId = undefined;
 		const consumed = raw?.reconciliation as { sequence?: number; sessionId?: string; consumed?: boolean } | undefined;
-		reconciliation = consumed?.consumed && Number.isSafeInteger(consumed.sequence) && typeof consumed.sessionId === "string"
-			? { sequence: consumed.sequence!, sessionId: consumed.sessionId, consumed: true, eligible: false, handled: false, failed: false, terminal: false } : undefined;
-		reconciliationLive = false;
-		reconciliationFollowUp = false;
+		if (consumed?.consumed && Number.isSafeInteger(consumed.sequence) && typeof consumed.sessionId === "string") {
+			resetReconciliation(consumed.sequence!, consumed.sessionId, true);
+		} else resetReconciliation(null, ctx.sessionManager.getSessionId()!);
 		const inspected = new Map<number, typeof savedPlanState>();
 		const inspect = (sequence: number) => {
 			if (!inspected.has(sequence)) inspected.set(sequence, inspectPlanFile(planPathFor(sequence, ctx)));
@@ -1044,21 +1033,18 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			plans.error = error instanceof Error ? error.message : String(error);
 			ctx.ui.notify(`Plan state unavailable: ${plans.error}. Plan mutations are disabled.`, "error");
 		}
-		for (const { plan } of plans.collection.records) inspect(plan.sequence);
 		refreshSavedPlanTitle(plans.collection.attached === null ? "absent" : inspect(plans.collection.attached));
 		lastSnapshot = JSON.stringify(stateData());
 	}
 
 	pi.on("session_tree", (_event, ctx) => {
-		const latest = ctx.sessionManager.getBranch().filter((entry) => entry.type === "custom" && (entry.customType === STATE_TYPE || entry.customType === LEGACY_STATE_TYPE)).at(-1);
-		const raw = latest?.type === "custom" ? latest.data as LegacyState : undefined;
+		const raw = latestPlanState(ctx.sessionManager.getBranch());
 		composer.removePanel();
 		freshImplementationRequest = undefined;
 		handoffSequence = undefined;
 		currentContext = ctx;
 		selectedMode = decodeModeState(raw)?.selectedMode ?? "build";
 		pendingFreshAnnouncement = raw?.pendingFreshAnnouncement === true;
-		approvedImplementationPending = false;
 		restorePlanState(raw, ctx);
 		runMode = undefined;
 		restoreUserMessageRails(ctx.sessionManager.getBranch());
@@ -1073,20 +1059,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		if (shortcutConfigWarning && !shortcutConfigWarningShown && ctx.hasUI) {
 			shortcutConfigWarningShown = true;
 			ctx.ui.notify(
-				`Invalid Pi Plan Build shortcut configuration at ${shortcutConfigPath}: ${shortcutConfigWarning}. Default shortcuts were used for invalid actions.`,
+				`Invalid Pi Plan Build configuration at ${shortcutConfigPath}: ${shortcutConfigWarning}. Defaults were used for invalid settings.`,
 				"warning",
 			);
 		}
-		const entries = ctx.sessionManager.getBranch();
-		const latest = entries
-			.filter(
-				(entry: any) =>
-					entry.type === "custom" &&
-					(entry.customType === STATE_TYPE || entry.customType === LEGACY_STATE_TYPE),
-			)
-			.pop() as { data?: unknown } | undefined;
-		const decoded = decodeModeState(latest?.data);
-		const raw = latest?.data as LegacyState | undefined;
+		const raw = latestPlanState(ctx.sessionManager.getBranch());
+		const decoded = decodeModeState(raw);
 		pendingFreshAnnouncement = raw?.pendingFreshAnnouncement === true;
 		selectedMode = decoded?.selectedMode ?? (pi.getFlag("plan") === true ? "plan" : "build");
 		restoreUserMessageRails(ctx.sessionManager.getBranch());

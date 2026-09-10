@@ -38,6 +38,7 @@ function createHarness(initialEditor?: unknown) {
 	const commands = new Map<string, any>();
 	const selections: Array<{ title: string; options: string[] }> = [];
 	let selectedOption: string | undefined;
+	let selectionQueue: Array<string | undefined> | undefined;
 	let resolvePersist: ((data: any) => boolean) | undefined;
 	const persisted: any[] = [];
 	let activeTools = ["read", "bash", "edit", "write"];
@@ -49,7 +50,12 @@ function createHarness(initialEditor?: unknown) {
 		borderColor: (text: string) => text,
 		selectList: {},
 	};
-	const keybindings = { matches: () => false };
+	let nativeThinkingCalls = 0;
+	let historyUsesThinkingKey = false;
+	const keybindings = {
+		matches: (data: string, action: string) => matchesKey(data, "shift+tab") &&
+			(action === "app.thinking.cycle" || historyUsesThinkingKey && action === "tui.editor.historyPrevious"),
+	};
 	const pi = {
 		on,
 		registerFlag() {},
@@ -84,6 +90,8 @@ function createHarness(initialEditor?: unknown) {
 				currentEditor = factory;
 				if (typeof factory === "function") {
 					createdEditor = factory(tui, editorTheme, keybindings);
+					// Pi also copies native application handlers into CustomEditor instances.
+					createdEditor.onAction("app.thinking.cycle", () => { nativeThinkingCalls++; });
 					// Pi wires this callback onto custom editors after constructing them.
 					createdEditor.onExtensionShortcut = (data: string) => {
 						for (const [key, shortcut] of shortcuts) {
@@ -99,7 +107,7 @@ function createHarness(initialEditor?: unknown) {
 			notify(message: string, level: string) { notifications.push([message, level]); },
 			async select(title: string, options: string[]) {
 				selections.push({ title, options });
-				return selectedOption;
+				return selectionQueue ? selectionQueue.shift() : selectedOption;
 			},
 			theme: {
 				bold: (text: string) => `**${text}**`,
@@ -120,6 +128,7 @@ function createHarness(initialEditor?: unknown) {
 		selections,
 		persisted,
 		selectOption(value: string | undefined) { selectedOption = value; },
+		selectOptions(...values: Array<string | undefined>) { selectionQueue = values; },
 		nextPersist: (mode: string) => new Promise<void>((resolve) => {
 			resolvePersist = (data) => {
 				if (data.selectedMode !== mode) return false;
@@ -128,6 +137,8 @@ function createHarness(initialEditor?: unknown) {
 			};
 		}),
 		editor: () => createdEditor,
+		nativeThinkingCalls: () => nativeThinkingCalls,
+		useThinkingKeyForHistory() { historyUsesThinkingKey = true; },
 		setCurrentEditor(value: unknown) { currentEditor = value; },
 		decorateCurrentEditor() {
 			const base = currentEditor as ((...args: any[]) => unknown) | undefined;
@@ -173,6 +184,23 @@ async function completeFile(harness: ReturnType<typeof createHarness>) {
 	assert.equal(editor.isShowingAutocomplete(), false);
 	assert.equal(harness.persisted.at(-1)?.selectedMode ?? "build", "build");
 }
+
+test("delegates thinking to native handlers with extension and history precedence", async () => {
+	const harness = createHarness();
+	await start(harness);
+	const editor = harness.editor();
+	editor.handleInput("\x1b[Z");
+	assert.equal(harness.nativeThinkingCalls(), 1);
+	assert.equal(harness.persisted.length, 0, "native thinking does not change Plan/Build state");
+	const shortcut = editor.onExtensionShortcut;
+	editor.onExtensionShortcut = () => true;
+	editor.handleInput("\x1b[Z");
+	assert.equal(harness.nativeThinkingCalls(), 1, "extension shortcuts retain priority");
+	editor.onExtensionShortcut = shortcut;
+	harness.useThinkingKeyForHistory();
+	editor.handleInput("\x1b[Z");
+	assert.equal(harness.nativeThinkingCalls(), 1, "explicit history bindings bypass app actions");
+});
 
 test("registers default Alt+M without taking Pi's Shift+Tab thinking shortcut", () => {
 	const harness = createHarness();
@@ -233,13 +261,50 @@ test("global Tab is rejected with editor-only guidance and autocomplete remains 
 	await completeFile(harness);
 });
 
+test("small-caps settings persist and apply only to outline titles after reload", async () => {
+	const setup = async () => {
+		const h = createHarness();
+		await start(h);
+		await h.commands.get("plan").handler("", h.ctx);
+		await h.registeredTools.get("plan_task").execute("title", { action: "new", expectedAttached: null, title: "Plan Title", scope: "Test title appearance" }, undefined, undefined, h.ctx);
+		h.editor().setText("Regular User Text");
+		return h;
+	};
+	const h = await setup();
+	assert.match(h.editor().render(100)[0], /ᴘʟᴀɴ ᴛɪᴛʟᴇ/);
+	assert.match(JSON.stringify(h.persisted), /"title":"Plan Title"/);
+	h.selectOptions("Small-caps plan titles (active: enabled)", undefined);
+	await h.commands.get("plan-settings").handler("", h.ctx);
+	assert.equal(fs.existsSync(path.join(agentDir, SHORTCUT_CONFIG_FILE)), false);
+	h.selectOptions("Small-caps plan titles (active: enabled)", "Disabled");
+	await h.commands.get("plan-settings").handler("", h.ctx);
+	assert.equal(loadShortcutConfig(agentDir).smallCapsPlanTitle, false);
+	assert.match(h.notifications.at(-1)![0], /\/reload/);
+	assert.match(h.editor().render(100)[0], /ᴘʟᴀɴ ᴛɪᴛʟᴇ/);
+	assert.equal(h.editor().getText(), "Regular User Text");
+	const reloaded = await setup();
+	assert.match(reloaded.editor().render(100)[0], /Plan Title/);
+	assert.equal(reloaded.editor().getText(), "Regular User Text");
+	reloaded.selectOptions("Small-caps plan titles (active: disabled)", "Enabled (default)");
+	await reloaded.commands.get("plan-settings").handler("", reloaded.ctx);
+	assert.equal(loadShortcutConfig(agentDir).smallCapsPlanTitle, true);
+	fs.writeFileSync(path.join(agentDir, SHORTCUT_CONFIG_FILE), "{");
+	reloaded.selectOptions("Small-caps plan titles (active: disabled)", "Disabled");
+	await reloaded.commands.get("plan-settings").handler("", reloaded.ctx);
+	assert.equal(fs.readFileSync(path.join(agentDir, SHORTCUT_CONFIG_FILE), "utf8"), "{");
+	assert.match(reloaded.notifications.at(-1)![0], /Could not save/);
+	h.setCurrentEditor({});
+	await h.handlers.get("before_agent_start")?.({}, h.ctx);
+	assert.ok(h.statuses.some(([, text]) => text?.includes("Plan Title")), "reduced-UI status keeps the original title");
+});
+
 test("settings save the selected preset, retain active bindings until reload, and reload correctly", async () => {
 	const harness = createHarness();
 	await start(harness);
 	harness.selectOption("Alt+M only");
 	await harness.commands.get("plan-settings").handler("", harness.ctx);
 	assert.match(harness.selections[0]!.title, /active: Tab \+ Alt\+M/);
-	assert.deepEqual(harness.selections[0]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Custom (edit config file)"]);
+	assert.deepEqual(harness.selections[0]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Small-caps plan titles (active: enabled)", "Custom (edit config file)"]);
 	assert.match(harness.notifications.at(-1)![0], /Saved Alt\+M only.*\/reload/);
 	await toggle(harness, "\t", "plan");
 	await shutdown(harness);

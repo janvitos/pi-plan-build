@@ -1,7 +1,8 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { Text } from "@earendil-works/pi-tui";
+import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { formatQuestionAnswers, type QuestionAnswerData } from "./utils.ts";
+import { pendingOrError, statusCall, noticeTracker } from "./tool-presentation.ts";
 
 const OptionSchema = Type.Object({
 	label: Type.String({ description: "Display label for the option" }),
@@ -92,12 +93,14 @@ async function askOne(
 }
 
 export function registerQuestionTool(pi: ExtensionAPI): void {
+	const notices = noticeTracker(pi, QUESTION_NOTICE_ENTRY_TYPE);
 	pi.registerEntryRenderer<{ message: string }>(QUESTION_NOTICE_ENTRY_TYPE, (entry, _options, theme) => {
 		const message = typeof entry.data?.message === "string" ? entry.data.message : QUESTION_CANCELLED_MESSAGE;
 		return new Text(theme.fg("warning", message), 0, 0);
 	});
 	pi.registerTool({
 		name: "question",
+		renderShell: "self",
 		label: "Question",
 		description: `Use this tool when you need to ask the user questions during execution. This allows you to gather preferences, clarify ambiguous instructions, get implementation decisions, or offer choices. When custom is enabled (default), do not add an Other option yourself. Put the recommended option first and suffix its label with "(Recommended)".`,
 		parameters: QuestionParameters,
@@ -110,7 +113,7 @@ export function registerQuestionTool(pi: ExtensionAPI): void {
 				for (const prompt of params.questions) answers.push(await askOne(ctx, prompt, signal));
 			} catch (error: unknown) {
 				if (!(error instanceof QuestionCancelledError)) throw error;
-				pi.appendEntry(QUESTION_NOTICE_ENTRY_TYPE, { message: QUESTION_CANCELLED_MESSAGE });
+				notices.append(QUESTION_CANCELLED_MESSAGE, _toolCallId);
 				return {
 					content: [{ type: "text", text: QUESTION_CANCELLED_MESSAGE }],
 					details: { cancelled: true },
@@ -123,14 +126,12 @@ export function registerQuestionTool(pi: ExtensionAPI): void {
 				details: { answers },
 			};
 		},
-		renderCall(args, theme) {
-			const count = Array.isArray(args.questions) ? args.questions.length : 0;
-			return new Text(theme.fg("toolTitle", theme.bold(`question (${count})`)), 0, 0);
-		},
+		renderCall: statusCall("Awaiting answers…"),
 		renderResult(result, options, theme, context) {
-			if (context.isError) return new Text(theme.fg("error", result.content.filter((item) => item.type === "text").map((item) => item.text).join("\n") || "Question failed"), 0, 0);
-			if (options.isPartial) return new Text(theme.fg("muted", "Awaiting answers…"), 0, 0);
+			const status = pendingOrError(result, options, theme, context, "Awaiting answers…", "Question failed");
+			if (status) return status;
 			const details = result.details as { answers?: QuestionAnswer[]; cancelled?: boolean } | undefined;
+			if (details?.cancelled && !options.expanded && notices.has(context)) return new Container();
 			if (details?.cancelled) return new Text(theme.fg("warning", "Question(s) skipped"), 0, 0);
 			if (!details?.answers) return new Text(theme.fg("muted", "Answer status unavailable"), 0, 0);
 			return new Text(details.answers.map((a) => `${theme.fg("success", "✓")} ${a.header}: ${a.answers.join(", ")}`).join("\n"), 0, 0);

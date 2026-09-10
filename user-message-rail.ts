@@ -1,4 +1,4 @@
-import type { Mode } from "./utils.ts";
+import { extractUserMessageText, type Mode } from "./utils.ts";
 
 const OSC133_PREFIX = /^((?:\x1b\]133;[ABC]\x07)*)/u;
 const PATCH_KEY = Symbol.for("@janvitos/pi-plan-build:user-message-rail");
@@ -66,21 +66,6 @@ export class TranscriptModeResolver {
 		this.assigned++;
 		return fallback;
 	}
-}
-
-export function extractUserMessageText(content: unknown): string {
-	if (typeof content === "string") return content;
-	if (!Array.isArray(content)) return "";
-	return content
-		.filter(
-			(block): block is { type: "text"; text: string } =>
-				!!block &&
-				typeof block === "object" &&
-				(block as { type?: unknown }).type === "text" &&
-				typeof (block as { text?: unknown }).text === "string",
-		)
-		.map((block) => block.text)
-		.join("");
 }
 
 export function collectTranscriptModeRecords(

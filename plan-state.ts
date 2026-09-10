@@ -1,3 +1,4 @@
+import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { decodePlanExecution, type PlanExecutionState } from "./plan-execution.ts";
 import { decodePlanCollection, decodePlanLifecycle, type PlanCollection, type PlanFileState, type PlanLifecycle, type PlanOutcome, type PlanTask, type Mode } from "./utils.ts";
 
@@ -25,6 +26,12 @@ export interface LegacyState {
 	planSessionId?: string;
 	pendingFreshAnnouncement?: boolean;
 	reconciliation?: unknown;
+}
+
+/** Branch-local lookup shared by startup and tree navigation. */
+export function latestPlanState(entries: readonly SessionEntry[]): LegacyState | undefined {
+	const entry = entries.findLast((entry) => entry.type === "custom" && (entry.customType === STATE_TYPE || entry.customType === LEGACY_STATE_TYPE));
+	return entry?.type === "custom" ? entry.data as LegacyState : undefined;
 }
 
 /** One compatibility boundary. A present but unusable collection never falls back to its legacy mirror. */

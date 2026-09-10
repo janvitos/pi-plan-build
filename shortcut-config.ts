@@ -20,6 +20,7 @@ export interface ShortcutConfig {
 }
 
 export interface LoadedShortcutConfig {
+	smallCapsPlanTitle: boolean;
 	config: ShortcutConfig;
 	path: string;
 	warning?: string;
@@ -88,7 +89,7 @@ function parseShortcutList(value: unknown, name: keyof ShortcutConfig): {
 	return { shortcuts: [...new Set(value)] };
 }
 
-export function parseShortcutConfig(value: unknown): {
+function parseShortcuts(value: unknown): {
 	config: ShortcutConfig;
 	warning?: string;
 } {
@@ -121,6 +122,13 @@ export function parseShortcutConfig(value: unknown): {
 	};
 }
 
+export function parseShortcutConfig(value: unknown): Omit<LoadedShortcutConfig, "path"> {
+	const parsed = parseShortcuts(value);
+	const preference = isObject(value) ? value.smallCapsPlanTitle : undefined;
+	const warning = [parsed.warning, preference !== undefined && typeof preference !== "boolean" ? "smallCapsPlanTitle must be a boolean" : undefined].filter(Boolean).join("; ");
+	return { ...parsed, smallCapsPlanTitle: typeof preference === "boolean" ? preference : true, ...(warning ? { warning } : {}) };
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
 	return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -128,6 +136,14 @@ function isObject(value: unknown): value is Record<string, unknown> {
 /** Preserve unrelated settings and never replace malformed configuration with defaults. */
 export function saveShortcutPreset(agentDir: string, presetName: string): string {
 	if (!Object.hasOwn(SHORTCUT_PRESETS, presetName)) throw new Error("Unknown shortcut preset");
+	return saveSettings(agentDir, (document) => ({ ...document, shortcuts: { ...(document.shortcuts as Record<string, unknown> | undefined), ...SHORTCUT_PRESETS[presetName] } }));
+}
+
+export function saveSmallCapsPlanTitle(agentDir: string, enabled: boolean): string {
+	return saveSettings(agentDir, (document) => ({ ...document, smallCapsPlanTitle: enabled }));
+}
+
+function saveSettings(agentDir: string, update: (document: Record<string, unknown>) => Record<string, unknown>): string {
 	const configPath = path.join(agentDir, SHORTCUT_CONFIG_FILE);
 	let document: unknown = {};
 	try {
@@ -136,12 +152,9 @@ export function saveShortcutPreset(agentDir: string, presetName: string): string
 		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
 	}
 	if (!isObject(document) || (document.shortcuts !== undefined && !isObject(document.shortcuts))) {
-		throw new Error("The configuration and shortcuts must be JSON objects; fix the file before saving a preset");
+		throw new Error("The configuration and shortcuts must be JSON objects; fix the file before saving settings");
 	}
-	const next = {
-		...document,
-		shortcuts: { ...(document.shortcuts as Record<string, unknown> | undefined), ...SHORTCUT_PRESETS[presetName] },
-	};
+	const next = update(document);
 	fs.mkdirSync(agentDir, { recursive: true });
 	const temporaryPath = `${configPath}.${randomUUID()}.tmp`;
 	try {
@@ -160,10 +173,10 @@ export function loadShortcutConfig(agentDir: string): LoadedShortcutConfig {
 		content = fs.readFileSync(configPath, "utf8");
 	} catch (error: unknown) {
 		if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-			return { config: cloneDefaultConfig(), path: configPath };
+			return { ...parseShortcutConfig(undefined), path: configPath };
 		}
 		return {
-			config: cloneDefaultConfig(),
+			...parseShortcutConfig(undefined),
 			path: configPath,
 			warning: error instanceof Error ? error.message : String(error),
 		};
@@ -173,7 +186,7 @@ export function loadShortcutConfig(agentDir: string): LoadedShortcutConfig {
 		return { ...parseShortcutConfig(JSON.parse(content)), path: configPath };
 	} catch (error: unknown) {
 		return {
-			config: cloneDefaultConfig(),
+			...parseShortcutConfig(undefined),
 			path: configPath,
 			warning: `invalid JSON (${error instanceof Error ? error.message : String(error)})`,
 		};

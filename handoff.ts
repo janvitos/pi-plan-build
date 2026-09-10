@@ -93,7 +93,7 @@ export async function startFreshHandoff(pi: ExtensionAPI, ctx: ExtensionCommandC
 				}
 				try {
 					await replacementCtx.sendUserMessage(handoff);
-					replacementCtx.ui.notify(
+					if (replacementCtx.mode !== "tui") replacementCtx.ui.notify(
 						`Fresh implementation session started with plan ${destinationPlanPath}.`,
 						"info",
 					);

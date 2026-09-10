@@ -4,10 +4,40 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { matchesKey } from "@earendil-works/pi-tui";
-import { isKeyId, loadShortcutConfig, parseShortcutConfig, saveShortcutPreset, SHORTCUT_CONFIG_FILE, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { isKeyId, loadShortcutConfig, parseShortcutConfig, saveShortcutPreset, saveSmallCapsPlanTitle, SHORTCUT_CONFIG_FILE, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+
+test("small-caps settings default safely and preserve independent configuration", () => {
+	assert.equal(parseShortcutConfig({}).smallCapsPlanTitle, true);
+	assert.equal(parseShortcutConfig({ smallCapsPlanTitle: false, shortcuts: [] }).smallCapsPlanTitle, false);
+	const invalid = parseShortcutConfig({ smallCapsPlanTitle: "false", shortcuts: { toggleMode: [] } });
+	assert.equal(invalid.smallCapsPlanTitle, true);
+	assert.deepEqual(invalid.config.toggleMode, []);
+	assert.match(invalid.warning!, /smallCapsPlanTitle must be a boolean/);
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-plan-title-config-"));
+	try {
+		const file = path.join(dir, SHORTCUT_CONFIG_FILE);
+		fs.writeFileSync(file, JSON.stringify({ other: 42, shortcuts: { toggleMode: [], futureAction: ["f7"] } }));
+		for (const enabled of [false, true]) {
+			saveSmallCapsPlanTitle(dir, enabled);
+			assert.equal(loadShortcutConfig(dir).smallCapsPlanTitle, enabled);
+			assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")).shortcuts, { toggleMode: [], futureAction: ["f7"] });
+		}
+		saveSmallCapsPlanTitle(dir, false);
+		saveShortcutPreset(dir, "Disabled");
+		assert.equal(loadShortcutConfig(dir).smallCapsPlanTitle, false);
+		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).other, 42);
+		assert.deepEqual(fs.readdirSync(dir), [SHORTCUT_CONFIG_FILE]);
+		for (const malformed of ["{", "[]", "null", '{"shortcuts":[]}']) {
+			fs.writeFileSync(file, malformed);
+			assert.throws(() => saveSmallCapsPlanTitle(dir, false));
+			assert.equal(fs.readFileSync(file, "utf8"), malformed);
+		}
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
 
 test("shortcut defaults preserve Tab and Alt+M", () => {
 	assert.deepEqual(parseShortcutConfig(undefined), {
+		smallCapsPlanTitle: true,
 		config: {
 			toggleMode: ["alt+m"],
 			toggleModeInEditor: ["tab"],
@@ -24,6 +54,7 @@ test("shortcut configuration accepts remapping and explicit disabling", () => {
 	});
 
 	assert.deepEqual(result, {
+		smallCapsPlanTitle: true,
 		config: {
 			toggleMode: ["ctrl+alt+m"],
 			toggleModeInEditor: ["ctrl+shift+m", "f6"],
@@ -107,6 +138,7 @@ test("shortcut configuration reads the Pi agent directory and fails safely", () 
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-plan-build-shortcuts-"));
 	try {
 		assert.deepEqual(loadShortcutConfig(dir), {
+			smallCapsPlanTitle: true,
 			config: { toggleMode: ["alt+m"], toggleModeInEditor: ["tab"] },
 			path: path.join(dir, SHORTCUT_CONFIG_FILE),
 		});

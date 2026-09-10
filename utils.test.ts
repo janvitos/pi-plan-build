@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { buildPlanContext } from "./plan-context.ts";
 import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	buildPlanReminder,
@@ -9,7 +10,6 @@ import {
 	buildPlanStepWaitingReminder,
 	PLAN_EXIT_DESCRIPTION,
 	PLAN_STEP_COMPLETE_DESCRIPTION,
-	PLAN_TO_BUILD_REMINDER,
 	VERIFICATION_GUIDANCE,
 } from "./prompts.ts";
 import {
@@ -30,11 +30,11 @@ import {
 	formatModeRail,
 	formatModeTopBorder,
 	formatPlanLabel,
+	smallCapsTitle,
 	formatQuestionAnswers,
 	isAllowedPlanMutation,
 	makePlanPath,
 	nextMode,
-	nextThinkingLevel,
 	normalizePlanExitChoice,
 	PLAN_EXIT_APPROVE_CHOICE,
 	PLAN_EXIT_FRESH_CHOICE,
@@ -47,6 +47,16 @@ import {
 	sanitizeSessionId,
 	shouldReduceOptionalUi,
 } from "./utils.ts";
+
+test("small caps affect only supported outline letters and can be disabled", () => {
+	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
+	assert.equal(smallCapsTitle("ABCDEFGHIJKLMNOPQRSTUVWXYZ abcdefghijklmnopqrstuvwxyz"), "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘQʀꜱᴛᴜᴠᴡXʏᴢ ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘqʀꜱᴛᴜᴠᴡxʏᴢ");
+	assert.equal(smallCapsTitle("Été 修復 🔑 123!?"), "Éᴛé 修復 🔑 123!?");
+	const title = "Plan Title QX";
+	assert.match(formatModeTopBorder("plan", 80, "╮", theme, title, true), /ᴘʟᴀɴ ᴛɪᴛʟᴇ QX · Awaiting validation/);
+	assert.match(formatModeTopBorder("plan", 80, "╮", theme, title, true, false), /Plan Title QX · Awaiting validation/);
+	assert.equal(formatPlanLabel(title, true), "Plan Title QX · Awaiting validation");
+});
 
 test("validation status survives long titles and narrow Unicode layouts", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
@@ -63,7 +73,7 @@ test("validation status survives long titles and narrow Unicode layouts", () => 
 test("plan border shows only a safe title and fits narrow Unicode layouts", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
 	const titled = formatModeTopBorder("plan", 60, "╮", theme, "Fix login redirects");
-	assert.match(titled, /Fix login redirects/);
+	assert.match(titled, /ꜰɪx ʟᴏɢɪɴ ʀᴇᴅɪʀᴇᴄᴛꜱ/);
 	assert.doesNotMatch(titled, /Plan|#003/);
 	for (const mode of ["plan", "build"] as const) for (const width of [1, 2, 3, 4, 8, 20, 60]) {
 		const line = formatModeTopBorder(mode, width, "╮", theme, "修復 🔑\n\x1b[31mlogin\x07 redirects");
@@ -71,7 +81,7 @@ test("plan border shows only a safe title and fits narrow Unicode layouts", () =
 		// truncateToWidth emits its own SGR resets; user-supplied controls must not survive.
 		assert.doesNotMatch(line.replaceAll("\x1b[0m", ""), /[\x00-\x1f\x7f-\x9f]/);
 	}
-	assert.match(formatModeTopBorder("build", 40, "╮", theme, "Visible title"), /Visible title/);
+	assert.match(formatModeTopBorder("build", 40, "╮", theme, "Visible title"), /ᴠɪꜱɪʙʟᴇ ᴛɪᴛʟᴇ/);
 	assert.doesNotMatch(formatModeTopBorder("build", 40, "╮", theme), /Untitled/);
 });
 
@@ -92,7 +102,7 @@ test("plan title uses normal-weight accent independent of mode border colors", (
 		const calls: Array<{ color: string; text: string }> = [];
 		const theme = { bold: (_: string): string => { throw new Error("Title must not be bold"); }, fg: (color: string, text: string) => { calls.push({ color, text }); return text; } };
 		formatModeTopBorder(mode, 60, "╮", theme, "Fix login");
-		assert.deepEqual(calls.filter((call) => call.color === "accent"), [{ color: "accent", text: " Fix login " }]);
+		assert.deepEqual(calls.filter((call) => call.color === "accent"), [{ color: "accent", text: " ꜰɪx ʟᴏɢɪɴ " }]);
 		assert.equal(calls[0].color, mode === "plan" ? "warning" : "thinkingLow");
 		assert.equal(calls.at(-1)?.color, calls[0].color);
 	}
@@ -104,15 +114,12 @@ test("saved plan headings supply only a safe display fallback for unfinished tas
 	assert.equal(extractPlanTitle("# \n## Only a subheading"), undefined);
 	assert.equal(extractPlanTitle("# \x1b[31mSafe\x07 title"), "Safe title");
 	const open = { sequence: 1, status: "open" } as const;
-	assert.equal(displayedPlanTitle("build", open, false), undefined);
-	assert.equal(displayedPlanTitle("plan", open, false), undefined);
-	assert.equal(displayedPlanTitle("build", open, true), "Untitled task");
-	for (const mode of ["plan", "build"] as const) {
-		assert.equal(displayedPlanTitle(mode, open, true, "Saved title"), "Saved title");
-		assert.equal(displayedPlanTitle(mode, { ...open, task: { title: "Metadata", scope: "Scope", decisions: [] } }, true, "Saved title"), "Metadata");
-		assert.equal(displayedPlanTitle(mode, { ...open, status: "completed" }, true, "Saved title"), undefined);
-		assert.equal(displayedPlanTitle(mode, { ...open, status: "abandoned", abandonReason: "No longer needed" }, true, "Saved title"), undefined);
-	}
+	assert.equal(displayedPlanTitle(open, false), undefined);
+	assert.equal(displayedPlanTitle(open, true), "Untitled task");
+	assert.equal(displayedPlanTitle(open, true, "Saved title"), "Saved title");
+	assert.equal(displayedPlanTitle({ ...open, task: { title: "Metadata", scope: "Scope", decisions: [] } }, true, "Saved title"), "Metadata");
+	assert.equal(displayedPlanTitle({ ...open, status: "completed" }, true, "Saved title"), undefined);
+	assert.equal(displayedPlanTitle({ ...open, status: "abandoned", abandonReason: "No longer needed" }, true, "Saved title"), undefined);
 });
 
 test("plan collection decoder rejects dangling attachments and preserves inert detached records", () => {
@@ -198,15 +205,6 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 		}),
 		"\x1b[38;2;92;156;245m┇\x1b[39m \x1b[38;2;92;156;245m\x1b[1mbuild\x1b[22m\x1b[39m\x1b[38;2;128;128;128m · \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m · \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
 	);
-});
-
-test("thinking levels cycle through only the levels supported by the model", () => {
-	assert.equal(nextThinkingLevel("medium", { reasoning: true }), "high");
-	assert.equal(nextThinkingLevel("high", { reasoning: true }), "off");
-	assert.equal(nextThinkingLevel("high", { reasoning: true, thinkingLevelMap: { xhigh: "xhigh" } }), "xhigh");
-	assert.equal(nextThinkingLevel("high", { reasoning: true, thinkingLevelMap: { off: null } }), "minimal");
-	assert.equal(nextThinkingLevel("medium", { reasoning: false }), undefined);
-	assert.equal(nextThinkingLevel("medium", undefined), undefined);
 });
 
 test("optional UI ownership detects both extension load orders", () => {
@@ -417,7 +415,7 @@ test("plan guidance supports conversation before persisted finalization", () => 
 test("verification policy reaches planning and every implementation handoff", () => {
 	const prompts = [
 		buildPlanReminder("Plan path: /tmp/plan.md"),
-		PLAN_TO_BUILD_REMINDER,
+		buildPlanContext("build", { records: [{ plan: { sequence: 1, status: "open" } }], attached: 1, counter: 1 }, { path: "/tmp/plan.md", state: "saved" })!,
 		buildFreshImplementationHandoff("Approved plan"),
 		buildPlanStepReminder("/tmp/plan.md", 1, 2, "Update behavior"),
 	];

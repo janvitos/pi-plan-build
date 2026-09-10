@@ -13,6 +13,7 @@ function getQuestionTool(): { tool: any; entries: any[] } {
 	let tool: any;
 	const entries: any[] = [];
 	registerQuestionTool({
+		on() {},
 		registerEntryRenderer() {},
 		registerTool(candidate: any) {
 			tool = candidate;
@@ -54,8 +55,11 @@ test("question output preserves answers without coaching and distinguishes rende
 		const render = (r: any, isPartial = false, isError = false) => tool.renderResult(r, { expanded, isPartial }, theme, { isError }).render(100).join("\n").trimEnd();
 		assert.match(render(result), /Yes/);
 		assert.match(render({ content: [{ type: "text", text: "Connection failed" }] }, false, true), /Connection failed/);
+		assert.match(render({ content: [{ type: "text", text: "Connection failed" }, { type: "text", text: "Retry later" }] }, true, true), /Connection failed[\s\S]*Retry later/);
 		assert.equal(render({ content: [], details: {} }), "Answer status unavailable");
-		assert.equal(render(result, true), "Awaiting answers…");
+		assert.equal(render(result, true), "");
+		assert.match(tool.renderCall({}, theme, { isPartial: true }).render(100).join("\n"), /Awaiting answers/);
+		assert.deepEqual(tool.renderCall({}, theme, { isPartial: false }).render(100), []);
 		assert.equal(render({ content: [], details: { cancelled: true } }), "Question(s) skipped");
 	}
 });
@@ -81,7 +85,7 @@ test("cancelling a selector terminates cleanly and reports a skipped question", 
 	assert.equal(harness.abortCount, 0);
 	assert.deepEqual(questionTool.entries, [{
 		type: "pi-plan-build-question-notice",
-		data: { message: "You chose not to answer the question(s). Awaiting your instructions." },
+		data: { message: "You chose not to answer the question(s). Awaiting your instructions.", toolCallId: "call-1" },
 	}]);
 	assert.deepEqual(result.details, { cancelled: true });
 	assert.equal(result.terminate, true);

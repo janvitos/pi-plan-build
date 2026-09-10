@@ -15,6 +15,7 @@ export interface PlanExecutionState {
 	status: "running" | "paused" | "completed";
 	steps: PlanStep[];
 	planMarkdown: string;
+	/** Legacy storage only; current selection is derived from step statuses. */
 	selectedStepId?: string;
 	panelVisible: boolean;
 }
@@ -49,7 +50,7 @@ export function parseImplementationSteps(plan: string): PlanStep[] {
 export function createPlanExecution(plan: string): PlanExecutionState {
 	const steps = parseImplementationSteps(plan);
 	steps[0]!.status = "ready";
-	return { version: 1, status: "running", steps, planMarkdown: plan, selectedStepId: steps[0]!.id, panelVisible: true };
+	return { version: 1, status: "running", steps, planMarkdown: plan, panelVisible: true };
 }
 
 export function decodePlanExecution(value: unknown): PlanExecutionState | undefined {
@@ -86,7 +87,7 @@ export function decodePlanExecution(value: unknown): PlanExecutionState | undefi
 		status,
 		steps,
 		planMarkdown: candidate.planMarkdown,
-		selectedStepId,
+		...(selectedStepId !== undefined ? { selectedStepId } : {}),
 		panelVisible: candidate.panelVisible !== false,
 	};
 }
@@ -106,12 +107,10 @@ function makeNextReady(state: PlanExecutionState, afterId: string): void {
 	const next = state.steps.slice(index + 1).find((step) => step.status === "pending");
 	if (next) {
 		next.status = "ready";
-		state.selectedStepId = next.id;
 		return;
 	}
 	if (state.steps.every((step) => step.status === "completed" || step.status === "skipped")) {
 		state.status = "completed";
-		state.selectedStepId = undefined;
 	}
 }
 
@@ -134,7 +133,6 @@ export function startPlanStep(state: PlanExecutionState, id: string): PlanExecut
 	if (step.status !== "ready") throw new Error("Only a ready step can be implemented");
 	step.status = "active";
 	next.status = "running";
-	next.selectedStepId = id;
 	return next;
 }
 

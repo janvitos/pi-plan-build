@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Check } from "typebox/value";
-import { convertToLlm } from "@earendil-works/pi-coding-agent";
+import { convertToLlm, ToolExecutionComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import { eventHandlers } from "./test-events.ts";
 import { STATE_VERSION, restoreCollection, allocationHighWater } from "./plan-state.ts";
 import planBuildModes from "./index.ts";
@@ -193,6 +193,8 @@ test("planning tool renderers preserve errors and never report success for parti
 				const render = (result: any, isPartial: boolean, isError: boolean) => tool.renderResult(result, { expanded, isPartial }, h.ctx.ui.theme, { isError }).render(140).join("\n");
 				assert.match(render({ content: [{ type: "text", text: "Actual failure" }] }, false, true), /Actual failure/, name);
 				assert.match(render({ content: [{ type: "text", text: "Actual failure" }] }, true, true), /Actual failure/, name);
+				const failure = render({ content: [{ type: "text", text: "Actual failure" }, { type: "text", text: "Recovery details" }], details: { planCompleted: true } }, true, true);
+				assert.match(failure, /Actual failure[\s\S]*Recovery details/, name);
 				const partial = render(samples[name] ?? { content: [{ type: "text", text: "Success sentinel" }], details: {} }, true, false);
 				assert.doesNotMatch(partial, /Success sentinel|Switched to|Plan complete\.|Plan approved;/, name);
 				const empty = render({ content: [], details: {} }, false, false);
@@ -203,6 +205,81 @@ test("planning tool renderers preserve errors and never report success for parti
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("composed tool rows have one pending indicator and result-only settled output", async () => {
+	initTheme("dark", false);
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-result-rows-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		const samples: Record<string, any> = {
+			plan_complete: { completed: true }, plan_enter: { mode: "plan" },
+			plan_task: { attached: 1 }, plan_finish: { outcome: { kind: "blocked", reason: "Missing input" } },
+			plan_step_control: { stepId: "step-2" }, plan_step_complete: { stepId: "step-2", completed: true },
+			plan_exit: { approved: true }, question: { answers: [{ header: "Backend", answers: ["SQLite"] }] },
+		};
+		for (const [name, details] of Object.entries(samples)) {
+			const row = new ToolExecutionComponent(name, "row", {}, {}, h.tools.get(name), { requestRender() {} } as any, dir);
+			const text = () => row.render(160).join("\n");
+			assert.equal((text().match(/…/g) ?? []).length, 1, name);
+			const result = { content: [{ type: "text", text: name === "plan_complete" ? "Plan complete." : "Result available" }], details, isError: false };
+			const original = structuredClone(result);
+			row.updateResult(result as any, true);
+			assert.equal((text().match(/…/g) ?? []).length, 1, name);
+			assert.doesNotMatch(text(), /Result available|Plan complete\./);
+			row.updateResult(result as any, false);
+			assert.doesNotMatch(text(), /…|Complete plan|Enter Plan mode|Record plan outcome|Request plan approval|question \(/, name);
+			assert.ok(text().trim(), name);
+			if (name === "plan_complete") assert.equal((text().match(/Plan complete\./g) ?? []).length, 1);
+			if (name.startsWith("plan_step")) assert.match(text(), /Step 2:/);
+			row.setExpanded(true);
+			assert.ok(text().trim());
+			assert.deepEqual(result, original, "rendering never changes model-visible responses");
+			for (const partial of [true, false]) {
+				row.updateResult({ content: [{ type: "text", text: "Actual error" }], details, isError: true } as any, partial);
+				assert.equal((text().match(/Actual error/g) ?? []).length, 1, name);
+				assert.doesNotMatch(text(), /…/);
+			}
+		}
+		await h.event("session_shutdown");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("correlated approval and cancellation notices suppress empty rows across restoration", async () => {
+	initTheme("dark", false);
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-notice-rows-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		await h.command("new");
+		fs.writeFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), "# Approved plan\n");
+		const approved = await h.tool("plan_exit");
+		h.ctx.ui.select = async () => undefined as any;
+		const cancelled = await h.tool("question", { questions: [{ question: "Continue?", header: "Continue", options: [{ label: "Yes" }, { label: "No" }] }] });
+		for (const current of [h, harness(dir, structuredClone(h.entries))]) {
+			if (current !== h) await current.event("session_start", { reason: "reload" });
+			for (const [name, result] of [["plan_exit", approved], ["question", cancelled]] as const) {
+				const row = new ToolExecutionComponent(name, "id", {}, {}, current.tools.get(name), { requestRender() {} } as any, dir);
+				row.updateResult({ ...result, isError: false } as any);
+				assert.deepEqual(row.render(120), [], "no empty padded box remains");
+				row.setExpanded(true);
+				assert.ok(row.render(120).join("").trim(), "expanded details remain available");
+				const legacy = new ToolExecutionComponent(name, "uncorrelated-old-call", {}, {}, current.tools.get(name), { requestRender() {} } as any, dir);
+				legacy.updateResult({ ...result, isError: false } as any);
+				assert.ok(legacy.render(120).join("").trim(), "uncorrelated historical results remain visible");
+			}
+			await current.event("session_shutdown");
+		}
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });
@@ -385,6 +462,9 @@ test("completion reconciliation is one-shot and unfinished outcomes preserve the
 		assert.doesNotMatch(listed.content[0].text, /hardware acceptance|\.md/);
 		const detailsText = pending.tools.get("plan_task").renderResult(listed, { expanded: true, isPartial: false }, pending.ctx.ui.theme, {}).render(160).join("\n");
 		assert.match(detailsText, /Run the hardware acceptance check/);
+		const outcomeText = pending.tools.get("plan_finish").renderResult(awaiting, { expanded: true, isPartial: false }, pending.ctx.ui.theme, {}).render(160).join("\n");
+		assert.equal((outcomeText.match(/Run the hardware acceptance check/g) ?? []).length, 1);
+		assert.equal(detailsText.split(file).length - 1, 1, "expanded inventory shows the current path once");
 		const pendingContext = await pending.event("context", { messages: [] });
 		assert.match(pendingContext.messages.at(-1).content, /plan remains open and current/);
 		assert.match(pendingContext.messages.at(-1).content, /Run the hardware acceptance check/);
@@ -773,7 +853,12 @@ test("final step completion rotates the plan, while cancellation keeps it unfini
 		} }];
 		const h = harness(dir, structuredClone(entries));
 		await h.event("session_start", { reason: "resume" });
+		const transition = h.events.length;
 		await h.tool("plan_step_control", { action: "complete" });
+		assert.equal(h.events.slice(transition).filter(e => e.kind === "entry" && e.customType === "pi-plan-build-state").length, 1);
+		assert.equal(h.events.slice(transition).filter(e => e.kind === "tools").length, 1);
+		assert.ok(!h.active().includes("plan_step_control"));
+		assert.ok(!h.active().includes("plan_complete"));
 		assert.equal(h.record().plan.status, "completed");
 		assert.equal(h.record()?.execution, undefined);
 		assert.equal(fs.readFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), "utf8"), markdown, "step completion leaves the numbered plan unchanged");
@@ -784,7 +869,12 @@ test("final step completion rotates the plan, while cancellation keeps it unfini
 		await h.event("session_shutdown");
 		const cancelled = harness(dir, structuredClone(entries));
 		await cancelled.event("session_start", { reason: "resume" });
+		const cancellation = cancelled.events.length;
 		await cancelled.tool("plan_step_control", { action: "cancel" });
+		assert.equal(cancelled.events.slice(cancellation).filter(e => e.kind === "entry" && e.customType === "pi-plan-build-state").length, 1);
+		assert.equal(cancelled.events.slice(cancellation).filter(e => e.kind === "tools").length, 1);
+		assert.ok(cancelled.active().includes("plan_complete"));
+		assert.ok(!cancelled.active().includes("plan_step_control"));
 		assert.equal(cancelled.record().plan.status, "open");
 		await cancelled.command("");
 		assert.equal(cancelled.record().plan.sequence, 1);
@@ -869,6 +959,7 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 					}
 					const rpcNotices = destination.filter(e => e.kind === "notify" && e.text === PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"]);
 					assert.equal(rpcNotices.length, mode === "rpc" ? 1 : 0);
+					assert.equal(destination.filter(e => e.kind === "notify" && e.text.startsWith("Fresh implementation session started with plan")).length, mode === "rpc" ? 1 : 0);
 					if (mode === "rpc") assert.ok(destination.indexOf(rpcNotices[0]) < assistant);
 					await child.prompt("A subsequent prompt");
 					assert.equal(child.entries.filter(e => e.customType === noticeType).length, 1);
@@ -1145,6 +1236,45 @@ test("current-format restoration fails closed and unchanged reloads do not persi
 		assert.equal(h.events.filter(e => e.kind === "entry").length, 0);
 		await h.event("session_shutdown");
 	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("restoration inspects only current files and preserves inert legacy selection data", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-restore-inspection-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	const originalStat = fs.statSync;
+	try {
+		const markdown = "## Implementation Steps\n1. Historical step\n";
+		const inert = { plan: { sequence: 1, status: "open" }, execution: { ...createPlanExecution(markdown), selectedStepId: "step-1" } };
+		const current = { plan: { sequence: 2, status: "open", task: { title: "Current", scope: "Scope", decisions: [] } } };
+		const data = { version: STATE_VERSION, selectedMode: "build", collection: { records: [inert, current], attached: 2, counter: 2 } };
+		const entries = [
+			{ type: "custom", customType: "opencode-modes-state", data: { version: 1, selectedMode: "plan" } },
+			{ type: "custom", customType: "pi-plan-build-state", data },
+			{ type: "custom", customType: "another-extension", data: {} },
+		];
+		const h = harness(dir, entries);
+		const historicalPath = makePlanPath(path.join(dir, "plans"), "session", 1);
+		const currentPath = makePlanPath(path.join(dir, "plans"), "session", 2);
+		const inspected: string[] = [];
+		fs.statSync = ((...args: any[]) => {
+			if ([historicalPath, currentPath].includes(String(args[0]))) inspected.push(String(args[0]));
+			return (originalStat as any)(...args);
+		}) as any;
+		for (const event of ["session_start", "session_tree"]) {
+			inspected.length = 0;
+			await h.event(event, { reason: "reload" });
+			assert.deepEqual(inspected, [currentPath]);
+			assert.equal(h.state().selectedMode, "build");
+			assert.equal(h.events.filter(e => e.kind === "entry").length, 0);
+		}
+		await h.callTool("plan_task", { action: "update", expectedAttached: 2, title: "Renamed by user", scope: "Scope" });
+		assert.deepEqual(h.state().collection.records[0], inert, "later snapshots preserve inert historical payloads");
+		await h.event("session_shutdown");
+	} finally {
+		fs.statSync = originalStat;
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
 	}

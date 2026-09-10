@@ -5,7 +5,7 @@ import {
 	installUserMessageRail,
 	TranscriptModeResolver,
 } from "./user-message-rail.ts";
-import type { Mode } from "./utils.ts";
+import { extractPromptHistory, type Mode } from "./utils.ts";
 
 const OSC_START = "\x1b]133;A\x07";
 const OSC_END = "\x1b]133;B\x07\x1b]133;C\x07";
@@ -33,6 +33,17 @@ function formatter(mode: Mode, glyph: string): string {
 	const color = mode === "plan" ? "245;167;66" : "92;156;245";
 	return `\x1b[38;2;${color}m${glyph}\x1b[0m`;
 }
+
+test("shared text extraction preserves transcript whitespace but normalizes history", () => {
+	const content = [null, { type: "image", data: "ignored" }, { type: "text", text: "  Same " }, { type: "text", text: 42 }, { type: "text", text: "prompt  " }];
+	const entries = [
+		{ type: "message", message: { role: "user", content } },
+		{ type: "message", message: { role: "user", content: "Same prompt" } },
+	];
+	const records = collectTranscriptModeRecords(entries, { stateTypes: new Set(), decodeState: () => undefined, displayText: text => text });
+	assert.deepEqual(records.map(record => record.text), ["  Same prompt  ", "Same prompt"]);
+	assert.deepEqual(extractPromptHistory(entries), ["Same prompt"]);
+});
 
 test("transcript records retain the mode persisted before each user message", () => {
 	const stateTypes = new Set(["pi-plan-build-state", "opencode-modes-state"]);

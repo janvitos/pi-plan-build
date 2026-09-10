@@ -25,23 +25,6 @@ export interface PromptMetadataOptions {
 	rail?: string;
 }
 
-export type ThinkingLevel = "off" | "minimal" | "low" | "medium" | "high" | "xhigh" | "max";
-const THINKING_LEVELS: ThinkingLevel[] = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
-
-export function nextThinkingLevel(
-	current: ThinkingLevel,
-	model: { reasoning: boolean; thinkingLevelMap?: Partial<Record<ThinkingLevel, unknown>> } | undefined,
-): ThinkingLevel | undefined {
-	if (!model?.reasoning) return undefined;
-	const available = THINKING_LEVELS.filter((level) => {
-		const mapped = model.thinkingLevelMap?.[level];
-		if (mapped === null) return false;
-		return level !== "xhigh" && level !== "max" || mapped !== undefined;
-	});
-	const currentIndex = available.indexOf(current);
-	return available[(currentIndex + 1) % available.length];
-}
-
 function modeThemeColor(mode: Mode): ModeThemeColor {
 	return mode === "plan" ? "warning" : "thinkingLow";
 }
@@ -63,6 +46,15 @@ export function formatPlanLabel(title: string | undefined, awaitingValidation = 
 	return truncateToWidth(prefix ? `${prefix} · ${status}` : status, width, "…");
 }
 
+const SMALL_CAPS = "ᴀʙᴄᴅᴇꜰɢʜɪᴊᴋʟᴍɴᴏᴘqʀꜱᴛᴜᴠᴡxʏᴢ";
+
+export function smallCapsTitle(title: string): string {
+	return title.replace(/[a-z]/gi, (letter) => {
+		const lower = letter.toLowerCase();
+		return lower === "q" || lower === "x" ? letter : SMALL_CAPS[lower.charCodeAt(0) - 97]!;
+	});
+}
+
 export function formatModeTopBorder(
 	mode: Mode,
 	width: number,
@@ -70,10 +62,11 @@ export function formatModeTopBorder(
 	theme: ModeStatusTheme,
 	title?: string,
 	awaitingValidation = false,
+	smallCaps = true,
 ): string {
 	if (width <= 2) return "";
 	if (!title && !awaitingValidation) return `${formatModeColor(mode, `╭${"─".repeat(width - 2)}`, theme)}${topRightCorner}`;
-	const label = truncateToWidth(` ${formatPlanLabel(title, awaitingValidation, Math.max(0, width - 4))} `, Math.max(0, width - 2), "…");
+	const label = truncateToWidth(` ${formatPlanLabel(smallCaps && title ? smallCapsTitle(cleanTaskTitle(title)) : title, awaitingValidation, Math.max(0, width - 4))} `, Math.max(0, width - 2), "…");
 	return `${formatModeColor(mode, "╭", theme)}${label ? theme.fg("accent", label) : ""}${formatModeColor(mode, `${"─".repeat(Math.max(0, width - 2 - visibleWidth(label)))}`, theme)}${topRightCorner}`;
 }
 
@@ -266,7 +259,7 @@ export function extractPlanTitle(markdown: string): string | undefined {
 	return undefined;
 }
 
-export function displayedPlanTitle(_mode: Mode, plan: PlanLifecycle, savedPlan: boolean, heading?: string): string | undefined {
+export function displayedPlanTitle(plan: PlanLifecycle, savedPlan: boolean, heading?: string): string | undefined {
 	if (plan.status !== "open") return undefined;
 	if (!plan.task && !savedPlan) return undefined;
 	return cleanTaskTitle(plan.task?.title ?? "") || heading || "Untitled task";
@@ -304,13 +297,6 @@ export interface CompletionReconciliation {
 
 export function shouldReconcileCompletion(state: CompletionReconciliation | undefined, attached: number | null, mode: Mode, sessionId: string, hasExecution: boolean, idle: boolean, pending: boolean): boolean {
 	return !!state && state.sequence === attached && state.sessionId === sessionId && mode === "build" && !hasExecution && idle && !pending && state.eligible && state.terminal && !state.consumed && !state.handled && !state.failed;
-}
-
-export function decodeCompletionReconciliation(value: unknown): CompletionReconciliation | undefined {
-	if (!value || typeof value !== "object") return undefined;
-	const r = value as CompletionReconciliation;
-	if (!Number.isSafeInteger(r.sequence) || r.sequence < 0 || typeof r.sessionId !== "string" || ![r.eligible, r.consumed, r.handled, r.failed, r.terminal].every((v) => typeof v === "boolean")) return undefined;
-	return { ...r };
 }
 
 export function decodePlanLifecycle(value: unknown): PlanLifecycle | undefined {
@@ -403,6 +389,16 @@ export function formatQuestionAnswers(answers: QuestionAnswerData[]): string {
 	return answers.map((answer) => `"${answer.question}"="${answer.answers.length ? answer.answers.join(", ") : "Unanswered"}"`).join(", ");
 }
 
+export function extractUserMessageText(content: unknown): string {
+	if (typeof content === "string") return content;
+	if (!Array.isArray(content)) return "";
+	return content
+		.filter((block): block is { type: "text"; text: string } =>
+			!!block && typeof block === "object" && block.type === "text" && typeof block.text === "string")
+		.map((block) => block.text)
+		.join("");
+}
+
 export function extractPromptHistory(entries: readonly unknown[], limit = 100): string[] {
 	const prompts: string[] = [];
 	for (const entry of entries) {
@@ -413,17 +409,7 @@ export function extractPromptHistory(entries: readonly unknown[], limit = 100): 
 		};
 		if (candidate.type !== "message" || candidate.message?.role !== "user") continue;
 
-		const content = candidate.message.content;
-		const text = typeof content === "string"
-			? content
-			: Array.isArray(content)
-				? content
-					.filter((block): block is { type: "text"; text: string } =>
-						!!block && typeof block === "object" && (block as { type?: unknown }).type === "text" && typeof (block as { text?: unknown }).text === "string")
-					.map((block) => block.text)
-					.join("")
-				: "";
-		const trimmed = text.trim();
+		const trimmed = extractUserMessageText(candidate.message.content).trim();
 		if (!trimmed || prompts.at(-1) === trimmed) continue;
 		prompts.push(trimmed);
 	}
