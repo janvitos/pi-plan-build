@@ -1,4 +1,6 @@
 import path from "node:path";
+import { decodePlanExecution, type PlanExecutionState } from "./plan-execution.ts";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import { VERIFICATION_GUIDANCE } from "./prompts.ts";
 
 export type Mode = "build" | "plan";
@@ -12,7 +14,7 @@ type ModeThemeColor = "warning" | "thinkingLow";
 
 export interface ModeStatusTheme {
 	bold(text: string): string;
-	fg(color: "dim" | ModeThemeColor, text: string): string;
+	fg(color: "dim" | "accent" | ModeThemeColor, text: string): string;
 }
 
 export interface PromptMetadataOptions {
@@ -55,9 +57,12 @@ export function formatModeTopBorder(
 	width: number,
 	topRightCorner: string,
 	theme: ModeStatusTheme,
+	title?: string,
 ): string {
 	if (width <= 2) return "";
-	return `${formatModeColor(mode, `╭${"─".repeat(width - 3)}╌`, theme)}${topRightCorner}`;
+	if (!title) return `${formatModeColor(mode, `╭${"─".repeat(width - 2)}`, theme)}${topRightCorner}`;
+	const label = title ? truncateToWidth(` ${cleanTaskTitle(title)} `, Math.max(0, width - 3), "…") : "";
+	return `${formatModeColor(mode, "╭", theme)}${label ? theme.fg("accent", label) : ""}${formatModeColor(mode, `${"─".repeat(Math.max(0, width - 2 - visibleWidth(label)))}`, theme)}${topRightCorner}`;
 }
 
 export function formatModeMetadata(
@@ -74,7 +79,7 @@ export function formatModeMetadata(
 		}`
 		: "";
 	const thinkingSeparator = " • ";
-	return `${options?.rail ?? formatModeRail(mode, theme)} ${modeText}${modelText}${theme.fg("dim", thinkingSeparator)}${thinkingColor(thinkingLevel)}`;
+	return `${options?.rail === "" ? "" : `${options?.rail ?? formatModeRail(mode, theme)} `}${modeText}${modelText}${theme.fg("dim", thinkingSeparator)}${thinkingColor(thinkingLevel)}`;
 }
 
 export function shouldReduceOptionalUi(currentOwner: unknown, acceptedOwner: unknown): boolean {
@@ -101,6 +106,7 @@ export function renderModeComposer(
 	reservedWidth: number,
 	width: number,
 	lineWidth: LineWidthTools,
+	borderColor: (text: string) => string = (text) => text,
 ): string[] {
 	if (reservedWidth <= 0 || width <= 1 || lines.length < 3) return lines;
 	const reservedPrefix = " ".repeat(reservedWidth);
@@ -114,16 +120,13 @@ export function renderModeComposer(
 	const promptLines = lines
 		.slice(1, bottomBorderIndex)
 		.map((line) => addRightRail(leftRailPrefix + line.slice(reservedPrefix.length)));
-	const ansiSequence = "(?:\\x1b\\[[0-?]*[ -/]*[@-~])*";
-	const bottomBorder = bottomLeftCorner + lineWidth.truncate(lines[bottomBorderIndex]!, width)
-		.replace(new RegExp(`^(${ansiSequence}).${ansiSequence}.`, "u"), "$1╌")
-		.replace(/.(?=(?:\x1b\[[0-?]*[ -/]*[@-~])*$)/u, "╯");
+	const label = truncateToWidth(` ${metadata} `, Math.max(0, width - 2), "…");
+	const bottomBorder = bottomLeftCorner + label + borderColor("─".repeat(Math.max(0, width - 2 - visibleWidth(label))) + "╯");
 	return [
 		topBorder,
 		addRightRail(leftRailPrefix, topRightRail),
 		...promptLines,
 		addRightRail(leftRailPrefix),
-		addRightRail(metadata),
 		bottomBorder,
 		"",
 		...lines.slice(bottomBorderIndex + 1),
@@ -237,9 +240,45 @@ export function sanitizeSessionId(value: string | undefined): string {
 	return cleaned || "ephemeral";
 }
 
+export function cleanTaskTitle(title: string): string {
+	return title.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "").replace(/[\x00-\x1f\x7f-\x9f]/g, " ").replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+export function extractPlanTitle(markdown: string): string | undefined {
+	let fence: { char: string; length: number } | undefined;
+	for (const line of markdown.split(/\r?\n/)) {
+		const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
+		if (marker) {
+			if (!fence) fence = { char: marker[1][0], length: marker[1].length };
+			else if (marker[1][0] === fence.char && marker[1].length >= fence.length && !marker[2].trim()) fence = undefined;
+			continue;
+		}
+		if (fence) continue;
+		const heading = line.match(/^ {0,3}#\s+(.+)$/);
+		if (heading) {
+			const title = cleanTaskTitle(heading[1].replace(/\s+#+\s*$/, ""));
+			if (title) return title;
+		}
+	}
+	return undefined;
+}
+
+export function displayedPlanTitle(_mode: Mode, plan: PlanLifecycle, savedPlan: boolean, heading?: string): string | undefined {
+	if (plan.status === "completed") return undefined;
+	if (!plan.task && !savedPlan) return undefined;
+	return cleanTaskTitle(plan.task?.title ?? "") || heading || "Untitled task";
+}
+
+export interface PlanTask {
+	title: string;
+	scope: string;
+	decisions: Array<{ topic: string; outcome: "include" | "discussion" }>;
+}
+
 export interface PlanLifecycle {
 	sequence: number;
 	status: "open" | "completed";
+	task?: PlanTask;
 }
 
 export function decodePlanLifecycle(value: unknown): PlanLifecycle | undefined {
@@ -247,7 +286,38 @@ export function decodePlanLifecycle(value: unknown): PlanLifecycle | undefined {
 	const candidate = value as Partial<PlanLifecycle>;
 	if (!Number.isSafeInteger(candidate.sequence) || candidate.sequence! < 0 ||
 		(candidate.status !== "open" && candidate.status !== "completed")) return undefined;
-	return { sequence: candidate.sequence!, status: candidate.status };
+	const task = candidate.task;
+	const validTask = task && typeof task.title === "string" && typeof task.scope === "string" &&
+		Array.isArray(task.decisions) && task.decisions.every((d) => d && typeof d.topic === "string" && (d.outcome === "include" || d.outcome === "discussion"));
+	return { sequence: candidate.sequence!, status: candidate.status,
+		...(validTask ? { task: { title: cleanTaskTitle(task.title), scope: task.scope, decisions: task.decisions.map((d) => ({ ...d })) } } : {}) };
+}
+
+export interface SavedPlanRecord {
+	plan: PlanLifecycle;
+	execution?: PlanExecutionState;
+}
+
+export interface PlanCollection {
+	records: SavedPlanRecord[];
+	attached: number | null;
+	counter: number;
+}
+
+export function decodePlanCollection(value: unknown): PlanCollection | undefined {
+	if (!value || typeof value !== "object") return undefined;
+	const data = value as Partial<PlanCollection>;
+	if (!Array.isArray(data.records) || !Number.isSafeInteger(data.counter) || data.counter! < 0) return undefined;
+	const records: SavedPlanRecord[] = [];
+	for (const raw of data.records) {
+		const plan = decodePlanLifecycle(raw?.plan);
+		if (!plan || records.some((r) => r.plan.sequence === plan.sequence)) return undefined;
+		const execution = decodePlanExecution(raw.execution);
+		if (raw.execution !== undefined && !execution) return undefined;
+		records.push({ plan, ...(execution ? { execution } : {}) });
+	}
+	if (data.attached !== null && !records.some((r) => r.plan.sequence === data.attached && r.plan.status === "open")) return undefined;
+	return { records, attached: data.attached!, counter: Math.max(data.counter!, ...records.map((r) => r.plan.sequence)) };
 }
 
 export function makePlanPath(plansDir: string, sessionId: string | undefined, sequence = 0): string {

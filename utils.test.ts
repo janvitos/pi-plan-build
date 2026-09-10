@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	buildPlanReminder,
 	buildPlanStepReminder,
@@ -20,6 +21,9 @@ import {
 	buildPlanReviewMessage,
 	classifyPlanExitChoice,
 	decodeModeState,
+	decodePlanCollection,
+	displayedPlanTitle,
+	extractPlanTitle,
 	extractPromptHistory,
 	formatModeMetadata,
 	formatModeRail,
@@ -41,6 +45,69 @@ import {
 	sanitizeSessionId,
 	shouldReduceOptionalUi,
 } from "./utils.ts";
+
+test("plan border shows only a safe title and fits narrow Unicode layouts", () => {
+	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
+	const titled = formatModeTopBorder("plan", 60, "╮", theme, "Fix login redirects");
+	assert.match(titled, /Fix login redirects/);
+	assert.doesNotMatch(titled, /Plan|#003/);
+	for (const mode of ["plan", "build"] as const) for (const width of [1, 2, 3, 4, 8, 20, 60]) {
+		const line = formatModeTopBorder(mode, width, "╮", theme, "修復 🔑\n\x1b[31mlogin\x07 redirects");
+		assert.ok(visibleWidth(line) <= width);
+		// truncateToWidth emits its own SGR resets; user-supplied controls must not survive.
+		assert.doesNotMatch(line.replaceAll("\x1b[0m", ""), /[\x00-\x1f\x7f-\x9f]/);
+	}
+	assert.match(formatModeTopBorder("build", 40, "╮", theme, "Visible title"), /Visible title/);
+	assert.doesNotMatch(formatModeTopBorder("build", 40, "╮", theme), /Untitled/);
+});
+
+test("composer outline uses only solid lines and rounded corners", () => {
+	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
+	for (const mode of ["plan", "build"] as const) for (const title of [undefined, "Task title"]) {
+		const top = formatModeTopBorder(mode, 40, "╮", theme, title);
+		const output = renderModeComposer(["top", "  input", "─".repeat(40)], top, "│ ", "│", "│", "metadata", "╰", 2, 40, { truncate: (s, w) => truncateToWidth(s, w, ""), measure: visibleWidth });
+		assert.doesNotMatch(output.join("\n"), /[╌┆┇]/);
+		assert.ok(top.endsWith("─╮"));
+		assert.ok(output[1].endsWith("│"));
+		assert.ok(output.every((line) => visibleWidth(line) <= 40));
+	}
+});
+
+test("plan title uses normal-weight accent independent of mode border colors", () => {
+	for (const mode of ["plan", "build"] as const) {
+		const calls: Array<{ color: string; text: string }> = [];
+		const theme = { bold: (_: string): string => { throw new Error("Title must not be bold"); }, fg: (color: string, text: string) => { calls.push({ color, text }); return text; } };
+		formatModeTopBorder(mode, 60, "╮", theme, "Fix login");
+		assert.deepEqual(calls.filter((call) => call.color === "accent"), [{ color: "accent", text: " Fix login " }]);
+		assert.equal(calls[0].color, mode === "plan" ? "warning" : "thinkingLow");
+		assert.equal(calls.at(-1)?.color, calls[0].color);
+	}
+});
+
+test("saved plan headings supply only a safe display fallback for unfinished tasks", () => {
+	const markdown = "```md\n# Ignore\n```\n~~~\n# Ignore too\n~~~\n## Not top-level\n# Fix login ###\n# Later title";
+	assert.equal(extractPlanTitle(markdown), "Fix login");
+	assert.equal(extractPlanTitle("# \n## Only a subheading"), undefined);
+	assert.equal(extractPlanTitle("# \x1b[31mSafe\x07 title"), "Safe title");
+	const open = { sequence: 1, status: "open" } as const;
+	assert.equal(displayedPlanTitle("build", open, false), undefined);
+	assert.equal(displayedPlanTitle("plan", open, false), undefined);
+	assert.equal(displayedPlanTitle("build", open, true), "Untitled task");
+	for (const mode of ["plan", "build"] as const) {
+		assert.equal(displayedPlanTitle(mode, open, true, "Saved title"), "Saved title");
+		assert.equal(displayedPlanTitle(mode, { ...open, task: { title: "Metadata", scope: "Scope", decisions: [] } }, true, "Saved title"), "Metadata");
+		assert.equal(displayedPlanTitle(mode, { ...open, status: "completed" }, true, "Saved title"), undefined);
+	}
+});
+
+test("plan collection decoder rejects dangling attachments and preserves paused records", () => {
+	const records = [{ plan: { sequence: 1, status: "open" } }, { plan: { sequence: 2, status: "completed" } }];
+	assert.deepEqual(decodePlanCollection({ records, attached: null, counter: 0 }), { records, attached: null, counter: 2 });
+	assert.equal(decodePlanCollection({ records, attached: 99, counter: 2 }), undefined);
+	assert.equal(decodePlanCollection({ records, attached: 2, counter: 2 }), undefined);
+	assert.equal(decodePlanCollection({ records: [records[0], records[0]], attached: 1, counter: 2 }), undefined);
+	assert.equal(decodePlanCollection({ records, attached: null, counter: -1 }), undefined);
+});
 
 test("mode state decodes current and legacy shapes safely", () => {
 	assert.deepEqual(decodeModeState({ version: 1, selectedMode: "plan" }), { version: 1, selectedMode: "plan" });
@@ -99,7 +166,7 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 	assert.equal(formatModeRail("build", theme, "┃"), "\x1b[38;2;92;156;245m┃\x1b[39m");
 	assert.equal(
 		formatModeTopBorder("plan", 4, "\x1b[2m╮\x1b[22m", theme),
-		"\x1b[38;2;245;167;66m╭─╌\x1b[39m\x1b[2m╮\x1b[22m",
+		"\x1b[38;2;245;167;66m╭──\x1b[39m\x1b[2m╮\x1b[22m",
 	);
 	assert.equal(formatModeTopBorder("build", 2, "\x1b[2m╮\x1b[22m", theme), "");
 	assert.equal(
@@ -145,14 +212,13 @@ test("mode composer joins border colors with dashed transitions and rail-colored
 		measure: (line: string) => line.replace(ansiPattern, "").length,
 	};
 	const lines = ["top border", "  first", "  second", "────────────────", "  autocomplete"];
-	assert.deepEqual(renderModeComposer(lines, "╭─────────────╌╮", "│ ", "│", "┆", "┇ plan · high", "╰", 2, 16, lineWidth), [
+	assert.deepEqual(renderModeComposer(lines, "╭─────────────╌╮", "│ ", "│", "┆", "plan · high", "╰", 2, 16, lineWidth), [
 		"╭─────────────╌╮",
 		"│              ┆",
 		"│ first        │",
 		"│ second       │",
 		"│              │",
-		"┇ plan · high  │",
-		"╰╌─────────────╯",
+		"╰ plan · high ─╯",
 		"",
 		"  autocomplete",
 	]);
@@ -165,15 +231,15 @@ test("mode composer joins border colors with dashed transitions and rail-colored
 		"│ ",
 		"│",
 		"┆",
-		"┇ metadata",
+		"metadata",
 		"╰",
 		2,
 		16,
 		lineWidth,
 	);
 	assert.equal(realisticResult.every((line) => lineWidth.measure(line) <= 16), true);
-	assert.equal(realisticResult[5]?.replace(ansiPattern, ""), "╰╌─────────────╯");
-	assert.equal(realisticResult[5]?.replace(ansiPattern, "").includes("[39m"), false);
+	assert.equal(realisticResult[4]?.replace(ansiPattern, ""), "╰ metadata ────╯");
+	assert.equal(realisticResult[4]?.replace(ansiPattern, "").includes("[39m"), false);
 
 	assert.deepEqual(
 		renderModeComposer(
@@ -182,15 +248,36 @@ test("mode composer joins border colors with dashed transitions and rail-colored
 			"│ ",
 			"│",
 			"┆",
-			"┇ metadata",
+			"metadata",
 			"╰",
 			2,
 			4,
 			lineWidth,
-		),
-		["╭─╌╮", "│  ┆", "│ p│", "│  │", "┇ m│", "╰\x1b[38;2;128;128;128m╌─╯\x1b[0m", ""],
+		).map((line) => line.replace(ansiPattern, "")),
+		["╭─╌╮", "│  ┆", "│ p│", "│  │", "╰ …╯", ""],
 	);
 	assert.deepEqual(renderModeComposer(lines, "top", "│ ", "│", "┆", "metadata", "╰", 0, 16, lineWidth), lines);
+});
+
+test("bottom-border metadata keeps colors and fits Unicode widths in both modes", () => {
+	const theme = { bold: (text: string) => text, fg: (_: string, text: string) => `\x1b[33m${text}\x1b[0m` };
+	const color = (text: string) => `\x1b[32m${text}\x1b[0m`;
+	const strip = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/gu, "");
+	for (const mode of ["plan", "build"] as const) for (const width of [4, 12, 80]) {
+		const metadata = formatModeMetadata(mode, "low", theme, color, { modelName: "模型 🔑", modelProvider: "provider", rail: "" });
+		const output = renderModeComposer(["top", "  first", "  second", "─".repeat(width), "suggestion"], "top", "│ ", "│", "┆", metadata, "╰", 2, width, { truncate: (text, w) => truncateToWidth(text, w, ""), measure: visibleWidth }, color);
+		const bottom = output[5];
+		assert.ok(output.slice(0, 6).every((line) => visibleWidth(line) <= width));
+		assert.ok(strip(bottom).startsWith("╰"));
+		assert.ok(strip(bottom).endsWith("╯"));
+		assert.equal(output.at(-1), "suggestion");
+		if (width === 80) {
+			assert.ok(bottom.includes("\x1b[33m"));
+			assert.ok(bottom.includes("\x1b[32m"));
+			assert.ok(strip(bottom).includes(`${mode} • 模型 🔑 [provider] • low`));
+			assert.equal(output.filter((line) => strip(line).includes("provider")).length, 1);
+		}
+	}
 });
 
 test("plan review preserves the complete plan without truncation", () => {

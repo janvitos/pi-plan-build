@@ -37,7 +37,7 @@ function createHarness(initialEditor?: unknown) {
 	const commands = new Map<string, any>();
 	const selections: Array<{ title: string; options: string[] }> = [];
 	let selectedOption: string | undefined;
-	let resolvePersist: (() => void) | undefined;
+	let resolvePersist: ((data: any) => boolean) | undefined;
 	const persisted: any[] = [];
 	let activeTools = ["read", "bash", "edit", "write"];
 	const tui = {
@@ -64,8 +64,7 @@ function createHarness(initialEditor?: unknown) {
 		setActiveTools(next: string[]) { activeTools = [...next]; },
 		appendEntry(_type: string, data: unknown) {
 			persisted.push(data);
-			resolvePersist?.();
-			resolvePersist = undefined;
+			if (resolvePersist?.(data)) resolvePersist = undefined;
 		},
 		getThinkingLevel() { return "medium"; },
 	};
@@ -122,7 +121,13 @@ function createHarness(initialEditor?: unknown) {
 		selections,
 		persisted,
 		selectOption(value: string | undefined) { selectedOption = value; },
-		nextPersist: () => new Promise<void>((resolve) => { resolvePersist = resolve; }),
+		nextPersist: (mode: string) => new Promise<void>((resolve) => {
+			resolvePersist = (data) => {
+				if (data.selectedMode !== mode) return false;
+				resolve();
+				return true;
+			};
+		}),
 		editor: () => createdEditor,
 		setCurrentEditor(value: unknown) { currentEditor = value; },
 		decorateCurrentEditor() {
@@ -148,7 +153,7 @@ function writeConfig(value: unknown): void {
 }
 
 async function toggle(harness: ReturnType<typeof createHarness>, data: string, expected: string) {
-	const persisted = harness.nextPersist();
+	const persisted = harness.nextPersist(expected);
 	harness.editor().handleInput(data);
 	await persisted;
 	assert.equal(harness.persisted.at(-1).selectedMode, expected);

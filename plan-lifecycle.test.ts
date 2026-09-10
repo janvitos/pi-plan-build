@@ -47,7 +47,7 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		modelRegistry: { find: () => ({ provider: "test", id: "test" }) },
 		sessionManager: { getEntries: () => entries, getBranch: () => entries, getSessionId: () => sessionId, getSessionFile: () => undefined },
 		ui: {
-			getEditorComponent: () => undefined, setEditorComponent() {}, setStatus() {},
+			getEditorComponent: () => undefined, setEditorComponent() {}, setStatus: (_key: string, text: string) => events.push({ kind: "status", text }),
 			notify: (text: string) => events.push({ kind: "notify", text }),
 			select: async () => PLAN_EXIT_APPROVE_CHOICE,
 			theme: { fg: (_: string, text: string) => text, bold: (text: string) => text },
@@ -94,6 +94,198 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		state: () => entries.filter((entry) => entry.customType === "pi-plan-build-state").at(-1).data,
 	};
 }
+
+test("multiple plans detach, resume, fork, and complete without losing paused progress", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-attachment-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		fs.mkdirSync(path.join(dir, "plans"));
+		const fileA = makePlanPath(path.join(dir, "plans"), "session", 1);
+		const markdown = "# Login\n\n## Implementation Steps\n1. Fix login\n";
+		fs.writeFileSync(fileA, markdown);
+		const progress = createPlanExecution(markdown);
+		progress.steps[0].status = "active";
+		const entries = [{ type: "custom", customType: "pi-plan-build-state", data: { version: 1, selectedMode: "build", planSessionId: "session", plan: { sequence: 1, status: "open", task: { title: "Login", scope: "Login redirects", decisions: [] } }, execution: progress } }];
+		const h = harness(dir, entries);
+		h.ctx.ui.getEditorComponent = () => (() => {}) as any;
+		await h.event("session_start", { reason: "resume" });
+		assert.equal(h.state().collection.attached, 1);
+		await h.tool("plan_task", { action: "include", expectedAttached: 1, topic: "Logout", scope: "Login and logout redirects" });
+		const attachedBranch = structuredClone(h.entries);
+		h.entries.push({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "plan_task", arguments: { action: "pause" } }] } });
+		for (const toolName of ["write", "bash", "plan_step_complete"]) assert.equal((await h.event("tool_call", { toolName, input: { path: path.join(dir, "unrelated.ts") } })).block, true);
+		await h.tool("plan_task", { action: "pause", expectedAttached: 1 });
+		assert.equal(h.state().collection.attached, null);
+		assert.equal(h.state().execution, undefined);
+		assert.equal(h.events.filter((e) => e.kind === "status").at(-1).text, "build");
+		assert.ok(!h.active().includes("plan_step_complete"));
+		assert.ok(!h.active().includes("plan_step_control"));
+		h.entries.push({ type: "message", message: { role: "assistant", content: [] } });
+		assert.equal(await h.event("tool_call", { toolName: "write", input: { path: path.join(dir, "unrelated.ts") } }), undefined);
+		assert.equal((await h.event("tool_call", { toolName: "write", input: { path: fileA } })).block, true);
+		await assert.rejects(h.tool("plan_complete"), /No attached/);
+		await assert.rejects(h.tool("plan_step_complete", { summary: "unrelated fix" }), /No plan step/);
+		const detached = await h.event("context", { messages: [] });
+		assert.match(detached.messages.at(-1).content, /No plan is attached/);
+		await assert.rejects(h.tool("plan_task", { action: "resume", expectedAttached: 1, targetSequence: 1 }), /Stale/);
+		await assert.rejects(h.tool("plan_task", { action: "resume", expectedAttached: null }), /targetSequence/);
+		await h.command("");
+		assert.equal(h.state().collection.attached, 2, "Plan entry never silently resumes A");
+		await h.tool("plan_task", { action: "update", sequence: 2, title: "Billing", scope: "Export invoices" });
+		const fileB = makePlanPath(path.join(dir, "plans"), "session", 2);
+		fs.writeFileSync(fileB, "# Billing\n");
+		await h.build();
+		await h.tool("plan_task", { action: "resume", expectedAttached: 2, targetSequence: 1 });
+		assert.deepEqual(h.state().execution, progress);
+		assert.equal(h.state().collection.records.find((r: any) => r.plan.sequence === 2).plan.status, "open");
+		await h.command("pause");
+		const beforeCancel = structuredClone(h.state().collection);
+		h.ctx.ui.select = async () => undefined as any;
+		await h.command("resume");
+		assert.deepEqual(h.state().collection, beforeCancel, "cancelled ambiguous selection changes nothing");
+		await h.command("resume 1");
+		const restored = harness(dir, structuredClone(h.entries));
+		await restored.event("session_start", { reason: "reload" });
+		assert.equal(restored.state().collection.attached, 1);
+		assert.equal(restored.state().plan.task.scope, "Login and logout redirects");
+		assert.deepEqual(restored.state().execution, progress);
+		const fork = harness(dir, structuredClone(restored.entries), "fork");
+		await fork.event("session_start", { reason: "fork" });
+		assert.equal(fs.readFileSync(makePlanPath(path.join(dir, "plans"), "fork", 1), "utf8"), markdown);
+		assert.equal(fs.readFileSync(makePlanPath(path.join(dir, "plans"), "fork", 2), "utf8"), "# Billing\n");
+		await restored.tool("plan_step_complete", { summary: "Login verified" });
+		assert.equal(restored.state().collection.attached, null);
+		assert.equal(restored.state().collection.records.find((r: any) => r.plan.sequence === 1).plan.status, "completed");
+		assert.equal(restored.state().collection.records.find((r: any) => r.plan.sequence === 2).plan.status, "open");
+		await restored.tool("plan_task", { action: "resume", expectedAttached: null, targetSequence: 2 });
+		assert.equal(restored.state().plan.task.title, "Billing");
+		assert.equal(fs.readFileSync(fileA, "utf8"), markdown);
+		assert.equal(fs.readFileSync(fileB, "utf8"), "# Billing\n");
+		// Navigating to a prior branch restores that branch's attachment and progress.
+		const historical = harness(dir, attachedBranch);
+		await historical.event("session_start", { reason: "resume" });
+		await historical.tool("plan_task", { action: "pause", expectedAttached: 1 });
+		historical.entries.pop();
+		await historical.event("session_tree");
+		const historyContext = await historical.event("context", { messages: [] });
+		assert.match(historyContext.messages.at(-1).content, /Active task sequence \(internal\): 1/);
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("titles follow unfinished plans across modes, saved-file refreshes, and completion", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-title-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		h.ctx.ui.getEditorComponent = () => (() => {}) as any;
+		const status = () => h.events.filter((e) => e.kind === "status").at(-1)?.text;
+		await h.event("session_start", { reason: "startup" });
+		assert.equal(status(), "build", "ordinary Build session has no task label");
+		assert.equal(h.state().collection.attached, null);
+		assert.deepEqual(h.state().collection.records, []);
+		await h.command("");
+		assert.equal(status(), "plan", "an empty Plan slot has no task label");
+		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
+		fs.writeFileSync(file, "# Saved heading\n");
+		await h.event("tool_result", { toolName: "write", input: { path: file }, isError: false });
+		assert.equal(status(), "Saved heading");
+		await h.build();
+		assert.equal(status(), "Saved heading");
+		await h.event("session_start", { reason: "reload" });
+		assert.equal(status(), "Saved heading");
+		assert.equal(fs.readFileSync(file, "utf8"), "# Saved heading\n");
+		fs.writeFileSync(file, "No heading\n");
+		await h.event("tool_result", { toolName: "edit", input: { path: file }, isError: false });
+		assert.equal(status(), "Untitled task");
+		await h.command("");
+		await h.tool("plan_task", { action: "update", sequence: 1, title: "Fix redirects", scope: "Fix login" });
+		await h.build();
+		assert.equal(status(), "Fix redirects");
+		await h.command("");
+		assert.equal(status(), "Fix redirects");
+		fs.writeFileSync(file, "# Different heading\n");
+		await h.event("tool_result", { toolName: "write", input: { path: file }, isError: false });
+		assert.equal(status(), "Fix redirects", "metadata takes precedence");
+		await h.build();
+		await h.tool("plan_complete");
+		assert.equal(status(), "build", "completion refreshes status immediately");
+		await h.command("");
+		assert.equal(status(), "plan", "re-entering Plan after completion has no task label");
+		await h.event("session_start", { reason: "reload" });
+		assert.equal(status(), "plan", "an empty reserved slot remains untitled without a placeholder after reload");
+		await h.tool("plan_task", { action: "update", sequence: 2, title: "Export billing", scope: "Export invoices" });
+		await h.build();
+		assert.equal(status(), "Export billing");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("task identity and decisions survive restore while separate tasks preserve saved files", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-task-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		await h.command("");
+		assert.ok(h.active().includes("plan_task"));
+		await h.tool("plan_task", { action: "update", sequence: 1, title: "Fix login redirects", scope: "Fix redirects" });
+		const first = makePlanPath(path.join(dir, "plans"), "session", 1);
+		assert.equal(fs.existsSync(first), false);
+		fs.writeFileSync(first, "# Login plan\n");
+		await h.tool("plan_task", { action: "include", sequence: 1, topic: "Logout", scope: "Fix redirects and logout" });
+		await h.tool("plan_task", { action: "discussion", sequence: 1, topic: "Billing", scope: "must not replace scope" });
+		await h.tool("plan_task", { action: "discussion", sequence: 1, topic: "billing" });
+		assert.equal(h.state().plan.task.decisions.length, 2);
+		assert.equal(h.state().plan.task.scope, "Fix redirects and logout");
+		h.state().collection.records[0].execution = createPlanExecution("# Login\n\n## Implementation Steps\n1. Fix login\n");
+		const restored = harness(dir, h.entries);
+		await restored.event("session_start", { reason: "resume" });
+		assert.ok(restored.state().execution);
+		const context = await restored.event("context", { messages: [] });
+		assert.match(context.messages.at(-1).content, /Fix login redirects/);
+		assert.match(context.messages.at(-1).content, /discussion/);
+		assert.match(context.messages.at(-1).content, /billing/);
+		// Trigger reduced UI to exercise the title-only status fallback.
+		restored.ctx.ui.getEditorComponent = () => (() => {}) as any;
+		await restored.prompt("Continue discussing");
+		assert.ok(restored.events.some((e) => e.kind === "status" && e.text === "Fix login redirects"));
+		await assert.rejects(restored.tool("plan_task", { action: "new", sequence: 0, title: "Wrong", scope: "Wrong" }), /Stale/);
+		await assert.rejects(restored.tool("plan_task", { action: "new", sequence: 1 }), /title and scope/);
+		restored.ctx.ui.select = async () => PLAN_EXIT_FRESH_CHOICE;
+		await restored.tool("plan_exit");
+		restored.entries.push({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "plan_task" }, { type: "toolCall", name: "write" }] } });
+		assert.equal((await restored.event("tool_call", { toolName: "write", input: { path: first } })).block, true);
+		const result = await restored.tool("plan_task", { action: "new", sequence: 1, title: "Billing exports", scope: "Export invoices" });
+		const second = makePlanPath(path.join(dir, "plans"), "session", 2);
+		assert.equal(result.details.planPath, second);
+		assert.match(result.content[0].text, /Billing exports/);
+		assert.equal(fs.readFileSync(first, "utf8"), "# Login plan\n");
+		assert.equal(fs.existsSync(second), false);
+		assert.deepEqual(restored.state().plan.task.decisions, []);
+		assert.equal(restored.state().plan.status, "open");
+		assert.equal(restored.state().execution, undefined);
+		await restored.commands.get("build-fresh").handler("", restored.ctx);
+		assert.ok(restored.events.some((e) => e.kind === "notify" && e.text.startsWith("No fresh implementation is pending")));
+		restored.entries.push({ type: "message", message: { role: "assistant", content: [] } });
+		assert.equal((await restored.event("tool_call", { toolName: "write", input: { path: first } })).block, true);
+		assert.equal(await restored.event("tool_call", { toolName: "write", input: { path: second } }), undefined);
+		await restored.build();
+		assert.ok(restored.active().includes("plan_task"));
+		await restored.tool("plan_task", { action: "update", sequence: 2, title: "Billing title in Build" });
+		await assert.rejects(restored.tool("plan_task", { action: "new", sequence: 2 }), /Plan mode/);
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
 
 test("plan lifecycle keeps revisions, preserves completed plans, and restores the active task", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-lifecycle-"));
@@ -221,13 +413,20 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 	try {
 		for (const mode of ["tui", "rpc"]) {
 			for (const choice of [PLAN_EXIT_APPROVE_CHOICE, PLAN_EXIT_STAY_CHOICE, undefined, PLAN_EXIT_FRESH_CHOICE]) {
+				// Each case starts a fresh session; do not reuse prior cases' numbered plan files.
+				fs.rmSync(path.join(dir, "plans"), { recursive: true, force: true });
 				const h = harness(dir);
 				await h.event("session_start", { reason: "startup" });
 				assert.equal(h.events.some(e => e.customType === "pi-plan-build-notice"), false, "ordinary startup does not announce fresh implementation");
 				await h.command("");
+				await h.tool("plan_task", { action: "update", sequence: 1, title: "Approved task title", scope: "Implement approved plan" });
 				h.ctx.mode = mode;
 				h.ctx.ui.select = async () => choice as any;
 				fs.writeFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), "# Approved plan\n");
+				if (choice === PLAN_EXIT_FRESH_CHOICE) {
+					await h.tool("plan_task", { action: "new", sequence: 1, title: "Paused work", scope: "Other work" });
+					await h.tool("plan_task", { action: "resume", expectedAttached: h.state().collection.attached, targetSequence: 1 });
+				}
 				h.events.length = 0;
 				const result = await h.tool("plan_exit");
 				const notices = h.events.filter(e => e.kind === "entry" && e.customType === "pi-plan-build-notice");
@@ -245,10 +444,13 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 							appendCustomEntry: (customType: string, data: any) => child.entries.push({ type: "custom", customType, data }),
 						});
 						assert.equal(child.state().pendingFreshAnnouncement, true);
+						assert.equal(child.state().plan.task.title, "Approved task title");
 						assert.equal(destination.length, 0);
 						await h.event("session_shutdown");
 						await child.event("session_start", { reason: "new" });
 						assert.equal(child.state().pendingFreshAnnouncement, true);
+						assert.equal(child.state().collection.records.length, 1);
+						assert.ok(h.state().collection.records.some((r: any) => r.plan.task?.title === "Paused work"));
 						assert.equal(destination.some(e => e.kind === "render" || e.text === PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"]), false);
 						await withSession({
 							...child.ctx,
@@ -341,7 +543,8 @@ test("fresh acknowledgement survives reload before kickoff and filters only its 
 		const context = await restored.event("context", { messages: [
 			...keep, { role: "custom", customType: "pi-plan-build-fresh-announcement", content: "UI only" },
 		] });
-		assert.deepEqual(context.messages, keep);
+		assert.deepEqual(context.messages.filter((message: any) => message.customType !== "pi-plan-build-task"), keep);
+		assert.match(context.messages.at(-1).content, /Build mode permits free discussion/);
 		await restored.event("session_shutdown");
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;

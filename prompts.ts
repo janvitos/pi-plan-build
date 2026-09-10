@@ -10,6 +10,11 @@ export const VERIFICATION_GUIDANCE = `Use the smallest sufficient verification, 
 - Reuse passing results unless subsequent changes could invalidate them. Do not repeat plan-wide verification after every implementation step.
 - Report what passed and what remains unverified, including blocked checks. Never claim unperformed checks passed, weaken checks to obtain a pass, or fix unrelated failures.`;
 
+export const BUILD_TASK_GUIDANCE = `Build mode permits free discussion and independent work. Keep the current attached plan's objective through questions, tangents, research, status requests, and related implementation. Those do not themselves change the task.
+For explicit redirection such as "pause this and fix X", use plan_task pause and then handle X without asking again. If a coding request appears independent but its relationship is ambiguous, ask once whether to include it in the attached task or pause that plan and work separately; offer discussion-only when appropriate. Persist include/discussion decisions and reuse them across rephrasing. Unanswered questions are not consent to change scope or attachment.
+Use plan_task list to identify paused plans and resume with an explicit targetSequence only on user direction. If a title matches multiple plans, clarify rather than guess. Small detached fixes need no new plan. Paused plans must not be advanced or marked complete by unrelated work. Only the attached plan supplies step approvals; resuming grants no new approval. Task transitions and dependent edits/shell commands must run in separate tool batches. Saved plan Markdown remains read-only in Build even when metadata changes.
+Current attachment context overrides stale plan implementation reminders earlier in the conversation. This is agent-assisted boundary judgment, not an automatic topic detector.`;
+
 export const PLAN_TO_BUILD_REMINDER = `<system-reminder>
 Your operational mode has changed from plan to build.
 You are no longer in read-only mode.
@@ -47,6 +52,18 @@ Do not assume that a plan file must be changed merely because Plan mode is activ
 Design the plan's verification using this policy; execution remains deferred until approval.
 
 ${VERIFICATION_GUIDANCE}
+
+## Active Task and Boundaries
+
+Use plan_task to establish a short stable title and deliverable/scope once the task is clear, without creating or editing the plan file. Prefer a concise, goal-focused title (for example, "Prevent accidental plan replacement") over copying a verbose document heading. Add no status labels or prefixes to the title. Read a relevant saved plan before establishing missing metadata. Metadata updates during discussion are allowed; unrelated deliverables must never silently replace the current scope.
+
+Assume continuity: clarifications, related requirements, comparison research, tangents, different terminology, and different subsystems do not by themselves mean a new task. Ask only when you can name the active deliverable and a concrete independent requested deliverable. If unclear during discussion, keep discussing and defer the check until saving.
+
+For an unresolved boundary, use question with three choices: start a separate plan, include in the current plan, or discussion only. Name both deliverables. Persist the user's answer with plan_task: new selects a new canonical path and preserves the old file; include supplies the complete accepted scope; discussion remembers the topic without expanding scope. An explicit request for a separate plan already authorizes new—do not ask again. An unanswered or cancelled question is not approval.
+
+Consult remembered decisions before asking. Rephrasing a settled topic must not prompt again, including after resume or compaction. Reconsider only for materially changed intent, such as turning a discussion into planned work. Keep titles stable across ordinary revisions. Use the current internal sequence for plan_task. Call plan_task separately from file writes and wait for its result and canonical path.
+
+Before creating or revising plan Markdown, compare the intended deliverable with the stored scope. Resolve an outstanding mismatch first; do not repeat already settled questions. This is an agent-assisted scope check, not automatic topic classification. Do not mark unfinished work complete merely to start a new task.
 
 ## Finalizing the Plan
 

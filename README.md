@@ -84,7 +84,10 @@ Do not install more than one npm, Git, or local copy at the same time; duplicate
 | `Tab` (default editor shortcut) | With the custom composer active, cycle modes when autocomplete is closed; accept a suggestion when it is open |
 | `/plan-settings` | Choose a shortcut preset or locate the custom configuration file |
 | `/plan` | Resume the unfinished plan, or select a new plan file after completion |
-| `/plan new` | Start a separate task in Plan mode, preserving previous plan files and clearing previous step execution |
+| `/plan new` | Start a separate task in Plan mode, preserving the previous unfinished plan and its progress as paused |
+| `/plan pause` | Detach the current plan so unrelated work does not advance it |
+| `/plan resume [sequence]` | Reattach a paused plan; choose from a list when more than one is available |
+| `/plan list` | List tracked plans, identities, attachment state, and paths |
 | `/plan done` | In Build mode, explicitly mark the saved plan's implementation complete |
 | `/build` | Select Build mode |
 | `pi --plan` | Start a new session in Plan mode |
@@ -135,7 +138,31 @@ The agent may also enter Plan mode with `plan_enter` when planning or investigat
 
 One task uses one plan file across discussion, revisions, approval, and temporary mode changes. Approval or the end of an agent turn does **not** mark implementation complete. For normal Build execution, the agent calls `plan_complete` after finishing implementation and required verification; `/plan done` is the manual equivalent. Completing the final step in step-by-step execution also marks the plan complete. The next entry into Plan mode selects a new numbered file without modifying the old one.
 
-Use `/plan new` for an unrelated task before the current plan is finished. It preserves existing files but clears the previous step-by-step execution and pending fresh-session handoff. `/plan new` and `/plan done` require an idle agent. Cancelling step execution does not mark a plan complete.
+### Active task and topic changes
+
+The composer’s top border shows only the unfinished task’s title (for example, `Fix login redirects`) in both Plan and Build modes. It stays visible through pauses and mode switches, disappears on completion, and changes when a separate task starts. Long titles truncate to fit. Mode/model/provider/thinking metadata is embedded directly in the bottom border, matching the top title's placement, with its existing colors and width-aware truncation. The same task label appears in the existing status indicator when another extension owns the composer; plan numbers remain internal.
+
+For older saved plans without task metadata, the first nonempty top-level Markdown heading outside fenced code is used as a display fallback, without changing the file or inferring scope. Task metadata takes precedence. If neither supplies a title, `Untitled task` appears only for an existing unfinished task/plan with metadata or a saved file. Empty reserved plan slots show no task label in either mode, including when returning to Plan mode after completion. Fresh-session implementation preserves task metadata and its title.
+
+The agent uses `plan_task` to persist a stable title, scope, and user boundary decisions without creating or editing plan Markdown during discussion. It assumes continuity for clarifications, research, and tangents. When a request introduces a concrete independent deliverable, it can ask whether to start a separate plan, include the work in this plan, or keep it discussion-only. Decisions survive resume and are supplied to the agent after compaction; rephrasing a settled topic should not prompt again. A later request to turn discussion into planned work may warrant reconsideration.
+
+An explicit request for a separate plan already authorizes the agent to start one without another confirmation. Before saving, the agent checks the intended deliverable against the active scope and resolves outstanding mismatches. This is agent-assisted judgment, not a guaranteed topic detector. The extension enforces task sequence/path transitions, blocks file writes in the same batch as task metadata changes, and preserves earlier plan files.
+
+To try the behavior in a disposable session: enter `/plan`, ask for a login-fix plan, clarify a related requirement, and discuss another CLI. The title should remain stable without boundary questions. Request billing exports as independent work: expect one boundary question. Choose discussion-only and rephrase that discussion: expect no repeat. Explicitly request a separate billing-export plan: expect the title to change without another confirmation, while the login plan remains preserved. Narrow the terminal to check title truncation.
+
+Use `/plan new` for an unrelated planning task before the current plan is finished. It preserves the previous plan's file, metadata, decisions, and step progress as a paused record, and clears its pending fresh-session handoff. Lifecycle commands require an idle agent. Cancelling step execution does not mark a plan complete.
+
+### Unrelated Build work and paused plans
+
+Build allows free discussion and independent coding. Questions, tangents, research, and related changes normally keep the same attachment. A clear request such as “pause this and fix X” authorizes the agent to detach the plan and handle X without asking again. For an independent coding request whose relationship is ambiguous, the agent asks once whether to include it in the current task or pause the plan and work separately. It remembers your decision. Small detached fixes require no new plan.
+
+`plan_task` supports `list`, `pause`, and `resume` in both modes, as well as metadata-only `update`, `include`, and `discussion` for an attached plan. `new` remains Plan-only. Mutating actions validate the expected attachment; resume uses an explicit target sequence after resolving the user's intended title. Commands provide manual equivalents; `/plan resume` selects the sole paused plan or asks which one, and noninteractive clients must supply a sequence when ambiguous.
+
+Multiple paused plans can coexist, but only one is attached. Detaching hides its title/panel and removes its step tools and implementation reminders without losing progress. Resuming preserves any other attached unfinished plan as paused; it does not change mode, execute code, or grant new step approval. The step-runner's existing pause toggle is separate: it pauses execution inside the attached plan rather than detaching it. Completion applies only to the attachment. Entering Plan mode while detached reserves a new plan, never silently resumes a paused one.
+
+Tracked plan Markdown remains read-only in Build even when paused. Plan mode can edit only its attached canonical plan file. Transitions must precede dependent edits/shell calls in a separate tool batch. These guards protect lifecycle identity and tracked edit/write paths; semantic topic recognition is agent-assisted, and this is not a shell/filesystem sandbox.
+
+Plan collections survive reload and branch restoration. Forks copy tracked saved files into the child session's canonical paths, leaving source files intact. Fresh implementation transfers only the selected approved plan; other paused plans remain in the source session.
 
 Plan files are written only when finalizing or revising, not merely when selecting a new task. Reload/resume restores the active file and lifecycle; forks copy the tracked plan into the child session's own file. Legacy unnumbered files are retained without renaming.
 
