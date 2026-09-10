@@ -23,6 +23,18 @@ jobs:
           node-version: 24
           registry-url: https://registry.npmjs.org
 
+      - name: Check tag matches package version
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          if (process.env.RELEASE_TAG !== `v${pkg.version}`) {
+            throw new Error(`Tag ${process.env.RELEASE_TAG} does not match package version ${pkg.version}`);
+          }
+          NODE
+
       - name: Install current npm
         run: npm install --global npm@latest
 
@@ -31,3 +43,45 @@ jobs:
 
       - name: Publish package
         run: npm publish --access public --provenance
+
+      - name: Confirm exact published tarball is available
+        run: |
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs/promises';
+          import os from 'node:os';
+          import path from 'node:path';
+          import { execFileSync } from 'node:child_process';
+          import { setTimeout as delay } from 'node:timers/promises';
+          const expected = JSON.parse(await fs.readFile('package.json', 'utf8'));
+          const metadataUrl = `https://registry.npmjs.org/${encodeURIComponent(expected.name)}/${encodeURIComponent(expected.version)}`;
+          const temporary = await fs.mkdtemp(path.join(os.tmpdir(), 'published-package-'));
+          async function download(url) {
+            const response = await fetch(url, { signal: AbortSignal.timeout(30000) });
+            if (!response.ok) throw new Error(`HTTP ${response.status} from ${url}`);
+            return Buffer.from(await response.arrayBuffer());
+          }
+          try {
+            let confirmed = false;
+            for (let attempt = 1; attempt <= 6; attempt++) {
+              try {
+                const metadata = JSON.parse((await download(metadataUrl)).toString('utf8'));
+                if (metadata.name !== expected.name || metadata.version !== expected.version) throw new Error('Registry metadata identity mismatch');
+                const url = new URL(metadata.dist.tarball);
+                if (url.protocol !== 'https:' || url.hostname !== 'registry.npmjs.org') throw new Error('Unexpected tarball origin');
+                const tarball = path.join(temporary, 'package.tgz');
+                await fs.writeFile(tarball, await download(url));
+                const actual = JSON.parse(execFileSync('tar', ['-xOf', tarball, 'package/package.json'], { encoding: 'utf8', timeout: 30000 }));
+                if (actual.name !== expected.name || actual.version !== expected.version) throw new Error('Downloaded package identity mismatch');
+                console.log(`Confirmed downloadable tarball: ${actual.name}@${actual.version}`);
+                confirmed = true;
+                break;
+              } catch (error) {
+                console.warn(`Availability attempt ${attempt}/6 failed: ${error.message}`);
+                if (attempt < 6) await delay(10000);
+              }
+            }
+            if (!confirmed) throw new Error('Publication may have succeeded, but artifact availability was not confirmed. Investigate the registry; do not automatically unpublish, bump again, or republish this version.');
+          } finally {
+            await fs.rm(temporary, { recursive: true, force: true });
+          }
+          NODE

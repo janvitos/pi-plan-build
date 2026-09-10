@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+	activePlanStep,
+	executablePlanStep,
 	completePlanStep,
 	createPlanExecution,
 	decodePlanExecution,
@@ -112,6 +114,32 @@ test("instruction revisions preserve numbered and legacy markers and newline sty
 		}
 	}
 	assert.throws(() => updatePlanStepInstruction("## Implementation Steps\n- [x] Done", 1, "Changed"), /changed/);
+});
+
+test("fenced examples do not supply headings, steps, duplicates, or section boundaries", () => {
+	for (const fence of ["```", "~~~~"]) {
+		const source = `${fence}markdown\n# Example\n## Implementation Steps\n1. Fake\n${fence}\n# Real\n## Implementation Steps\n1. Real\n${fence}\n## Notes\n2. Real\n${fence}\n2. Next\n`;
+		assert.deepEqual(createPlanExecution(source).steps.map((step) => step.text), ["Real", "Next"]);
+	}
+});
+
+test("paused active steps retain progress without executable authority", () => {
+	const active = startPlanStep(createPlanExecution(plan), "step-1");
+	const paused = pausePlanExecution(active);
+	assert.equal(activePlanStep(paused)?.id, "step-1");
+	assert.equal(executablePlanStep(paused), undefined);
+	assert.equal(executablePlanStep(pausePlanExecution(paused))?.id, "step-1");
+	assert.throws(() => startPlanStep(pausePlanExecution(createPlanExecution(plan)), "step-1"), /Resume/);
+	const recorded = completePlanStep(pausePlanExecution(createPlanExecution(plan)), "step-1");
+	assert.equal(recorded.status, "paused", "recording already-done work does not resume implementation");
+	assert.equal(executablePlanStep(recorded), undefined);
+});
+
+test("revisions compare expected content and preserve whitespace", () => {
+	const source = "## Implementation Steps\r\n1. Original  \r\n2. Other\r\n";
+	assert.equal(updatePlanStepInstruction(source, 1, "Revised", "Original"), source.replace("Original", "Revised"));
+	assert.throws(() => updatePlanStepInstruction(source, 2, "Wrong", "Original"), /changed/);
+	assert.throws(() => updatePlanStepInstruction(source, 1, "new\n2. injected", "Original"), /single-line/);
 });
 
 test("pause toggles without losing state and persisted state decodes defensively", () => {

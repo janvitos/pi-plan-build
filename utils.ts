@@ -1,4 +1,5 @@
 import path from "node:path";
+import { scanPlanMarkdown } from "./plan-markdown.ts";
 import fs from "node:fs";
 import { decodePlanExecution, type PlanExecutionState } from "./plan-execution.ts";
 import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
@@ -101,7 +102,6 @@ export function renderModeComposer(
 	topBorder: string,
 	leftRailPrefix: string,
 	rightRail: string,
-	topRightRail: string,
 	metadata: string,
 	bottomLeftCorner: string,
 	reservedWidth: number,
@@ -125,7 +125,7 @@ export function renderModeComposer(
 	const bottomBorder = bottomLeftCorner + label + borderColor("─".repeat(Math.max(0, width - 2 - visibleWidth(label))) + "╯");
 	return [
 		topBorder,
-		addRightRail(leftRailPrefix, topRightRail),
+		addRightRail(leftRailPrefix),
 		...promptLines,
 		addRightRail(leftRailPrefix),
 		bottomBorder,
@@ -246,15 +246,7 @@ export function cleanTaskTitle(title: string): string {
 }
 
 export function extractPlanTitle(markdown: string): string | undefined {
-	let fence: { char: string; length: number } | undefined;
-	for (const line of markdown.split(/\r?\n/)) {
-		const marker = line.match(/^ {0,3}(`{3,}|~{3,})(.*)$/);
-		if (marker) {
-			if (!fence) fence = { char: marker[1][0], length: marker[1].length };
-			else if (marker[1][0] === fence.char && marker[1].length >= fence.length && !marker[2].trim()) fence = undefined;
-			continue;
-		}
-		if (fence) continue;
+	for (const { line } of scanPlanMarkdown(markdown)) {
 		const heading = line.match(/^ {0,3}#\s+(.+)$/);
 		if (heading) {
 			const title = cleanTaskTitle(heading[1].replace(/\s+#+\s*$/, ""));
@@ -320,6 +312,7 @@ export function decodePlanLifecycle(value: unknown): PlanLifecycle | undefined {
 		Array.isArray(task.decisions) && task.decisions.every((d) => d && typeof d.topic === "string" && (d.outcome === "include" || d.outcome === "discussion"));
 	const outcome = candidate.outcome;
 	const validOutcome = outcome && ["awaiting_validation", "blocked", "waiting_for_input", "still_working"].includes(outcome.kind) && typeof outcome.reason === "string" && (outcome.userAction === undefined || typeof outcome.userAction === "string");
+	if (candidate.task !== undefined && !validTask || candidate.outcome !== undefined && !validOutcome) return undefined;
 	return { sequence: candidate.sequence!, status: candidate.status,
 		...(validOutcome ? { outcome: { ...outcome } } : {}),
 		...(validTask ? { task: { title: cleanTaskTitle(task.title), scope: task.scope, decisions: task.decisions.map((d) => ({ ...d })) } } : {}) };
@@ -382,7 +375,7 @@ export function resolveToolPath(cwd: string, inputPath: unknown): string | undef
 
 export function isAllowedPlanMutation(cwd: string, inputPath: unknown, planPath: string): boolean {
 	const resolved = resolveToolPath(cwd, inputPath);
-	return resolved !== undefined && resolved === path.resolve(planPath);
+	return !!planPath && resolved !== undefined && resolved === path.resolve(planPath);
 }
 
 export interface QuestionAnswerData {

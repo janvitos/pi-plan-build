@@ -1,3 +1,5 @@
+import { scanPlanMarkdown } from "./plan-markdown.ts";
+
 export type PlanStepStatus = "pending" | "ready" | "active" | "completed" | "skipped";
 
 export interface PlanStep {
@@ -23,14 +25,13 @@ const NEXT_H2 = /^##\s+/;
 const IMPLEMENTATION_ITEM = /^(\d+\.\s+|- \[ \]\s+)(\S.*?)\s*$/;
 
 export function parseImplementationSteps(plan: string): PlanStep[] {
-	const lines = plan.replace(/\r\n?/g, "\n").split("\n");
-	const heading = lines.findIndex((line) => IMPLEMENTATION_HEADING.test(line.trim()));
+	const lines = [...scanPlanMarkdown(plan)];
+	const heading = lines.findIndex(({ line }) => IMPLEMENTATION_HEADING.test(line.trim()));
 	if (heading < 0) throw new Error("The plan needs a ‘## Implementation Steps’ section");
 
 	const steps: PlanStep[] = [];
 	const seen = new Set<string>();
-	for (let index = heading + 1; index < lines.length; index++) {
-		const line = lines[index]!;
+	for (const { line, index } of lines.slice(heading + 1)) {
 		if (NEXT_H2.test(line.trim())) break;
 		const match = IMPLEMENTATION_ITEM.exec(line);
 		if (!match) continue;
@@ -128,6 +129,7 @@ export function formatPlanCompletionSummary(state: PlanExecutionState): string {
 export function startPlanStep(state: PlanExecutionState, id: string): PlanExecutionState {
 	const next = clone(state);
 	if (next.status === "completed") throw new Error("The plan is already complete");
+	if (next.status === "paused") throw new Error("Resume plan execution before starting a step");
 	const step = findStep(next, id);
 	if (step.status !== "ready") throw new Error("Only a ready step can be implemented");
 	step.status = "active";
@@ -173,17 +175,24 @@ export function pausePlanExecution(state: PlanExecutionState): PlanExecutionStat
 	return { ...clone(state), status: state.status === "paused" ? "running" : "paused" };
 }
 
-export function updatePlanStepInstruction(plan: string, sourceLine: number, text: string): string {
+export function updatePlanStepInstruction(plan: string, sourceLine: number, text: string, expected?: string): string {
 	const newline = plan.includes("\r\n") ? "\r\n" : "\n";
 	const lines = plan.replace(/\r\n?/g, "\n").split("\n");
 	const match = Number.isInteger(sourceLine) && sourceLine >= 0 && sourceLine < lines.length
 		? IMPLEMENTATION_ITEM.exec(lines[sourceLine]!)
 		: null;
-	if (!match) {
+	if (!match || (expected !== undefined && match[2].trim() !== expected) ||
+		![...scanPlanMarkdown(plan)].some(({ index }) => index === sourceLine)) {
 		throw new Error("The saved plan changed and the selected implementation step can no longer be updated safely");
 	}
-	lines[sourceLine] = `${match[1]}${text.trim()}`;
+	if (!text.trim() || /[\r\n]/.test(text)) throw new Error("A plan step must be a nonempty single-line instruction");
+	const trailing = lines[sourceLine].match(/\s*$/)![0];
+	lines[sourceLine] = `${match[1]}${text.trim()}${trailing}`;
 	return lines.join(newline);
+}
+
+export function executablePlanStep(state: PlanExecutionState | undefined): PlanStep | undefined {
+	return state?.status === "running" ? activePlanStep(state) : undefined;
 }
 
 export function activePlanStep(state: PlanExecutionState | undefined): PlanStep | undefined {

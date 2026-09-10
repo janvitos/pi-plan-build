@@ -65,7 +65,7 @@ test("composer outline uses only solid lines and rounded corners", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
 	for (const mode of ["plan", "build"] as const) for (const title of [undefined, "Task title"]) {
 		const top = formatModeTopBorder(mode, 40, "╮", theme, title);
-		const output = renderModeComposer(["top", "  input", "─".repeat(40)], top, "│ ", "│", "│", "metadata", "╰", 2, 40, { truncate: (s, w) => truncateToWidth(s, w, ""), measure: visibleWidth });
+		const output = renderModeComposer(["top", "  input", "─".repeat(40)], top, "│ ", "│", "metadata", "╰", 2, 40, { truncate: (s, w) => truncateToWidth(s, w, ""), measure: visibleWidth });
 		assert.doesNotMatch(output.join("\n"), /[╌┆┇]/);
 		assert.ok(top.endsWith("─╮"));
 		assert.ok(output[1].endsWith("│"));
@@ -205,16 +205,16 @@ test("optional UI ownership detects both extension load orders", () => {
 	assert.equal(ownsUiSlot(undefined, planBuildEditor), false);
 });
 
-test("mode composer joins border colors with dashed transitions and rail-colored corners", () => {
+test("mode composer preserves input, solid right rails, and width-safe bottom metadata", () => {
 	const ansiPattern = /\x1b\[[0-?]*[ -/]*[@-~]/gu;
 	const lineWidth = {
 		truncate: (line: string, width: number) => line.replace(ansiPattern, "").length <= width ? line : line.slice(0, width),
 		measure: (line: string) => line.replace(ansiPattern, "").length,
 	};
 	const lines = ["top border", "  first", "  second", "────────────────", "  autocomplete"];
-	assert.deepEqual(renderModeComposer(lines, "╭─────────────╌╮", "│ ", "│", "┆", "plan · high", "╰", 2, 16, lineWidth), [
+	assert.deepEqual(renderModeComposer(lines, "╭─────────────╌╮", "│ ", "│", "plan · high", "╰", 2, 16, lineWidth), [
 		"╭─────────────╌╮",
-		"│              ┆",
+		"│              │",
 		"│ first        │",
 		"│ second       │",
 		"│              │",
@@ -230,7 +230,6 @@ test("mode composer joins border colors with dashed transitions and rail-colored
 		"╭─────────────╌╮",
 		"│ ",
 		"│",
-		"┆",
 		"metadata",
 		"╰",
 		2,
@@ -247,16 +246,15 @@ test("mode composer joins border colors with dashed transitions and rail-colored
 			"╭─╌╮",
 			"│ ",
 			"│",
-			"┆",
 			"metadata",
 			"╰",
 			2,
 			4,
 			lineWidth,
 		).map((line) => line.replace(ansiPattern, "")),
-		["╭─╌╮", "│  ┆", "│ p│", "│  │", "╰ …╯", ""],
+		["╭─╌╮", "│  │", "│ p│", "│  │", "╰ …╯", ""],
 	);
-	assert.deepEqual(renderModeComposer(lines, "top", "│ ", "│", "┆", "metadata", "╰", 0, 16, lineWidth), lines);
+	assert.deepEqual(renderModeComposer(lines, "top", "│ ", "│", "metadata", "╰", 0, 16, lineWidth), lines);
 });
 
 test("bottom-border metadata keeps colors and fits Unicode widths in both modes", () => {
@@ -265,7 +263,7 @@ test("bottom-border metadata keeps colors and fits Unicode widths in both modes"
 	const strip = (text: string) => text.replace(/\x1b\[[0-?]*[ -/]*[@-~]/gu, "");
 	for (const mode of ["plan", "build"] as const) for (const width of [4, 12, 80]) {
 		const metadata = formatModeMetadata(mode, "low", theme, color, { modelName: "模型 🔑", modelProvider: "provider", rail: "" });
-		const output = renderModeComposer(["top", "  first", "  second", "─".repeat(width), "suggestion"], "top", "│ ", "│", "┆", metadata, "╰", 2, width, { truncate: (text, w) => truncateToWidth(text, w, ""), measure: visibleWidth }, color);
+		const output = renderModeComposer(["top", "  first", "  second", "─".repeat(width), "suggestion"], "top", "│ ", "│", metadata, "╰", 2, width, { truncate: (text, w) => truncateToWidth(text, w, ""), measure: visibleWidth }, color);
 		const bottom = output[5];
 		assert.ok(output.slice(0, 6).every((line) => visibleWidth(line) <= width));
 		assert.ok(strip(bottom).startsWith("╰"));
@@ -377,36 +375,25 @@ test("fresh implementation selection terminates and preserves the handoff", () =
 test("plan guidance supports conversation before persisted finalization", () => {
 	const reminder = buildPlanReminder("No plan file exists yet. Create it only when finalizing.");
 	assert.match(reminder, /Plan mode does not require every response to be a final plan/);
-	assert.match(reminder, /Answer informational questions and converse normally/);
-	assert.match(reminder, /Do not create or update the plan file/);
-	assert.match(reminder, /Do not call plan_exit/);
-	assert.match(reminder, /End your response normally when the conversation should continue/);
-	assert.match(reminder, /Do not assume that a plan file must be changed merely because Plan mode is active/);
-	assert.match(reminder, /Once you have enough information and are ready to present the final implementation plan/);
-	assert.match(reminder, /when the user explicitly asks you to finalize it/);
-	assert.match(reminder, /write the complete plan to the plan file and call plan_exit/);
-	assert.match(reminder, /only while finalizing the plan or explicitly revising an existing plan/);
+	assert.match(reminder, /answer normally without writing Markdown or calling plan_exit/);
+	assert.match(reminder, /continue discussion normally until ready/);
+	assert.match(reminder, /explicitly asked to finalize/);
+	assert.match(reminder, /write the complete plan at the attached canonical path and call plan_exit/);
 	assert.match(reminder, /brief `## Verification` section/);
-	assert.match(reminder, /smallest credible proof that the changed basic functionality works/);
-	assert.match(reminder, /avoid exhaustive regression, edge-case, performance, or compatibility testing/);
-	assert.match(reminder, /standalone bold labels without colons/);
-	assert.match(reminder, /Place `\*\*Agent\*\*` on its own line/);
-	assert.match(reminder, /behavioral test or smoke check/);
+	assert.match(reminder, /standalone bold labels without colons/i);
+	assert.match(reminder, /`\*\*Agent\*\*`/);
 	assert.match(reminder, /execution remains deferred until approval/);
-	assert.match(reminder, /specific inspection action when no command is needed/);
-	assert.match(reminder, /disclose that limitation rather than treating a build or type-check as equivalent/);
-	assert.match(reminder, /exact repository-supported command and a short expected observable result/);
-	assert.match(reminder, /Never invent commands/);
-	assert.match(reminder, /place `\*\*User\*\*` on its own line/);
-	assert.match(reminder, /cannot safely or realistically perform/);
-	assert.match(reminder, /must not perform these items unless separately requested/);
-	assert.match(reminder, /Omit this label and its checks when unnecessary/);
+	assert.match(reminder, /repository-supported commands with expected observable results/);
+	assert.match(reminder, /Never invent commands/i);
+	assert.match(reminder, /disclose missing behavioral verification rather than treating build\/type-check as equivalent/);
+	assert.match(reminder, /`\*\*User\*\*` only for essential checks/);
+	assert.match(reminder, /must not perform these unless separately requested/);
 	assert.doesNotMatch(reminder, /`### (?:Agent|User)`|\*\*(?:Agent|User):\*\*/);
-	assert.match(PLAN_EXIT_DESCRIPTION, /After you have written a complete plan to the plan file/);
+	assert.match(PLAN_EXIT_DESCRIPTION, /after finalizing it and resolving planning questions/);
 	assert.match(reminder, /## Implementation Steps/);
 	assert.match(reminder, /numbered items \(`1\. \.\.\.`, `2\. \.\.\.`\)/);
-	assert.match(reminder, /Do not use checkboxes or completion markers/);
-	assert.match(reminder, /completion is recorded only in extension-managed state/);
+	assert.match(reminder, /no checkboxes or completion markers/);
+	assert.match(reminder, /Record completion only through extension-managed step\/plan tools/);
 	assert.equal(reminder.includes("- [ ]"), false);
 });
 
@@ -450,11 +437,12 @@ test("step execution prompts constrain work to an approved active step", () => {
 	const waiting = buildPlanStepWaitingReminder("1. [ready] Build parser");
 	assert.match(waiting, /No plan step is currently approved/);
 	assert.match(waiting, /Do not modify the project/);
-	assert.match(waiting, /Interpret the user's intent contextually/);
-	assert.match(waiting, /complete action/);
-	assert.match(waiting, /“Approved,” “Go ahead,” or “Proceed” starts the current ready step/);
-	assert.match(waiting, /Cancellation is always available/);
-	assert.match(waiting, /passive visual aid/);
+	assert.match(waiting, /Interpret intent contextually/);
+	assert.match(waiting, /already finished may use complete instead/);
+	assert.match(waiting, /When running \(not paused\).*plan_step_control start/);
+	assert.match(waiting, /records past work, not permission to implement/);
+	assert.match(waiting, /Cancellation remains available/);
+	assert.match(waiting, /sidebar is passive and cannot receive input/);
 });
 
 test("prompt history restores normalized user text in chronological order", () => {

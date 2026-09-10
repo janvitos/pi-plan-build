@@ -5,6 +5,7 @@ import path from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
 import { CombinedAutocompleteProvider, matchesKey } from "@earendil-works/pi-tui";
 import planBuildModes from "./index.ts";
+import { eventHandlers } from "./test-events.ts";
 import { loadShortcutConfig, SHORTCUT_CONFIG_FILE } from "./shortcut-config.ts";
 
 let agentDir: string;
@@ -26,7 +27,7 @@ afterEach(async () => {
 });
 
 function createHarness(initialEditor?: unknown) {
-	const handlers = new Map<string, (...args: any[]) => unknown>();
+	const { handlers, on } = eventHandlers();
 	const registeredTools = new Map<string, any>();
 	let currentEditor = initialEditor;
 	const editorCalls: unknown[] = [];
@@ -50,9 +51,7 @@ function createHarness(initialEditor?: unknown) {
 	};
 	const keybindings = { matches: () => false };
 	const pi = {
-		on(name: string, handler: (...args: any[]) => unknown) {
-			handlers.set(name, handler);
-		},
+		on,
 		registerFlag() {},
 		registerTool(definition: any) { registeredTools.set(definition.name, definition); },
 		registerCommand(name: string, options: unknown) { commands.set(name, options); },
@@ -172,7 +171,7 @@ async function completeFile(harness: ReturnType<typeof createHarness>) {
 	editor.handleInput("\t");
 	assert.match(editor.getText(), /^Review README\.(md|txt)\s*$/);
 	assert.equal(editor.isShowingAutocomplete(), false);
-	assert.equal(harness.persisted.at(-1).selectedMode, "build");
+	assert.equal(harness.persisted.at(-1)?.selectedMode ?? "build", "build");
 }
 
 test("registers default Alt+M without taking Pi's Shift+Tab thinking shortcut", () => {
@@ -242,7 +241,7 @@ test("settings save the selected preset, retain active bindings until reload, an
 	assert.match(harness.selections[0]!.title, /active: Tab \+ Alt\+M/);
 	assert.deepEqual(harness.selections[0]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Custom (edit config file)"]);
 	assert.match(harness.notifications.at(-1)![0], /Saved Alt\+M only.*\/reload/);
-	assert.equal(harness.editor().matchesModeToggle("\t"), true);
+	await toggle(harness, "\t", "plan");
 	await shutdown(harness);
 
 	const reloaded = createHarness();
