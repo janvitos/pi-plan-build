@@ -75,11 +75,11 @@ export function formatModeMetadata(
 ): string {
 	const modeText = formatModeColor(mode, theme.bold(MODE_LABELS[mode]), theme);
 	const modelText = options
-		? `${theme.fg("dim", " • ")}${options.modelName}${
+		? `${theme.fg("dim", " · ")}${options.modelName}${
 			options.modelProvider ? theme.fg("dim", ` [${options.modelProvider}]`) : ""
 		}`
 		: "";
-	const thinkingSeparator = " • ";
+	const thinkingSeparator = " · ";
 	return `${options?.rail === "" ? "" : `${options?.rail ?? formatModeRail(mode, theme)} `}${modeText}${modelText}${theme.fg("dim", thinkingSeparator)}${thinkingColor(thinkingLevel)}`;
 }
 

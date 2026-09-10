@@ -171,7 +171,7 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 	assert.equal(formatModeTopBorder("build", 2, "\x1b[2m╮\x1b[22m", theme), "");
 	assert.equal(
 		formatModeMetadata("plan", "high", theme, thinkingColor),
-		"\x1b[38;2;245;167;66m│\x1b[39m \x1b[38;2;245;167;66m\x1b[1mplan\x1b[22m\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mhigh\x1b[39m",
+		"\x1b[38;2;245;167;66m│\x1b[39m \x1b[38;2;245;167;66m\x1b[1mplan\x1b[22m\x1b[39m\x1b[38;2;128;128;128m · \x1b[39m\x1b[38;2;0;255;0mhigh\x1b[39m",
 	);
 	assert.equal(
 		formatModeMetadata("build", "medium", theme, thinkingColor, {
@@ -179,7 +179,7 @@ test("mode composer uses colored rails and mode/thinking metadata", () => {
 			modelProvider: "openai",
 			rail: formatModeRail("build", theme, "┇"),
 		}),
-		"\x1b[38;2;92;156;245m┇\x1b[39m \x1b[38;2;92;156;245m\x1b[1mbuild\x1b[22m\x1b[39m\x1b[38;2;128;128;128m • \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m • \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
+		"\x1b[38;2;92;156;245m┇\x1b[39m \x1b[38;2;92;156;245m\x1b[1mbuild\x1b[22m\x1b[39m\x1b[38;2;128;128;128m · \x1b[39mgpt-5.6-sol\x1b[38;2;128;128;128m [openai]\x1b[39m\x1b[38;2;128;128;128m · \x1b[39m\x1b[38;2;0;255;0mmedium\x1b[39m",
 	);
 });
 
@@ -274,7 +274,7 @@ test("bottom-border metadata keeps colors and fits Unicode widths in both modes"
 		if (width === 80) {
 			assert.ok(bottom.includes("\x1b[33m"));
 			assert.ok(bottom.includes("\x1b[32m"));
-			assert.ok(strip(bottom).includes(`${mode} • 模型 🔑 [provider] • low`));
+			assert.ok(strip(bottom).includes(`${mode} · 模型 🔑 [provider] · low`));
 			assert.equal(output.filter((line) => strip(line).includes("provider")).length, 1);
 		}
 	}
