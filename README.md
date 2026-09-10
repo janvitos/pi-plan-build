@@ -118,7 +118,7 @@ The `context` hook refreshes one current mode/task block before each model reque
 
 ## Approval and completion
 
-`plan_exit` renders the **complete** saved plan in the transcript before asking to:
+`plan_exit` renders the **complete** saved plan in the TUI transcript; in RPC, it includes the complete review in the blocking selection request's title. RPC clients control how that title is displayed. It then asks to:
 
 - **Switch to Build and implement here**
 - **Start fresh and implement**
@@ -179,7 +179,7 @@ The layout integration uses public fullscreen primitives plus a guarded read of 
 
 Plan guidance allows only observation, analysis, discussion, and planning. Built-in edit/write calls may target **only the attached canonical plan path**, and only finalization or explicitly requested revision is appropriate. Other tools remain visible for exploration. Bash/powershell are not sandboxed in ordinary Plan mode: the read-only requirement is model guidance, not arbitrary shell classification.
 
-Build keeps tracked Markdown read-only; completion belongs in extension state. Extension-controlled revisions of unimplemented step instructions remain supported and share Pi’s file-mutation queue.
+Build keeps tracked Markdown read-only; completion belongs in extension state. Edit/write guards normalize Pi path forms (including `@` and `~`) and resolve filesystem symlink aliases, including existing parents of new files. Unresolvable targets fail closed. These guards are not an arbitrary-shell sandbox or protection against adversarial filesystem races. Extension-controlled revisions of unimplemented step instructions remain supported and share Pi’s file-mutation queue.
 
 Plans include a brief `## Verification` section with standalone **Agent** and, only when essential, **User** labels. Use the smallest sufficient behavior check with repository-supported commands and expected observations; prose-only changes may use inspection. Build/type-check alone does not prove runtime behavior. Add checks only for a concrete risk, observed failure, or explicit requirement. Reuse passing results, disclose deferrals and blocked/unperformed checks, and stop after approved required checks pass. Do not downgrade essential user validation to finish. These are model instructions, not guaranteed test limits; repository/CI requirements still apply.
 

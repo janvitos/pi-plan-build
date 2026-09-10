@@ -1,4 +1,6 @@
 import path from "node:path";
+import { homedir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { scanPlanMarkdown } from "./plan-markdown.ts";
 import fs from "node:fs";
 import { decodePlanExecution, type PlanExecutionState } from "./plan-execution.ts";
@@ -369,13 +371,36 @@ export function makePlanPath(plansDir: string, sessionId: string | undefined, se
 
 export function resolveToolPath(cwd: string, inputPath: unknown): string | undefined {
 	if (typeof inputPath !== "string" || inputPath.trim() === "") return undefined;
-	const withoutAt = inputPath.startsWith("@") ? inputPath.slice(1) : inputPath;
-	return path.resolve(cwd, withoutAt);
+	// Match Pi's built-in tool path normalization; its helper is not publicly exported.
+	let normalized = inputPath.replace(/[\u00A0\u2000-\u200A\u202F\u205F\u3000]/g, " ");
+	if (normalized.startsWith("@")) normalized = normalized.slice(1);
+	if (process.platform === "win32" && !normalized.startsWith("//") && !normalized.includes("\\")) {
+		const drive = /^\/(?:mnt\/|cygdrive\/)?([a-z])(?:\/(.*))?$/i.exec(normalized);
+		if (drive) normalized = `${drive[1].toUpperCase()}:\\${drive[2]?.replaceAll("/", "\\") ?? ""}`;
+	}
+	if (normalized === "~") normalized = homedir();
+	else if (normalized.startsWith("~/") || process.platform === "win32" && normalized.startsWith("~\\")) normalized = path.join(homedir(), normalized.slice(2));
+	if (normalized.startsWith("file://")) normalized = fileURLToPath(normalized);
+	return path.resolve(cwd, normalized);
+}
+
+/** Resolve new files through existing ancestors. Ambiguous filesystem errors fail closed. */
+function canonicalMutationPath(file: string): string {
+	try { return fs.realpathSync(file); }
+	catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+		// A dangling symlink is not an ordinary absent file; do not authorize through it.
+		if (fs.lstatSync(file, { throwIfNoEntry: false })?.isSymbolicLink()) throw new Error(`Cannot safely resolve dangling plan-path alias: ${file}`);
+		const parent = path.dirname(file);
+		if (parent === file) throw error;
+		return path.join(canonicalMutationPath(parent), path.basename(file));
+	}
 }
 
 export function isAllowedPlanMutation(cwd: string, inputPath: unknown, planPath: string): boolean {
+	if (!planPath) return false;
 	const resolved = resolveToolPath(cwd, inputPath);
-	return !!planPath && resolved !== undefined && resolved === path.resolve(planPath);
+	return resolved !== undefined && canonicalMutationPath(resolved) === canonicalMutationPath(path.resolve(planPath));
 }
 
 export interface QuestionAnswerData {

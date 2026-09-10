@@ -1130,6 +1130,99 @@ test("accumulated context is current, bounded, and read-only with one snapshot p
 	}
 });
 
+test("canonical aliases obey Plan and Build guards for new, current, and historical files", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-alias-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	const h = harness(dir);
+	try {
+		await h.event("session_start", { reason: "startup" });
+		await h.command("new");
+		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
+		const shorthand = `@~/${path.relative(os.homedir(), file)}`;
+		fs.symlinkSync(path.join(dir, "plans"), path.join(dir, "alias-dir"), "dir");
+		for (const toolName of ["write", "edit"]) {
+			for (const alias of [shorthand, path.join(dir, "alias-dir", path.basename(file))]) {
+				assert.equal((await h.event("tool_call", { toolName, input: { path: alias } }))?.block, undefined);
+			}
+		}
+		fs.writeFileSync(file, "# Plan");
+		fs.symlinkSync(file, path.join(dir, "alias.md"));
+		await h.build();
+		for (const historical of [false, true]) {
+			if (historical) await h.command("done");
+			for (const toolName of ["write", "edit"]) {
+				for (const alias of [shorthand, path.join(dir, "alias.md")]) {
+					assert.equal((await h.event("tool_call", { toolName, input: { path: alias } })).block, true);
+				}
+			}
+		}
+	} finally {
+		await h.event("session_shutdown");
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("current-version successive forks persist child provenance without redundant reload snapshots", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-provenance-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	const instances: ReturnType<typeof harness>[] = [];
+	try {
+		fs.mkdirSync(path.join(dir, "plans"));
+		const file = (id: string) => makePlanPath(path.join(dir, "plans"), id, 1);
+		fs.writeFileSync(file("A"), "# Source A");
+		const entries = [{ type: "custom", customType: "pi-plan-build-state", data: {
+			version: STATE_VERSION, selectedMode: "plan", planSessionId: "A", toolsBeforeModes: ["read", "write", "edit", "bash"],
+			collection: { records: [{ plan: { sequence: 1, status: "open" } }], attached: 1, counter: 1 },
+		} }];
+		const b = harness(dir, entries, "B"); instances.push(b);
+		await b.event("session_start", { reason: "fork" });
+		assert.equal(b.state().planSessionId, "B");
+		assert.equal(entries.filter(e => e.customType === "pi-plan-build-state").length, 2);
+		fs.writeFileSync(file("B"), "# Revised in B");
+		const reloaded = harness(dir, structuredClone(b.entries), "B"); instances.push(reloaded);
+		await reloaded.event("session_start", { reason: "reload" });
+		assert.equal(reloaded.events.filter(e => e.customType === "pi-plan-build-state").length, 0);
+		const c = harness(dir, structuredClone(reloaded.entries), "C"); instances.push(c);
+		await c.event("session_start", { reason: "fork" });
+		assert.equal(c.state().planSessionId, "C");
+		assert.equal(fs.readFileSync(file("C"), "utf8"), "# Revised in B");
+		assert.equal(fs.readFileSync(file("A"), "utf8"), "# Source A");
+	} finally {
+		for (const h of instances) await h.event("session_shutdown");
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("RPC approval carries the complete review in its blocking request without changing cancellation", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-rpc-review-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	const h = harness(dir);
+	try {
+		await h.event("session_start", { reason: "startup" });
+		await h.command("new");
+		const plan = `# Full review\n${"A long instruction.\n".repeat(4000)}FINAL LINE`;
+		fs.writeFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), plan);
+		const requests: Array<{ title: string; options: string[] }> = [];
+		h.ctx.ui.select = (async (title: string, options: string[]) => {
+			requests.push(JSON.parse(JSON.stringify({ title, options })));
+			return undefined;
+		}) as any;
+		const result = await h.callTool("plan_exit");
+		assert.equal(requests.length, 1);
+		assert.ok(requests[0].title.startsWith(`# Plan for Review\n\n${plan}\n\n`));
+		assert.deepEqual(requests[0].options, [PLAN_EXIT_APPROVE_CHOICE, PLAN_EXIT_FRESH_CHOICE, PLAN_EXIT_STAY_CHOICE]);
+		assert.equal(result.terminate, true);
+		assert.equal(result.details.approved, false);
+		assert.equal(h.state().selectedMode, "plan");
+	} finally {
+		await h.event("session_shutdown");
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("paused active steps block both shells and edits until explicit resume; stale revisions preserve bytes", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-paused-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
@@ -1181,9 +1274,20 @@ test("paused active steps block both shells and edits until explicit resume; sta
 		fs.writeFileSync(file, changed);
 		await assert.rejects(h.callTool("plan_step_control", { action: "revise", instruction: "Revised" }), /changed/);
 		assert.equal(fs.readFileSync(file, "utf8"), changed);
+		const beforeRevision = structuredClone(h.record().execution);
+		const unrelatedChange = markdown.replace("1. First", "1. Changed elsewhere");
+		fs.writeFileSync(file, unrelatedChange);
+		await assert.rejects(h.callTool("plan_step_control", { action: "revise", instruction: "Revised" }), /changed/);
+		assert.equal(fs.readFileSync(file, "utf8"), unrelatedChange);
+		assert.deepEqual(h.record().execution, beforeRevision);
 		fs.writeFileSync(file, markdown);
+		await assert.rejects(h.callTool("plan_step_control", { action: "revise", instruction: "first" }), /Duplicate/);
+		assert.equal(fs.readFileSync(file, "utf8"), markdown);
+		assert.deepEqual(h.record().execution, beforeRevision);
 		await h.callTool("plan_step_control", { action: "revise", instruction: "Revised" });
 		assert.equal(fs.readFileSync(file, "utf8"), markdown.replace("Second", "Revised"));
+		assert.equal(h.record().execution.planMarkdown, fs.readFileSync(file, "utf8"));
+		assert.deepEqual(h.record().execution.steps.map((s: any) => s.text), ["First", "Revised"]);
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
 		fs.rmSync(dir, { recursive: true, force: true });

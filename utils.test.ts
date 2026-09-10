@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import os from "node:os";
+import fs from "node:fs";
+import { pathToFileURL } from "node:url";
 import path from "node:path";
 import test from "node:test";
 import { buildPlanContext } from "./plan-context.ts";
@@ -47,6 +49,27 @@ import {
 	sanitizeSessionId,
 	shouldReduceOptionalUi,
 } from "./utils.ts";
+
+test("plan guards normalize Pi paths and resolve filesystem aliases without authorizing unresolved targets", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-paths-"));
+	try {
+		const file = path.join(dir, "plan file.md");
+		fs.writeFileSync(file, "# Plan");
+		const homePath = `~/${path.relative(os.homedir(), file)}`;
+		for (const alias of [file, homePath, `@${homePath}`, pathToFileURL(file).href, file.replace("plan file", "plan\u202Ffile")]) {
+			assert.equal(isAllowedPlanMutation(dir, alias, file), true, alias);
+		}
+		fs.symlinkSync(file, path.join(dir, "alias.md"));
+		fs.symlinkSync(dir, path.join(dir, "alias-dir"), "dir");
+		assert.equal(isAllowedPlanMutation(dir, "alias.md", file), true);
+		assert.equal(isAllowedPlanMutation(dir, "alias-dir/new/nested.md", path.join(dir, "new/nested.md")), true);
+		assert.equal(isAllowedPlanMutation(dir, "other.md", file), false);
+		fs.symlinkSync("missing.md", path.join(dir, "dangling.md"));
+		assert.throws(() => isAllowedPlanMutation(dir, "dangling.md", file), /dangling/);
+		fs.symlinkSync("loop.md", path.join(dir, "loop.md"));
+		assert.throws(() => isAllowedPlanMutation(dir, "loop.md", file), /ELOOP/);
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
 
 test("small caps affect only supported outline letters and can be disabled", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };

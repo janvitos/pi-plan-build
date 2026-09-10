@@ -26,7 +26,7 @@ afterEach(async () => {
 	}
 });
 
-function createHarness(initialEditor?: unknown) {
+function createHarness(initialEditor?: unknown, entries: any[] = []) {
 	const { handlers, on } = eventHandlers();
 	const registeredTools = new Map<string, any>();
 	let currentEditor = initialEditor;
@@ -79,8 +79,8 @@ function createHarness(initialEditor?: unknown) {
 		hasUI: true,
 		isIdle: () => true,
 		sessionManager: {
-			getEntries: () => [],
-			getBranch: () => [],
+			getEntries: () => entries,
+			getBranch: () => entries,
 			getSessionId: () => "ui-compat-test",
 		},
 		ui: {
@@ -184,6 +184,24 @@ async function completeFile(harness: ReturnType<typeof createHarness>) {
 	assert.equal(editor.isShowingAutocomplete(), false);
 	assert.equal(harness.persisted.at(-1)?.selectedMode ?? "build", "build");
 }
+
+test("startup resume restores the latest active-branch history while empty startup stays empty", async () => {
+	const entries = Array.from({ length: 105 }, (_, index) => ({ type: "message", message: { role: "user", content: `Prompt ${index}` } }));
+	entries.push({ type: "message", message: { role: "assistant", content: "Not user history" } });
+	const h = createHarness(undefined, entries);
+	await start(h);
+	for (let index = 104; index >= 5; index--) {
+		h.editor().handleInput("\x1b[A");
+		assert.equal(h.editor().getText(), `Prompt ${index}`);
+	}
+	h.editor().handleInput("\x1b[A");
+	assert.equal(h.editor().getText(), "Prompt 5", "older than the latest 100 is excluded");
+	await shutdown(h);
+	const empty = createHarness();
+	await start(empty);
+	empty.editor().handleInput("\x1b[A");
+	assert.equal(empty.editor().getText(), "");
+});
 
 test("delegates thinking to native handlers with extension and history precedence", async () => {
 	const harness = createHarness();

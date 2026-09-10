@@ -9,6 +9,7 @@ import {
 	formatPlanCompletionSummary,
 	pausePlanExecution,
 	revisePlanStep,
+	parseImplementationSteps,
 	skipPlanStep,
 	startPlanStep,
 	updatePlanStepInstruction,
@@ -107,6 +108,19 @@ test("edits only unimplemented steps and updates the canonical numbered instruct
 	assert.throws(() => updatePlanStepInstruction(plan, 0, "unsafe"), /changed/);
 	state = startPlanStep(state, "step-1");
 	assert.throws(() => revisePlanStep(state, "step-1", "too late"), /unimplemented/);
+});
+
+test("revisions reject duplicate or inconsistent instructions and keep snapshots coherent", () => {
+	const state = createPlanExecution(plan);
+	const before = structuredClone(state);
+	assert.throws(() => revisePlanStep(state, "step-1", state.steps[1].text.toUpperCase()), /Duplicate/);
+	assert.throws(() => revisePlanStep(state, "step-1", "New", plan.replace("Add parser", "Different")), /changed/);
+	assert.deepEqual(state, before);
+	const revised = revisePlanStep(state, "step-1", "New");
+	assert.equal(revised.planMarkdown, plan.replace("Add parser", "New"));
+	assert.deepEqual(parseImplementationSteps(revised.planMarkdown).map(s => s.text), revised.steps.map(s => s.text));
+	const mixed = "# Plan\r\n## Implementation Steps\n1. Original  \r2. Other\r\n";
+	assert.equal(updatePlanStepInstruction(mixed, 2, "Revised", "Original"), mixed.replace("Original", "Revised"));
 });
 
 test("instruction revisions preserve numbered and legacy markers and newline style", () => {

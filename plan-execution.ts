@@ -157,14 +157,18 @@ export function skipPlanStep(state: PlanExecutionState, id: string): PlanExecuti
 	return next;
 }
 
-export function revisePlanStep(state: PlanExecutionState, id: string, text: string, planMarkdown = state.planMarkdown): PlanExecutionState {
+export function revisePlanStep(state: PlanExecutionState, id: string, text: string, planMarkdown?: string): PlanExecutionState {
 	const revised = text.trim();
 	if (!revised) throw new Error("A plan step cannot be empty");
 	const next = clone(state);
 	const step = findStep(next, id);
 	if (step.status !== "pending" && step.status !== "ready") throw new Error("Only an unimplemented step can be edited");
 	step.text = revised;
-	next.planMarkdown = planMarkdown;
+	next.planMarkdown = planMarkdown ?? updatePlanStepInstruction(state.planMarkdown, step.sourceLine, revised, findStep(state, id).text);
+	const parsed = parseImplementationSteps(next.planMarkdown);
+	if (parsed.length !== next.steps.length || parsed.some((item, index) => item.sourceLine !== next.steps[index].sourceLine || item.text !== next.steps[index].text)) {
+		throw new Error("The saved plan changed; revised instructions do not match execution state");
+	}
 	return next;
 }
 
@@ -174,8 +178,8 @@ export function pausePlanExecution(state: PlanExecutionState): PlanExecutionStat
 }
 
 export function updatePlanStepInstruction(plan: string, sourceLine: number, text: string, expected?: string): string {
-	const newline = plan.includes("\r\n") ? "\r\n" : "\n";
-	const lines = plan.replace(/\r\n?/g, "\n").split("\n");
+	const parts = plan.split(/(\r\n|\r|\n)/);
+	const lines = parts.filter((_part, index) => index % 2 === 0);
 	const match = Number.isInteger(sourceLine) && sourceLine >= 0 && sourceLine < lines.length
 		? IMPLEMENTATION_ITEM.exec(lines[sourceLine]!)
 		: null;
@@ -185,8 +189,8 @@ export function updatePlanStepInstruction(plan: string, sourceLine: number, text
 	}
 	if (!text.trim() || /[\r\n]/.test(text)) throw new Error("A plan step must be a nonempty single-line instruction");
 	const trailing = lines[sourceLine].match(/\s*$/)![0];
-	lines[sourceLine] = `${match[1]}${text.trim()}${trailing}`;
-	return lines.join(newline);
+	parts[sourceLine * 2] = `${match[1]}${text.trim()}${trailing}`;
+	return parts.join("");
 }
 
 export function executablePlanStep(state: PlanExecutionState | undefined): PlanStep | undefined {

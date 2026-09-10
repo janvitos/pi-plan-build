@@ -708,8 +708,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			revisePlanStep(plans.execution, target.id, params.instruction);
 			await withFileMutationQueue(currentPlanPath(), async () => {
 				const plan = await fs.promises.readFile(currentPlanPath(), "utf8");
-				const expectedLine = plans.execution!.planMarkdown.replace(/\r\n?/g, "\n").split("\n")[target.sourceLine];
-				if (plan.replace(/\r\n?/g, "\n").split("\n")[target.sourceLine] !== expectedLine) throw new Error("The saved plan changed; the step cannot be revised safely");
+				if (plan !== plans.execution!.planMarkdown) throw new Error("The saved plan changed; the step cannot be revised safely");
 				const updatedPlan = updatePlanStepInstruction(plan, target.sourceLine, params.instruction!, target.text);
 				const next = revisePlanStep(plans.execution!, target.id, params.instruction!, updatedPlan);
 				await fs.promises.writeFile(currentPlanPath(), updatedPlan, "utf8");
@@ -789,8 +788,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				...(stepExecution ? [PLAN_STEP_CHOICE] : []),
 				PLAN_EXIT_STAY_CHOICE,
 			];
+			const approvalQuestion = `Build Agent: Plan at ${displayPath} is complete. What would you like to do?`;
 			const selection = normalizePlanExitChoice(await ctx.ui.select(
-				`Build Agent: Plan at ${displayPath} is complete. What would you like to do?`,
+				ctx.mode === "rpc" ? `${buildPlanReviewMessage(plan)}\n\n${approvalQuestion}` : approvalQuestion,
 				choices,
 			));
 			const action = selection.choice === PLAN_STEP_CHOICE && stepExecution
@@ -1092,12 +1092,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			attachedFileChanged = true;
 		}
 		if (attachedFileChanged) refreshSavedPlanTitle();
-		if (raw?.version !== STATE_VERSION && (plans.collection.records.length || plans.collection.counter)) {
+		const forkIdentityChanged = event.reason === "fork" && typeof raw?.planSessionId === "string" && raw.planSessionId !== ctx.sessionManager.getSessionId();
+		if (forkIdentityChanged || raw?.version !== STATE_VERSION && (plans.collection.records.length || plans.collection.counter)) {
 			lastSnapshot = "";
-			persist(); // One meaningful migration, including the fork-source session identity.
+			persist(); // Record migration or child provenance even when restoration seeded the dedup cache.
 		}
 		applyTools(selectedMode);
-		composer.mount(ctx, event.reason === "startup" ? [] : extractPromptHistory(ctx.sessionManager.getBranch()));
+		composer.mount(ctx, extractPromptHistory(ctx.sessionManager.getBranch()));
 		composer.update(ctx);
 	});
 
