@@ -130,7 +130,7 @@ export const PLAN_ACTION_ANNOUNCEMENTS = {
 	"step-by-step": "I’ll open step-by-step execution and wait for your instruction before starting a step.",
 	stay: PLAN_EXIT_STAY_ACKNOWLEDGEMENT,
 } as const;
-export const PLAN_STEP_READY_ACKNOWLEDGEMENT = "Write “Proceed” to start the first step. Instructions are shown at the bottom of the plan panel.";
+export const PLAN_STEP_READY_ACKNOWLEDGEMENT = "Write “Proceed” to start the first step. Use /plan show for progress and instructions, also shown at the bottom of the plan panel when available.";
 
 export type PlanExitDecision = "implement-here" | "implement-fresh" | "stay";
 
@@ -265,6 +265,7 @@ export interface PlanLifecycle {
 	task?: PlanTask;
 	outcome?: PlanOutcome;
 	abandonReason?: string;
+	completionSummary?: string;
 }
 
 export interface CompletionReconciliation {
@@ -292,9 +293,11 @@ export function decodePlanLifecycle(value: unknown): PlanLifecycle | undefined {
 	const outcome = candidate.outcome;
 	const validOutcome = outcome && ["awaiting_validation", "blocked", "waiting_for_input", "still_working"].includes(outcome.kind) && typeof outcome.reason === "string" && (outcome.userAction === undefined || typeof outcome.userAction === "string");
 	if (candidate.task !== undefined && !validTask || candidate.outcome !== undefined && !validOutcome ||
-		candidate.abandonReason !== undefined && typeof candidate.abandonReason !== "string") return undefined;
+		candidate.abandonReason !== undefined && typeof candidate.abandonReason !== "string" ||
+		candidate.completionSummary !== undefined && typeof candidate.completionSummary !== "string") return undefined;
 	if (candidate.status === "abandoned" && !candidate.abandonReason?.trim()) return undefined;
 	return { sequence: candidate.sequence!, status: candidate.status,
+		...(candidate.status === "completed" && candidate.completionSummary?.trim() ? { completionSummary: candidate.completionSummary.trim() } : {}),
 		...(candidate.status === "open" && validOutcome ? { outcome: { ...outcome } } : {}),
 		...(candidate.status === "abandoned" ? { abandonReason: candidate.abandonReason!.trim() } : {}),
 		...(validTask ? { task: { title: cleanTaskTitle(task.title), scope: task.scope, decisions: task.decisions.map((d) => ({ ...d })) } } : {}) };

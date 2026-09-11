@@ -143,7 +143,7 @@ export function saveShowPlanTitle(agentDir: string, enabled: boolean): string {
 	return saveSettings(agentDir, (document) => ({ ...document, showPlanTitle: enabled }));
 }
 
-function saveSettings(agentDir: string, update: (document: Record<string, unknown>) => Record<string, unknown>): string {
+export function saveSettings(agentDir: string, update: (document: Record<string, unknown>) => Record<string, unknown>): string {
 	const configPath = path.join(agentDir, SHORTCUT_CONFIG_FILE);
 	let document: unknown = {};
 	try {

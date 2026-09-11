@@ -117,10 +117,10 @@ export class PlanState {
 		if (execution) record.execution = execution;
 		else delete record.execution;
 	}
-	complete(): void {
+	complete(summary?: string): void {
 		const record = this.requireAttached();
 		const { outcome: _outcome, abandonReason: _reason, ...plan } = record.plan;
-		record.plan = { ...plan, status: "completed" };
+		record.plan = { ...plan, status: "completed", ...(summary?.trim() ? { completionSummary: summary.trim() } : {}) };
 		delete record.execution;
 		this.collection.attached = null;
 	}

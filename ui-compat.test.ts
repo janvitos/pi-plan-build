@@ -333,7 +333,7 @@ test("settings save the selected preset, retain active bindings until reload, an
 	harness.selectOption("Alt+M only");
 	await harness.commands.get("plan-settings").handler("", harness.ctx);
 	assert.match(harness.selections[0]!.title, /active: Tab \+ Alt\+M/);
-	assert.deepEqual(harness.selections[0]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Plan title (active: off)", "Custom (edit config file)"]);
+	assert.deepEqual(harness.selections[0]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Plan title (active: off)", "Per-mode model/thinking (active: off)", "Custom (edit config file)"]);
 	assert.match(harness.notifications.at(-1)![0], /Saved Alt\+M only.*\/reload/);
 	await toggle(harness, "\t", "plan");
 	await shutdown(harness);

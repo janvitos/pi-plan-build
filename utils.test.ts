@@ -332,8 +332,8 @@ test("every plan action has a single-line next-action announcement", () => {
 	assert.match(PLAN_ACTION_ANNOUNCEMENTS["step-by-step"], /wait for your instruction before starting a step/);
 });
 
-test("step-by-step startup guidance points to the panel instructions", () => {
-	assert.equal(PLAN_STEP_READY_ACKNOWLEDGEMENT, "Write “Proceed” to start the first step. Instructions are shown at the bottom of the plan panel.");
+test("step-by-step startup guidance works without a panel", () => {
+	assert.equal(PLAN_STEP_READY_ACKNOWLEDGEMENT, "Write “Proceed” to start the first step. Use /plan show for progress and instructions, also shown at the bottom of the plan panel when available.");
 });
 
 test("declining plan exit stays in Plan mode and terminates the run", () => {

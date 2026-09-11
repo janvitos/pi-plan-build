@@ -119,6 +119,122 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 	};
 }
 
+test("per-mode settings toggle immediately and cancellation preserves the file", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-mode-settings-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		const file = path.join(dir, "pi-plan-build.json");
+		let answers: any[] = ["Per-mode model/thinking (active: off)", "On"];
+		h.ctx.ui.select = async () => answers.shift();
+		await h.commands.get("plan-settings").handler("", h.ctx);
+		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).modeSelections.enabled, true);
+		const before = fs.readFileSync(file, "utf8");
+		answers = ["Per-mode model/thinking (active: on)", undefined];
+		await h.commands.get("plan-settings").handler("", h.ctx);
+		assert.equal(fs.readFileSync(file, "utf8"), before);
+		answers = ["Per-mode model/thinking (active: on)", "Off (default)"];
+		await h.commands.get("plan-settings").handler("", h.ctx);
+		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).modeSelections.enabled, false);
+		await h.event("session_shutdown");
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
+});
+
+test("enabled per-mode selection defers manual routing until the active run settles", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-mode-model-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		fs.writeFileSync(path.join(dir, "pi-plan-build.json"), JSON.stringify({ modeSelections: { enabled: true, plan: { provider: "test", modelId: "planner", thinkingLevel: "high" } } }));
+		const h = harness(dir);
+		let level = "medium";
+		const selected: string[] = [];
+		h.pi.getThinkingLevel = () => level;
+		h.pi.setThinkingLevel = (next: any) => { level = next; };
+		h.ctx.modelRegistry.find = (provider: string, id: string) => ({ provider, id });
+		h.pi.setModel = async (model: any) => { h.ctx.model = model; selected.push(model.id); return true; };
+		await h.event("session_start", { reason: "startup" });
+		await h.event("before_agent_start", {});
+		h.setIdle(false);
+		await h.command("");
+		assert.deepEqual(selected, []);
+		h.setIdle(true);
+		await h.event("agent_settled");
+		assert.deepEqual(selected, ["planner"]);
+		assert.equal(level, "high");
+		await h.build();
+		assert.equal(h.ctx.model.id, "test");
+		assert.equal(level, "medium");
+		await h.command("new");
+		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
+		fs.writeFileSync(file, "# Work\n\n## Implementation Steps\n1. Implement\n");
+		h.ctx.ui.select = async () => PLAN_EXIT_FRESH_CHOICE;
+		await h.tool("plan_exit");
+		(h.ctx as any).newSession = async () => ({ cancelled: true });
+		await h.commands.get("build-fresh").handler("", h.ctx);
+		assert.deepEqual(selected.slice(-2), ["test", "planner"]);
+		assert.equal(h.ctx.model.id, "planner", "cancelled handoff restores the planning selection");
+		assert.equal(level, "high");
+		await h.event("session_shutdown");
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
+});
+
+test("approval freshness, sidebar-free execution, and read-only inspection", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-review-new-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		await h.command("new");
+		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
+		const markdown = "# Work\n\n## Implementation Steps\n1. Do work\n";
+		fs.writeFileSync(file, markdown);
+		h.ctx.ui.select = async () => { fs.writeFileSync(file, markdown + "Changed\n"); return PLAN_EXIT_APPROVE_CHOICE; };
+		const stale = await h.tool("plan_exit");
+		assert.equal(stale.details.approved, false);
+		assert.equal(stale.terminate, true);
+		assert.equal(h.state().selectedMode, "plan");
+		h.ctx.ui.select = async () => { fs.unlinkSync(file); return PLAN_EXIT_FRESH_CHOICE; };
+		assert.equal((await h.tool("plan_exit")).details.approved, false);
+		assert.ok(!h.events.some(e => e.kind === "dispatch"));
+		fs.writeFileSync(file, markdown);
+		h.ctx.ui.select = async () => "Implement step by step";
+		await h.tool("plan_exit");
+		assert.equal(h.record().execution.steps[0].status, "ready");
+		assert.equal((await h.event("tool_call", { toolName: "write", input: { path: path.join(dir, "project") } })).block, true);
+		const before = JSON.stringify(h.state());
+		await h.command("show");
+		await h.command("history");
+		assert.equal(JSON.stringify(h.state()), before);
+		assert.ok(h.events.some(e => e.kind === "notify" && e.text.includes("[ready]")));
+		h.ctx.mode = "tui";
+		await h.command("show");
+		assert.ok(h.events.some(e => e.customType === "pi-plan-build-inspection" && e.data.markdown.includes("[ready]")));
+		assert.equal(JSON.stringify(h.state()), before);
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
+});
+
+test("optional completion summary survives restoration and history is read-only", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-summary-new-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		await h.command("new");
+		await h.build();
+		await h.tool("plan_complete", { summary: "Implemented parser; focused tests passed." });
+		const restored = harness(dir, structuredClone(h.entries));
+		await restored.event("session_start", { reason: "resume" });
+		assert.equal(restored.record().plan.completionSummary, "Implemented parser; focused tests passed.");
+		const before = JSON.stringify(restored.state());
+		await restored.command("history");
+		assert.equal(JSON.stringify(restored.state()), before);
+		assert.ok(restored.events.some(e => e.kind === "notify" && e.text.includes("focused tests passed")));
+		assert.equal(decodePlanLifecycle({ sequence: 1, status: "completed", completionSummary: 42 }), undefined);
+		assert.ok(decodePlanLifecycle({ sequence: 1, status: "completed" }));
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
+});
+
 test("completion safeguards separate file availability from evidence and retain step guards", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-completion-safeguards-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
