@@ -300,7 +300,9 @@ test("plan title visibility persists through settings and reload without compose
 		current.selectOptions(`Plan title (active: ${enabled ? "off" : "on"})`, enabled ? "On" : "Off (default)");
 		await current.commands.get("plan-settings").handler("", current.ctx);
 		assert.equal(loadShortcutConfig(agentDir).showPlanTitle, enabled);
-		assert.match(current.notifications.at(-1)![0], /\/reload/);
+		assert.equal(current.notifications.at(-1)![0], `Plan title ${enabled ? "on" : "off"}.`);
+		if (enabled) assert.match(current.editor().render(100)[0], /plan title/);
+		else assert.ok(!current.statuses.at(-1)?.[1]?.includes("Plan Title"));
 		const reloaded = await setup();
 		const lines = reloaded.editor().render(100);
 		assert.equal(lines[0].includes("plan title"), enabled);
@@ -322,7 +324,7 @@ test("plan title visibility persists through settings and reload without compose
 	assert.match(h.registeredTools.get("plan_task").parameters.properties.title.description, /without sacrificing meaning/);
 	h.setCurrentEditor({});
 	await h.handlers.get("before_agent_start")?.({}, h.ctx);
-	assert.ok(!h.statuses.some(([, text]) => text?.includes("Plan Title")), "default-off applies to reduced UI too");
+	assert.ok(h.statuses.at(-1)?.[1]?.includes("Plan Title"), "the live enabled preference applies to reduced UI too");
 });
 
 test("settings save the selected preset, retain active bindings until reload, and reload correctly", async () => {

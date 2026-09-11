@@ -103,7 +103,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let toolsBeforeModes: string[] = [];
 	let currentContext: ExtensionContext | undefined;
 	let freshImplementationRequest: ApprovedHandoff | undefined;
-	const composer = createComposer(pi, { ...shortcutConfig, showPlanTitle }, () => ({ mode: selectedMode, title: currentPlanTitle(), execution: plans.execution }), (mode, ctx) => { void selectMode(mode, ctx, "manual"); });
+	const composerSettings = { ...shortcutConfig, showPlanTitle };
+	const composer = createComposer(pi, composerSettings, () => ({ mode: selectedMode, title: currentPlanTitle(), execution: plans.execution }), (mode, ctx) => { void selectMode(mode, ctx, "manual"); });
 	const displayUserMessageText = (text: string): string | undefined => {
 		const skillBlock = parseSkillBlock(text);
 		return skillBlock ? skillBlock.userMessage || undefined : text || undefined;
@@ -395,7 +396,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) return;
 			const customOption = "Custom (edit config file)";
-			const titleOption = `Plan title (active: ${showPlanTitle ? "on" : "off"})`;
+			const titleOption = `Plan title (active: ${composerSettings.showPlanTitle ? "on" : "off"})`;
 			const selected = await ctx.ui.select(
 				`Plan/Build shortcuts — active: ${shortcutPresetLabel(shortcutConfig)} (global: ${shortcutConfig.toggleMode.join(", ") || "none"}; editor: ${shortcutConfig.toggleModeInEditor.join(", ") || "none"})`,
 				[...Object.keys(SHORTCUT_PRESETS), titleOption, customOption],
@@ -405,8 +406,11 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				const choice = await ctx.ui.select("Composer plan title", ["Off (default)", "On"]);
 				if (!choice) return;
 				try {
-					saveShowPlanTitle(shortcutAgentDir, choice === "On");
-					ctx.ui.notify(`Saved plan title: ${choice}. Run /reload to apply.`, "info");
+					const enabled = choice === "On";
+					saveShowPlanTitle(shortcutAgentDir, enabled);
+					composerSettings.showPlanTitle = enabled;
+					composer.update(ctx);
+					ctx.ui.notify(`Plan title ${enabled ? "on" : "off"}.`, "info");
 				} catch (error) {
 					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
 				}
