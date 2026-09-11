@@ -9,7 +9,7 @@ import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker
 import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
 import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
 import { registerQuestionTool } from "./question-ui.ts";
-import { loadShortcutConfig, saveShortcutPreset, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { loadShortcutConfig, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
 	PLAN_ENTER_DESCRIPTION,
 	PLAN_EXIT_DESCRIPTION,
@@ -84,7 +84,7 @@ function shorten(filePath: string, cwd: string): string {
 
 export default function planBuildModes(pi: ExtensionAPI): void {
 	const shortcutAgentDir = getAgentDir();
-	const { config: shortcutConfig, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
+	const { config: shortcutConfig, showPlanTitle, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
 	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
 	let runMode: Mode | undefined;
@@ -103,7 +103,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let toolsBeforeModes: string[] = [];
 	let currentContext: ExtensionContext | undefined;
 	let freshImplementationRequest: ApprovedHandoff | undefined;
-	const composer = createComposer(pi, shortcutConfig, () => ({ mode: selectedMode, title: currentPlanTitle(), awaitingValidation: plans.attached?.plan.outcome?.kind === "awaiting_validation", execution: plans.execution }), (mode, ctx) => { void selectMode(mode, ctx, "manual"); });
+	const composer = createComposer(pi, { ...shortcutConfig, showPlanTitle }, () => ({ mode: selectedMode, title: currentPlanTitle(), execution: plans.execution }), (mode, ctx) => { void selectMode(mode, ctx, "manual"); });
 	const displayUserMessageText = (text: string): string | undefined => {
 		const skillBlock = parseSkillBlock(text);
 		return skillBlock ? skillBlock.userMessage || undefined : text || undefined;
@@ -391,18 +391,30 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		handler: async (_args, ctx) => selectMode("build", ctx, "manual"),
 	});
 	pi.registerCommand("plan-settings", {
-		description: "Configure Plan/Build shortcuts",
+		description: "Configure Plan/Build shortcuts and plan title visibility",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) return;
 			const customOption = "Custom (edit config file)";
+			const titleOption = `Plan title (active: ${showPlanTitle ? "on" : "off"})`;
 			const selected = await ctx.ui.select(
 				`Plan/Build shortcuts — active: ${shortcutPresetLabel(shortcutConfig)} (global: ${shortcutConfig.toggleMode.join(", ") || "none"}; editor: ${shortcutConfig.toggleModeInEditor.join(", ") || "none"})`,
-				[...Object.keys(SHORTCUT_PRESETS), customOption],
+				[...Object.keys(SHORTCUT_PRESETS), titleOption, customOption],
 			);
 			if (!selected) return;
+			if (selected === titleOption) {
+				const choice = await ctx.ui.select("Composer plan title", ["Off (default)", "On"]);
+				if (!choice) return;
+				try {
+					saveShowPlanTitle(shortcutAgentDir, choice === "On");
+					ctx.ui.notify(`Saved plan title: ${choice}. Run /reload to apply.`, "info");
+				} catch (error) {
+					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+				}
+				return;
+			}
 			if (selected === customOption) {
 				ctx.ui.notify(
-					`Edit ${shortcutConfigPath}, then run /reload. Example: {"shortcuts":{"toggleMode":["ctrl+alt+m"],"toggleModeInEditor":["tab"]}}. Use [] to disable an action. Put Tab only in toggleModeInEditor; it switches modes when autocomplete is closed instead of requesting file completion.`,
+					`Edit ${shortcutConfigPath}, then run /reload. Example: {"showPlanTitle":true,"shortcuts":{"toggleMode":["ctrl+alt+m"],"toggleModeInEditor":["tab"]}}. Use [] to disable an action. Put Tab only in toggleModeInEditor; it switches modes when autocomplete is closed instead of requesting file completion.`,
 					"info",
 				);
 				return;
@@ -453,13 +465,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		name: "plan_task",
 		label: "Plan Task",
 		description: "Manage the single current plan without editing Markdown. list reports only the current plan. new is Plan-only and requires no current plan. abandon is irreversible lifecycle closure, preserves the file, requires explicit user direction and a reason, and never implies success. update establishes identity once, then changes it only for user-driven material deliverable/constraint changes, explicit renames, or correction of mistaken identity. include/discussion record explicit task-boundary decisions. Supply expectedAttached (current sequence or null); legacy sequence is accepted. Deprecated pause/resume inputs never mutate state. Keep lifecycle transitions separate from dependent project edits and shell calls.",
-		promptGuidelines: ["Use plan_task to establish concise task identity once. Keep plan titles short and descriptive, ideally 3–6 words. Later updates require a user-driven material change to the deliverable/defining constraints, an explicit rename, or correction of mistaken identity. Do not log progress, findings, proposed/rejected techniques, implementation adjustments, or message paraphrases. Use include/discussion only for explicit task-boundary decisions. In Plan mode, create a task when the user requests a planning deliverable or accepts a concrete proposed change in the planning conversation—not for informational agreement or discussion alone. Start a new plan only when no current plan exists, using expectedAttached: null, title, and scope; await the returned canonical path before saving the plan and requesting implementation approval through plan_exit. If the user explicitly abandons the current plan, call plan_task abandon with its expected attachment and a concise reason; otherwise complete the current plan before starting another."],
+		promptGuidelines: ["Use plan_task to establish concise task identity once. Use a concise, descriptive plan title that makes the task recognizable when returning to the session. Include the context needed for clarity, but omit filler and unnecessary detail. Don’t sacrifice meaning to make the title shorter. Later updates require a user-driven material change to the deliverable/defining constraints, an explicit rename, or correction of mistaken identity. Do not log progress, findings, proposed/rejected techniques, implementation adjustments, or message paraphrases. Use include/discussion only for explicit task-boundary decisions. In Plan mode, create a task when the user requests a planning deliverable or accepts a concrete proposed change in the planning conversation—not for informational agreement or discussion alone. Start a new plan only when no current plan exists, using expectedAttached: null, title, and scope; await the returned canonical path before saving the plan and requesting implementation approval through plan_exit. If the user explicitly abandons the current plan, call plan_task abandon with its expected attachment and a concise reason; otherwise complete the current plan before starting another."],
 		parameters: Type.Object({
 			action: Type.String({ enum: ["list", "pause", "resume", "update", "include", "discussion", "new", "abandon"] }),
 			sequence: Type.Optional(Type.Integer({ minimum: 0 })),
 			expectedAttached: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
 			targetSequence: Type.Optional(Type.Integer({ minimum: 0 })),
-			title: Type.Optional(Type.String({ maxLength: 160, description: "Concise, descriptive plan title, ideally 3–6 words" })),
+			title: Type.Optional(Type.String({ maxLength: 160, description: "Concise, descriptive plan title that makes the task recognizable. Include context needed for clarity; omit filler and unnecessary detail without sacrificing meaning." })),
 			scope: Type.Optional(Type.String({ maxLength: 4000 })),
 			topic: Type.Optional(Type.String({ maxLength: 1000 })),
 			reason: Type.Optional(Type.String({ maxLength: 1000 })),
@@ -524,6 +536,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_finish",
 		label: "Record Plan Outcome",
+		promptGuidelines: ["After plan_finish awaiting_validation, give the final response in this order: summarize implementation and checks without overstating verification, provide every essential validation action once, and end with 'Awaiting your validation.' Do not repeat tool bookkeeping. During step execution describe only the active step, not the entire plan as finished. Optional feedback does not warrant awaiting_validation."],
 		description: "Before a final planned-work summary, record an unfinished Build outcome. For completed work with all required verification passed, use plan_complete instead. awaiting_validation requires an essential userAction and keeps the plan attached and visibly open until the user reports success or explicitly directs completion; optional feedback is not a blocker. During step execution it pauses mutation authority while preserving the active step. blocked, waiting_for_input, and still_working also keep the current plan unfinished. Never use this to imply tests passed or to complete steps.",
 		parameters: Type.Object({
 			expectedAttached: Type.Integer({ minimum: 0 }),
@@ -550,7 +563,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (reconciliation) reconciliation.handled = true;
 			syncAttachment(ctx);
 			const text = params.outcome === "awaiting_validation"
-				? `${plans.execution ? "This step's implementation" : "Implementation"} is finished, but this plan remains open: ${title}\nWaiting for your validation before marking it complete.\n\nRequired validation:\n${outcome.userAction}`
+				? "Validation request recorded."
 				: `${title}: ${params.outcome.replaceAll("_", " ")}.`;
 			return { content: [{ type: "text", text }], details: { sequence, title, planPath: file, fileState: savedPlanState, outcome, attached: plans.collection.attached } };
 		},
@@ -560,6 +573,17 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (status) return status;
 			let text = resultText(result) || "No outcome available";
 			const details = result.details as { planPath?: string; fileState?: string; outcome?: PlanOutcome } | undefined;
+			if (details?.outcome?.kind === "awaiting_validation") {
+				const acknowledgement = theme.fg("muted", "Validation request recorded.");
+				if (!options.expanded) return new Text(acknowledgement, 0, 0);
+				return new Text([
+					acknowledgement,
+					theme.fg("warning", "Required validation:"),
+					theme.fg("text", details.outcome.userAction ?? ""),
+					...(details.planPath ? [theme.fg("muted", `${details.planPath} (${details.fileState})`)] : []),
+					theme.fg("text", details.outcome.reason),
+				].join("\n"), 0, 0);
+			}
 			if (options.expanded && details) {
 				if (details.planPath) text += `\n${details.planPath} (${details.fileState})`;
 				for (const extra of [details.outcome?.reason, details.outcome?.userAction]) {
@@ -987,7 +1011,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			reconciliationFollowUp = true;
 			persist();
 			activeReconciliationId = randomUUID();
-			pi.sendMessage({ customType: RECONCILIATION_CONTEXT_TYPE, details: { reconciliationId: activeReconciliationId }, display: false, content: "Reconcile the attached plan's outcome before ending. This is a single bookkeeping reminder, not permission for more implementation or verification. If all approved work and required checks passed, call plan_complete. If essential user-only validation remains, call plan_finish awaiting_validation with the exact user action. Otherwise record blocked, waiting_for_input, or still_working with a reason. Optional feedback does not block completion. Do not infer success from this reminder and do not repeat tests merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
+			pi.sendMessage({ customType: RECONCILIATION_CONTEXT_TYPE, details: { reconciliationId: activeReconciliationId }, display: false, content: "Reconcile the attached plan's outcome before ending. This is a single bookkeeping reminder, not permission for more implementation or verification. If all approved work and required checks passed, call plan_complete. If essential user-only validation remains, call plan_finish awaiting_validation with the exact user action. Then summarize work/checks, provide all essential validation actions once, and end the final response with 'Awaiting your validation.' Do not repeat tool bookkeeping. Otherwise record blocked, waiting_for_input, or still_working with a reason. Optional feedback does not block completion. Do not infer success from this reminder and do not repeat tests merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
 		}
 	});
 

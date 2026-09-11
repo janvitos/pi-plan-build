@@ -31,7 +31,6 @@ import {
 	formatModeMetadata,
 	formatModeRail,
 	formatModeTopBorder,
-	formatPlanLabel,
 	formatQuestionAnswers,
 	isAllowedPlanMutation,
 	makePlanPath,
@@ -70,23 +69,19 @@ test("plan guards normalize Pi paths and resolve filesystem aliases without auth
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("outline titles use regular lowercase without changing other labels", () => {
+test("plan title visibility uses regular lowercase", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
 	const title = "Plan Title QX";
-	assert.match(formatModeTopBorder("plan", 80, "╮", theme, title, true), /plan title qx · Awaiting validation/);
+	assert.match(formatModeTopBorder("plan", 80, "╮", theme, title), /plan title qx/);
 	assert.match(formatModeTopBorder("build", 80, "╮", theme, "Été 修復 🔑 123!?"), /été 修復 🔑 123!\?/);
-	assert.equal(formatPlanLabel(title, true), "Plan Title QX · Awaiting validation");
 });
 
-test("validation status survives long titles and narrow Unicode layouts", () => {
+test("plan title visibility fits long Unicode titles without validation decoration", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
-	const title = "A".repeat(160);
-	assert.match(formatModeTopBorder("build", 220, "╮", theme, title, true), /Awaiting validation/);
-	assert.equal(formatPlanLabel(title, true), `${title} · Awaiting validation`);
 	for (const width of [1, 2, 3, 4, 8, 20, 24, 40, 70, 220]) {
-		const line = formatModeTopBorder("build", width, "╮", theme, "修復 🔑".repeat(40), true);
+		const line = formatModeTopBorder("build", width, "╮", theme, "修復 🔑".repeat(40));
 		assert.ok(visibleWidth(line) <= width);
-		if (width >= 24) assert.match(line, /Awaiting validation/);
+		assert.doesNotMatch(line, /validation/i);
 	}
 });
 
@@ -117,7 +112,7 @@ test("composer outline uses only solid lines and rounded corners", () => {
 	}
 });
 
-test("plan title uses normal-weight warning in both modes", () => {
+test("plan title visibility uses normal-weight warning in both modes", () => {
 	for (const mode of ["plan", "build"] as const) {
 		const calls: Array<{ color: string; text: string }> = [];
 		const theme = { bold: (_: string): string => { throw new Error("Title must not be bold"); }, fg: (color: string, text: string) => { calls.push({ color, text }); return text; } };

@@ -279,7 +279,7 @@ test("global Tab is rejected with editor-only guidance and autocomplete remains 
 	await completeFile(harness);
 });
 
-test("outline titles stay lowercase even with legacy settings, without changing stored titles or input", async () => {
+test("plan title visibility persists through settings and reload without composer validation labels", async () => {
 	const setup = async () => {
 		const h = createHarness();
 		await start(h);
@@ -289,19 +289,40 @@ test("outline titles stay lowercase even with legacy settings, without changing 
 		return h;
 	};
 	const h = await setup();
-	assert.match(h.editor().render(100)[0], /plan title/);
+	assert.doesNotMatch(h.editor().render(100)[0], /plan title/);
 	assert.match(JSON.stringify(h.persisted), /"title":"Plan Title"/);
 	assert.equal(h.editor().getText(), "Regular User Text");
-	for (const smallCapsPlanTitle of [true, false]) {
-		fs.writeFileSync(path.join(agentDir, SHORTCUT_CONFIG_FILE), JSON.stringify({ smallCapsPlanTitle }));
+	h.selectOptions("Plan title (active: off)", undefined);
+	await h.commands.get("plan-settings").handler("", h.ctx);
+	assert.equal(fs.existsSync(path.join(agentDir, SHORTCUT_CONFIG_FILE)), false);
+	let current = h;
+	for (const enabled of [true, false]) {
+		current.selectOptions(`Plan title (active: ${enabled ? "off" : "on"})`, enabled ? "On" : "Off (default)");
+		await current.commands.get("plan-settings").handler("", current.ctx);
+		assert.equal(loadShortcutConfig(agentDir).showPlanTitle, enabled);
+		assert.match(current.notifications.at(-1)![0], /\/reload/);
 		const reloaded = await setup();
-		assert.match(reloaded.editor().render(100)[0], /plan title/);
+		const lines = reloaded.editor().render(100);
+		assert.equal(lines[0].includes("plan title"), enabled);
+		assert.equal(lines.at(-1), h.editor().render(100).at(-1));
 		assert.equal(reloaded.editor().getText(), "Regular User Text");
+		await reloaded.commands.get("build").handler("", reloaded.ctx);
+		await reloaded.registeredTools.get("plan_finish").execute("finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs observation", userAction: "Check the title" }, undefined, undefined, reloaded.ctx);
+		assert.doesNotMatch(reloaded.editor().render(100)[0], /validation/i);
+		reloaded.setCurrentEditor({});
+		await reloaded.handlers.get("before_agent_start")?.({}, reloaded.ctx);
+		assert.doesNotMatch(reloaded.statuses.at(-1)?.[1] ?? "", /validation/i);
+		assert.equal((reloaded.statuses.at(-1)?.[1] ?? "").includes("Plan Title"), enabled);
+		current = reloaded;
 	}
-	assert.match(h.registeredTools.get("plan_task").promptGuidelines.join(" "), /titles short and descriptive, ideally 3–6 words/);
+	const titleGuidance = h.registeredTools.get("plan_task").promptGuidelines.join(" ");
+	assert.match(titleGuidance, /makes the task recognizable when returning to the session/);
+	assert.match(titleGuidance, /Don’t sacrifice meaning to make the title shorter/);
+	assert.doesNotMatch(titleGuidance, /3–6 words/);
+	assert.match(h.registeredTools.get("plan_task").parameters.properties.title.description, /without sacrificing meaning/);
 	h.setCurrentEditor({});
 	await h.handlers.get("before_agent_start")?.({}, h.ctx);
-	assert.ok(h.statuses.some(([, text]) => text?.includes("Plan Title")), "reduced-UI status keeps the original title");
+	assert.ok(!h.statuses.some(([, text]) => text?.includes("Plan Title")), "default-off applies to reduced UI too");
 });
 
 test("settings save the selected preset, retain active bindings until reload, and reload correctly", async () => {
@@ -310,7 +331,7 @@ test("settings save the selected preset, retain active bindings until reload, an
 	harness.selectOption("Alt+M only");
 	await harness.commands.get("plan-settings").handler("", harness.ctx);
 	assert.match(harness.selections[0]!.title, /active: Tab \+ Alt\+M/);
-	assert.deepEqual(harness.selections[0]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Custom (edit config file)"]);
+	assert.deepEqual(harness.selections[0]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Plan title (active: off)", "Custom (edit config file)"]);
 	assert.match(harness.notifications.at(-1)![0], /Saved Alt\+M only.*\/reload/);
 	await toggle(harness, "\t", "plan");
 	await shutdown(harness);

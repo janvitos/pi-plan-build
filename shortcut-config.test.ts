@@ -4,11 +4,38 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { matchesKey } from "@earendil-works/pi-tui";
-import { isKeyId, loadShortcutConfig, parseShortcutConfig, saveShortcutPreset, SHORTCUT_CONFIG_FILE, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { isKeyId, loadShortcutConfig, parseShortcutConfig, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_CONFIG_FILE, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+
+test("plan title visibility defaults off and saves safely", () => {
+	assert.equal(parseShortcutConfig(undefined).showPlanTitle, false);
+	assert.equal(parseShortcutConfig({ showPlanTitle: "true" }).showPlanTitle, false);
+	assert.match(parseShortcutConfig({ showPlanTitle: "true" }).warning!, /showPlanTitle must be a boolean/);
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-title-visibility-"));
+	try {
+		const file = path.join(dir, SHORTCUT_CONFIG_FILE);
+		fs.writeFileSync(file, JSON.stringify({ unrelated: 42, shortcuts: { toggleMode: [], future: "value" } }));
+		for (const enabled of [true, false]) {
+			saveShowPlanTitle(dir, enabled);
+			assert.equal(loadShortcutConfig(dir).showPlanTitle, enabled);
+			const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+			assert.equal(saved.unrelated, 42);
+			assert.deepEqual(saved.shortcuts, { toggleMode: [], future: "value" });
+		}
+		saveShowPlanTitle(dir, true);
+		saveShortcutPreset(dir, "Disabled");
+		assert.equal(loadShortcutConfig(dir).showPlanTitle, true);
+		for (const malformed of ["{", "null", "[]", '{"shortcuts":[]}']) {
+			fs.writeFileSync(file, malformed);
+			assert.throws(() => saveShowPlanTitle(dir, true));
+			assert.equal(fs.readFileSync(file, "utf8"), malformed);
+		}
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
 
 test("obsolete small-caps settings are ignored", () => {
 	for (const smallCapsPlanTitle of [true, false, "false"]) {
 		assert.deepEqual(parseShortcutConfig({ smallCapsPlanTitle, shortcuts: { toggleMode: [] } }), {
+			showPlanTitle: false,
 			config: { toggleMode: [], toggleModeInEditor: ["tab"] },
 		});
 	}
@@ -16,6 +43,7 @@ test("obsolete small-caps settings are ignored", () => {
 
 test("shortcut defaults preserve Tab and Alt+M", () => {
 	assert.deepEqual(parseShortcutConfig(undefined), {
+		showPlanTitle: false,
 		config: {
 			toggleMode: ["alt+m"],
 			toggleModeInEditor: ["tab"],
@@ -32,6 +60,7 @@ test("shortcut configuration accepts remapping and explicit disabling", () => {
 	});
 
 	assert.deepEqual(result, {
+		showPlanTitle: false,
 		config: {
 			toggleMode: ["ctrl+alt+m"],
 			toggleModeInEditor: ["ctrl+shift+m", "f6"],
@@ -115,6 +144,7 @@ test("shortcut configuration reads the Pi agent directory and fails safely", () 
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-plan-build-shortcuts-"));
 	try {
 		assert.deepEqual(loadShortcutConfig(dir), {
+			showPlanTitle: false,
 			config: { toggleMode: ["alt+m"], toggleModeInEditor: ["tab"] },
 			path: path.join(dir, SHORTCUT_CONFIG_FILE),
 		});

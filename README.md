@@ -10,7 +10,7 @@ A [Pi coding agent](https://github.com/earendil-works/pi-mono) extension with pe
 2. Select **Plan** with `/plan`, `Alt+M`, or the default editor `Tab` shortcut. This changes permissions, **not task selection**. Discuss and research read-only; no Markdown is written merely by entering Plan.
 3. When you request a planning deliverable or accept a concrete proposed change during planning, the agent creates the current task; `/plan new` is the manual equivalent. It waits for the returned canonical path, completes necessary read-only investigation, saves the plan, and calls `plan_exit` for review and implementation approval. Accepting scope does not authorize implementation; informational agreement alone creates no task. You need not say “make a plan” again or switch manually to Build to get a plan written.
 4. Approve implementation **here**, in a **clean linked session**, or **step by step** (experimental fullscreen UI). Staying in Plan—or Escape—stops the run and waits for your next message.
-5. After implementation and required verification, the agent records completion. Essential user-only validation keeps the same plan attached, visibly marked **Awaiting validation**, with precise instructions. Optional feedback does not hold completion open.
+5. After implementation and required verification, the agent records completion. Essential user-only validation keeps the same plan attached, with an **awaiting validation notice in the main chat** and precise instructions. Optional feedback does not hold completion open.
 
 One task retains its file, identity, decisions, and progress through mode changes and revisions. Approval and idleness never imply completion. Before starting another plan, complete the current plan or explicitly abandon it. Abandonment preserves the file but never implies success and cannot be resumed. **Pausing step execution** is separate: it retains the current plan and progress but permits no implementation until execution is resumed.
 
@@ -26,7 +26,7 @@ One task retains its file, identity, decisions, and progress through mode change
 
 The rounded composer uses the current theme’s `warning` color in Plan and `thinkingLow` in Build on the top-left border and continuous solid `│` left rail. The right rail uses Pi’s border color. The unfinished attached task’s title sits in the top border; mode, model, provider, and thinking level sit in the bottom border. Text truncates to terminal width. Model/thinking changes update the display live.
 
-Titles stay through mode changes and execution pauses, gain an `· Awaiting validation` suffix when applicable, disappear on completion/abandonment, and change only when the task identity changes. Metadata takes precedence over the first nonempty top-level Markdown heading outside fenced code. An existing unfinished file without a title displays `Untitled task`; empty reservations do not. No scope is inferred from the display fallback.
+When enabled, titles stay through mode changes and execution pauses, disappear on completion/abandonment, and change only when the task identity changes. Validation notices belong in the main chat, never in the composer title or border. Metadata takes precedence over the first nonempty top-level Markdown heading outside fenced code. An existing unfinished file without a title displays `Untitled task`; empty reservations do not. No scope is inferred from the display fallback.
 
 Submitted user messages retain their original mode-colored rail after mode changes and session restoration. Recreated custom editors restore the latest 100 active-branch user prompts for Up/Down history. Pi Plan Build leaves the footer untouched; its keyed status is a fallback when another extension owns the composer.
 
@@ -61,7 +61,7 @@ Do not load multiple npm/Git/local copies simultaneously.
 | --- | --- |
 | `Alt+M` | Default global Build/Plan toggle |
 | `Tab` | In the custom composer, toggle when autocomplete is closed; accept a suggestion when open |
-| `/plan-settings` | Configure shortcuts |
+| `/plan-settings` | Configure shortcuts and plan title visibility |
 | `/plan` | Select read-only Plan mode without allocating a task |
 | `/plan new` | Start a plan only when no current unfinished plan exists |
 | `/plan abandon` | Confirm explicit abandonment; preserve the file without implying success |
@@ -75,7 +75,7 @@ Lifecycle commands require an idle agent. Manual mode changes during a run are d
 
 ### Shortcut configuration
 
-`/plan-settings` offers **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Run `/reload` to apply saved changes.
+`/plan-settings` offers **Tab + Alt+M**, **Alt+M only**, **Disabled**, **Plan title**, and **Custom (edit config file)**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Run `/reload` to apply saved changes.
 
 Pi Plan Build reads `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`):
 
@@ -88,7 +88,7 @@ Pi Plan Build reads `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/p
 }
 ```
 
-Composer-outline plan titles use **regular lowercase text**. Saved titles, other title displays, validation labels, and user input keep their original lettering. Agents are guided to use concise, descriptive plan titles, ideally 3–6 words. The former `smallCapsPlanTitle` setting is ignored and can be removed from existing configuration files.
+Composer-outline plan titles are **off by default**. Enable **Plan title → On** in `/plan-settings`, or set `"showPlanTitle": true` in `pi-plan-build.json`, then run `/reload`. Choose **Off (default)** to hide them again. The preference also controls fallback status titles. Enabled composer titles use **regular lowercase, warning-colored text**. Saved titles, other title displays, validation labels, and user input keep their original lettering. Agents are guided to use concise, descriptive plan titles that make the task recognizable when returning to the session: include context needed for clarity, omit filler and unnecessary detail, and never sacrifice meaning merely to shorten the title. The former `smallCapsPlanTitle` setting is ignored and can be removed from existing configuration files.
 
 Each action accepts one Pi key string or an array. `[]` disables it; omitted actions retain defaults. `toggleMode` uses Pi’s global shortcut conflict rules. `toggleModeInEditor` requires the custom composer and yields to open autocomplete. For example, use `"toggleMode": "ctrl+alt+m"` and `"toggleModeInEditor": ["f6"]`.
 
@@ -137,10 +137,10 @@ For normal implementation, the agent calls `plan_complete` after all approved wo
 
 `plan_finish` records unfinished outcomes:
 
-- `awaiting_validation`: requires an essential `userAction` and keeps the plan attached, open, titled, and visibly marked until resolved.
+- `awaiting_validation`: requires an essential `userAction` and keeps the plan attached and open, with the required action shown in the main chat until resolved.
 - `blocked`, `waiting_for_input`, `still_working`: record a reason and keep the plan attached.
 
-The result states clearly that implementation is finished but the plan remains open, then shows the required action. During step execution, it identifies only that step's implementation as finished. The agent explains that action once in its final response, while full requirements remain in current context and expanded results. A successful user report resolves the validation request; this same plan can complete directly only when all approved work and required verification are finished, or the user explicitly directs completion. A failed report keeps it current for remediation. Optional appearance feedback is not required validation.
+The collapsed tool result says only **Validation request recorded.** Expanded results retain the complete required actions, rationale, and plan path, with readable instruction text. The assistant's final response summarizes implementation and checks, provides all essential validation actions once, and ends with **Awaiting your validation.** During step execution it describes only the active step, not the whole plan as finished. Full requirements remain in structured tool details and current context. This response ordering is agent guidance, not automatic rewriting of model output. A successful user report resolves the validation request; this same plan can complete directly only when all approved work and required verification are finished, or the user explicitly directs completion. A failed report keeps it current for remediation. Optional appearance feedback is not required validation.
 
 A normal saved-plan Build run can receive **one** hidden outcome-reconciliation reminder after approved implementation or a successful project edit/write. It requires a normal terminal response and no recorded outcome. Errors, interruptions, pending input, work without a current plan, conversation-only turns, Plan, and step execution do not trigger it. The reminder authorizes no more implementation/tests and infers no success. Its instruction is visible only during its live bookkeeping follow-up, including the final response after recording an outcome. It expires when that follow-up settles, when a new user message arrives, or when the plan/mode changes; restoration never reactivates it. Its consumed marker is saved before dispatch, preventing replay across restoration; ignoring it leaves the plan unfinished without looping. Shell-only work outside approval may not arm it, so explicit agent finishing remains the primary contract.
 

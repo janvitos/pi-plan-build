@@ -39,26 +39,16 @@ export function formatModeRail(mode: Mode, theme: ModeStatusTheme, glyph = "│"
 	return formatModeColor(mode, glyph, theme);
 }
 
-export function formatPlanLabel(title: string | undefined, awaitingValidation = false, width = Infinity): string {
-	const clean = cleanTaskTitle(title ?? "");
-	if (!awaitingValidation) return truncateToWidth(clean, width, "…");
-	const status = width >= 19 ? "Awaiting validation" : "Validation";
-	const available = width - visibleWidth(status) - 3;
-	const prefix = clean && available > 0 ? truncateToWidth(clean, available, "…") : "";
-	return truncateToWidth(prefix ? `${prefix} · ${status}` : status, width, "…");
-}
-
 export function formatModeTopBorder(
 	mode: Mode,
 	width: number,
 	topRightCorner: string,
 	theme: ModeStatusTheme,
 	title?: string,
-	awaitingValidation = false,
 ): string {
 	if (width <= 2) return "";
-	if (!title && !awaitingValidation) return `${formatModeColor(mode, `╭${"─".repeat(width - 2)}`, theme)}${topRightCorner}`;
-	const label = truncateToWidth(` ${formatPlanLabel(title ? cleanTaskTitle(title).toLowerCase() : title, awaitingValidation, Math.max(0, width - 4))} `, Math.max(0, width - 2), "…");
+	if (!title) return `${formatModeColor(mode, `╭${"─".repeat(width - 2)}`, theme)}${topRightCorner}`;
+	const label = truncateToWidth(` ${truncateToWidth(cleanTaskTitle(title).toLowerCase(), Math.max(0, width - 4), "…")} `, Math.max(0, width - 2), "…");
 	return `${formatModeColor(mode, "╭", theme)}${label ? theme.fg("warning", label) : ""}${formatModeColor(mode, `${"─".repeat(Math.max(0, width - 2 - visibleWidth(label)))}`, theme)}${topRightCorner}`;
 }
 

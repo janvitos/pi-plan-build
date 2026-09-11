@@ -167,6 +167,52 @@ test("completion safeguards separate file availability from evidence and retain 
 	}
 });
 
+test("validation presentation keeps compact bookkeeping and complete readable expanded actions", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "validation-presentation-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		await h.command("");
+		await h.callTool("plan_task", { action: "new", expectedAttached: null, title: "Ability visuals", scope: "Verify manual and passive visuals" });
+		await h.build();
+		const userAction = "Try every manual ability. Observe all passive defenses during safe gameplay.";
+		const result = await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Rendering remains unverified", userAction });
+		assert.equal(result.content[0].text, "Validation request recorded.");
+		assert.equal(result.details.outcome.userAction, userAction);
+		assert.equal(h.state().collection.attached, 1);
+		const colors: Array<{ color: string; text: string }> = [];
+		const theme = { ...h.ctx.ui.theme, fg: (color: string, text: string) => { colors.push({ color, text }); return text; } };
+		const tool = h.tools.get("plan_finish");
+		for (const content of [result.content, [{ type: "text", text: `Implementation is finished. Required validation: ${userAction}` }]]) {
+			const stored = { ...result, content };
+			assert.equal(tool.renderResult(stored, { expanded: false, isPartial: false }, theme, {}).render(200).join("\n").trim(), "Validation request recorded.");
+			const expanded = tool.renderResult(stored, { expanded: true, isPartial: false }, theme, {}).render(200).join("\n");
+			assert.ok(expanded.includes(userAction));
+			assert.ok(expanded.includes(result.details.planPath));
+			assert.match(expanded, /Rendering remains unverified/);
+			assert.doesNotMatch(expanded, /Awaiting your validation/);
+		}
+		assert.ok(colors.some((call) => call.color === "text" && call.text === userAction));
+		const context = (await h.event("context", { messages: [] })).messages.at(-1).content;
+		assert.ok(context.includes(userAction));
+		for (const guidance of [context, COMPLETION_GUIDANCE, tool.promptGuidelines.join(" ")]) {
+			assert.match(guidance, /every essential validation action once/);
+			assert.match(guidance, /end with 'Awaiting your validation\.'/);
+			assert.match(guidance, /Do not repeat tool bookkeeping/);
+		}
+		assert.match(tool.promptGuidelines.join(" "), /only the active step/);
+		assert.deepEqual(tool.renderResult(result, { expanded: false, isPartial: true }, theme, {}).render(200), []);
+		const blocked = await h.callTool("plan_finish", { expectedAttached: 1, outcome: "blocked", reason: "Missing access" });
+		assert.match(tool.renderResult(blocked, { expanded: false, isPartial: false }, theme, {}).render(200).join("\n"), /Ability visuals: blocked/);
+		assert.match(tool.renderResult({ ...result, isError: true, content: [{ type: "text", text: "Failed to record" }] }, { expanded: false, isPartial: false }, theme, { isError: true }).render(200).join("\n"), /Failed to record/);
+		await h.event("session_shutdown");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("metadata-only plans expose outcomes in Build and complete without creating Markdown", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-metadata-completion-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
@@ -525,8 +571,8 @@ test("completion reconciliation is one-shot and unfinished outcomes preserve the
 		await assert.rejects(pending.tool("plan_finish", { expectedAttached: 9, outcome: "blocked", reason: "Blocked" }), /Stale/);
 		await assert.rejects(pending.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Hardware check" }), /userAction/);
 		const awaiting = await pending.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Hardware needed", userAction: "Run the hardware acceptance check" });
-		assert.match(awaiting.content[0].text, /plan remains open/);
-		assert.match(awaiting.content[0].text, /Run the hardware acceptance check/);
+		assert.equal(awaiting.content[0].text, "Validation request recorded.");
+		assert.equal(awaiting.details.outcome.userAction, "Run the hardware acceptance check");
 		await settle(pending);
 		assert.equal(pending.state().collection.attached, 1);
 		assert.equal(pending.state().collection.records[0].plan.status, "open");
@@ -711,10 +757,11 @@ test("the current plan cannot be replaced and explicit abandonment preserves his
 	}
 });
 
-test("titles follow unfinished plans across modes, saved-file refreshes, and completion", async () => {
+test("validation chat notice keeps instructions out of enabled plan titles across restore", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-title-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	try {
+		fs.writeFileSync(path.join(dir, "pi-plan-build.json"), JSON.stringify({ showPlanTitle: true }));
 		const h = harness(dir);
 		h.ctx.ui.getEditorComponent = () => (() => {}) as any;
 		const status = () => h.events.filter((e) => e.kind === "status").at(-1)?.text;
@@ -747,10 +794,14 @@ test("titles follow unfinished plans across modes, saved-file refreshes, and com
 		await h.event("tool_result", { toolName: "write", input: { path: file }, isError: false });
 		assert.equal(status(), "Fix redirects", "metadata takes precedence");
 		await h.build();
-		await h.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs browser confirmation", userAction: "Confirm the login redirect in a browser" });
-		assert.equal(status(), "Fix redirects · Awaiting validation");
+		const outcome = await h.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs browser confirmation", userAction: "Confirm the login redirect in a browser" });
+		const chat = h.tools.get("plan_finish").renderResult(outcome, { expanded: false, isPartial: false }, h.ctx.ui.theme, {}).render(160).join("\n");
+		assert.equal(chat.trim(), "Validation request recorded.");
+		assert.equal(outcome.details.outcome.userAction, "Confirm the login redirect in a browser");
+		assert.equal(h.state().collection.attached, 1);
+		assert.equal(status(), "Fix redirects");
 		await h.event("session_start", { reason: "reload" });
-		assert.equal(status(), "Fix redirects · Awaiting validation", "validation status remains visible after restoration");
+		assert.equal(status(), "Fix redirects", "validation never decorates the title after restoration");
 		await h.tool("plan_complete");
 		assert.equal(status(), "build", "completion refreshes status immediately");
 		await h.command("");
@@ -1329,8 +1380,8 @@ test("paused active steps block both shells and edits until explicit resume; sta
 		assert.ok(h.active().includes("plan_step_complete"));
 		assert.match((await h.event("context", { messages: [] })).messages[0].content, /Implement only step 1/);
 		const waiting = await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user observation", userAction: "Confirm that the first step behaves correctly" });
-		assert.match(waiting.content[0].text, /This step's implementation is finished/);
-		assert.match(waiting.content[0].text, /plan remains open/);
+		assert.equal(waiting.content[0].text, "Validation request recorded.");
+		assert.equal(waiting.details.outcome.kind, "awaiting_validation");
 		const cancelled = harness(dir, structuredClone(h.entries));
 		await cancelled.event("session_start", { reason: "reload" });
 		await cancelled.callTool("plan_step_control", { action: "cancel" });
