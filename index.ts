@@ -987,6 +987,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 
 	function armReconciliation(ctx: ExtensionContext): void {
 		if ((runMode ?? selectedMode) !== "build" || plans.collection.attached === null || plans.execution || inspectPlanFile(currentPlanPath()) !== "saved") return;
+		// A plan that already awaits validation is openly unfinished and the injected plan
+		// context already requests the final validation summary. Re-recording the same
+		// outcome would only force a second, near-identical summary on a follow-up turn.
+		if (plans.plan.outcome?.kind === "awaiting_validation") return;
 		if (!reconciliation || reconciliation.sequence !== plans.collection.attached || reconciliation.sessionId !== ctx.sessionManager.getSessionId()) {
 			resetReconciliation(plans.collection.attached, ctx.sessionManager.getSessionId()!);
 		}

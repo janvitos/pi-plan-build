@@ -723,6 +723,29 @@ test("completion reconciliation is one-shot and unfinished outcomes preserve the
 	}
 });
 
+test("an already-awaiting-validation plan does not force a redundant reconciliation turn", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-reconcile-awaiting-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		fs.mkdirSync(path.join(dir, "plans"));
+		fs.writeFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), "# Work\n");
+		const data = { version: 1, selectedMode: "build", plan: { sequence: 1, status: "open", task: { title: "Work", scope: "Work", decisions: [] }, outcome: { kind: "awaiting_validation", reason: "Hardware needed", userAction: "Run the hardware acceptance check" } } };
+		const h = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data }]);
+		await h.event("session_start", { reason: "resume" });
+		await h.prompt("Apply the approved remediation");
+		await h.event("tool_result", { toolName: "edit", input: { path: path.join(dir, "project.ts") }, isError: false });
+		await h.event("agent_end", { messages: [{ role: "assistant", stopReason: "stop", content: [{ type: "text", text: "Awaiting your validation." }] }] });
+		await h.event("agent_settled");
+		assert.equal(h.events.filter((e) => e.kind === "internal").length, 0, "no reminder while the plan already awaits validation");
+		assert.equal(h.state().collection.attached, 1);
+		assert.equal(h.state().collection.records[0].plan.outcome.kind, "awaiting_validation");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
+		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("empty historical Build slots are detached but genuine plans and reservations survive", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-phantom-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
