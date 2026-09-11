@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { withFileMutationQueue, getAgentDir, getMarkdownTheme, parseSkillBlock, type EntryRenderer, type ExtensionAPI, type ExtensionContext, UserMessageComponent } from "@earendil-works/pi-coding-agent";
-import { Container, Markdown, Text } from "@earendil-works/pi-tui";
+import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker } from "./tool-presentation.ts";
 import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
@@ -161,9 +161,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			? entry.data.userAction.trim()
 			: legacyAction || "Validation instructions unavailable.";
 		const notice = new Container();
-		const bodyTheme = { ...getMarkdownTheme(), listBullet: (text: string) => text };
-		notice.addChild(new Text(formatInstruction(theme, VALIDATION_NOTICE_HEADING), 0, 0));
-		notice.addChild(new Markdown(userAction, 0, 0, bodyTheme));
+		notice.addChild(new Text(formatInstruction(theme, VALIDATION_NOTICE_HEADING), 1, 0));
+		notice.addChild(new Spacer(1));
+		notice.addChild(new Markdown(userAction, 1, 0, getMarkdownTheme()));
 		return notice;
 	};
 	pi.registerEntryRenderer<{ markdown: string }>("pi-plan-build-inspection", (entry) =>
