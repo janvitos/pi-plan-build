@@ -823,6 +823,7 @@ test("task identity and decisions survive restore while separate tasks preserve 
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-task-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	try {
+		fs.writeFileSync(path.join(dir, "pi-plan-build.json"), JSON.stringify({ showPlanTitle: true }));
 		const h = harness(dir);
 		await h.event("session_start", { reason: "startup" });
 		await h.command("new");
