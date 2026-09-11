@@ -22,8 +22,10 @@ export function formatInstruction(theme: InstructionTheme, text: string): string
 	return theme.bold(theme.fg(INSTRUCTION_COLOR, text));
 }
 
+export const VALIDATION_NOTICE_HEADING = "Awaiting your validation";
+
 export function validationNotice(userAction: string): string {
-	return `Awaiting your validation: ${userAction}`;
+	return `${VALIDATION_NOTICE_HEADING}\n\n${userAction}`;
 }
 
 const MODE_LABELS: Record<Mode, string> = {

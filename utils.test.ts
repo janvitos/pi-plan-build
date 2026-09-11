@@ -43,6 +43,7 @@ import {
 	PLAN_EXIT_STAY_CHOICE,
 	PLAN_ACTION_ANNOUNCEMENTS,
 	PLAN_STEP_READY_ACKNOWLEDGEMENT,
+	VALIDATION_NOTICE_HEADING,
 	planActionTone,
 	ownsUiSlot,
 	renderModeComposer,
@@ -51,15 +52,15 @@ import {
 	validationNotice,
 } from "./utils.ts";
 
-test("user-action instructions share one bold accent cue and the canonical validation wording", () => {
+test("user-action headings share one bold accent cue and validation content starts below its heading", () => {
 	const calls: Array<{ color: string; text: string }> = [];
 	const theme = {
 		fg(color: string, text: string) { calls.push({ color, text }); return text; },
 		bold(text: string) { return `**${text}**`; },
 	};
-	assert.equal(formatInstruction(theme, "Awaiting your validation: Check the fix"), "**Awaiting your validation: Check the fix**");
-	assert.deepEqual(calls, [{ color: "accent", text: "Awaiting your validation: Check the fix" }]);
-	assert.equal(validationNotice("Check the fix"), "Awaiting your validation: Check the fix");
+	assert.equal(formatInstruction(theme, VALIDATION_NOTICE_HEADING), "**Awaiting your validation**");
+	assert.deepEqual(calls, [{ color: "accent", text: VALIDATION_NOTICE_HEADING }]);
+	assert.equal(validationNotice("- Check the fix\n- Check the fallback"), "Awaiting your validation\n\n- Check the fix\n- Check the fallback");
 });
 
 test("plan guards normalize Pi paths and resolve filesystem aliases without authorizing unresolved targets", () => {

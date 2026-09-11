@@ -64,6 +64,7 @@ import {
 	planActionTone,
 	type Mode,
 	unique,
+	VALIDATION_NOTICE_HEADING,
 	validationNotice,
 } from "./utils.ts";
 
@@ -152,6 +153,19 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	};
 	const renderPlanStepGuidance: EntryRenderer = (_entry, _options, theme) =>
 		new Text(formatInstruction(theme, PLAN_STEP_READY_ACKNOWLEDGEMENT), 0, 0);
+	const renderValidationNotice: EntryRenderer<{ userAction?: string; message?: string }> = (entry, _options, theme) => {
+		const legacyMessage = typeof entry.data?.message === "string" ? entry.data.message : "";
+		const legacyPrefix = `${VALIDATION_NOTICE_HEADING}:`;
+		const legacyAction = legacyMessage.startsWith(legacyPrefix) ? legacyMessage.slice(legacyPrefix.length).trim() : legacyMessage.trim();
+		const userAction = typeof entry.data?.userAction === "string" && entry.data.userAction.trim()
+			? entry.data.userAction.trim()
+			: legacyAction || "Validation instructions unavailable.";
+		const notice = new Container();
+		const bodyTheme = { ...getMarkdownTheme(), listBullet: (text: string) => text };
+		notice.addChild(new Text(formatInstruction(theme, VALIDATION_NOTICE_HEADING), 0, 0));
+		notice.addChild(new Markdown(userAction, 0, 0, bodyTheme));
+		return notice;
+	};
 	pi.registerEntryRenderer<{ markdown: string }>("pi-plan-build-inspection", (entry) =>
 		new Markdown(entry.data?.markdown ?? "Plan inspection unavailable", 0, 0, getMarkdownTheme()));
 	pi.registerEntryRenderer<{ plan: string }>(PLAN_REVIEW_ENTRY_TYPE, renderPlanReview);
@@ -159,8 +173,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerEntryRenderer<{ message: string }>(MODE_NOTICE_ENTRY_TYPE, renderModeNotice);
 	pi.registerEntryRenderer<{ message: string }>(LEGACY_MODE_NOTICE_ENTRY_TYPE, renderModeNotice);
 	pi.registerEntryRenderer(PLAN_STEP_GUIDANCE_ENTRY_TYPE, renderPlanStepGuidance);
-	pi.registerEntryRenderer<{ message: string }>(VALIDATION_NOTICE_ENTRY_TYPE, (entry, _options, theme) =>
-		new Text(formatInstruction(theme, typeof entry.data?.message === "string" ? entry.data.message : "Awaiting your validation."), 0, 0));
+	pi.registerEntryRenderer<{ userAction?: string; message?: string }>(VALIDATION_NOTICE_ENTRY_TYPE, renderValidationNotice);
 	pi.registerMessageRenderer(FRESH_ANNOUNCEMENT_MESSAGE_TYPE, (message, _options, theme) =>
 		new Text(theme.fg("success", typeof message.content === "string" ? message.content : ""), 0, 0));
 
@@ -618,13 +631,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_finish",
 		label: "Record Plan Outcome",
-		promptGuidelines: ["After plan_finish awaiting_validation, summarize implementation and checks without overstating verification. The extension presents the validation request at the end of the turn, so do not restate the required action or add a closing ceremony. Do not repeat tool bookkeeping. During step execution describe only the active step, not the entire plan as finished. Optional feedback does not warrant awaiting_validation."],
+		promptGuidelines: ["After plan_finish awaiting_validation, summarize implementation and checks without overstating verification. Write userAction as a concise Markdown bullet list with one concrete check per bullet when validation requires multiple checks; a single check can be a short sentence. The extension presents the validation request at the end of the turn, so do not restate the required action or add a closing ceremony. Do not repeat tool bookkeeping. During step execution describe only the active step, not the entire plan as finished. Optional feedback does not warrant awaiting_validation."],
 		description: "Before a final planned-work summary, record an unfinished Build outcome. For completed work with all required verification passed, use plan_complete instead. awaiting_validation requires an essential userAction and keeps the plan attached and visibly open until the user reports success or explicitly directs completion; optional feedback is not a blocker. During step execution it pauses mutation authority while preserving the active step. blocked, waiting_for_input, and still_working also keep the current plan unfinished. Never use this to imply tests passed or to complete steps.",
 		parameters: Type.Object({
 			expectedAttached: Type.Integer({ minimum: 0 }),
 			outcome: Type.String({ enum: ["awaiting_validation", "blocked", "waiting_for_input", "still_working"] }),
 			reason: Type.String({ minLength: 1, maxLength: 2000 }),
-			userAction: Type.Optional(Type.String({ maxLength: 2000 })),
+			userAction: Type.Optional(Type.String({ maxLength: 2000, description: "Concrete user-only validation instructions. For multiple checks, use a concise Markdown bullet list with one concrete check per bullet; a single check can be a short sentence." })),
 		}),
 		executionMode: "sequential",
 		async execute(_id, params, _signal, _update, ctx) {
@@ -648,7 +661,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const text = awaitingValidation
 				? validationNotice(params.userAction!.trim())
 				: `${title}: ${params.outcome.replaceAll("_", " ")}.`;
-			if (awaitingValidation) pendingValidationNotice = text;
+			if (awaitingValidation) pendingValidationNotice = params.userAction!.trim();
 			return { content: [{ type: "text", text }], details: { sequence, title, planPath: file, fileState: savedPlanState, outcome, attached: plans.collection.attached } };
 		},
 		renderCall: statusCall("Recording plan outcome…"),
@@ -1118,13 +1131,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			reconciliationFollowUp = true;
 			persist();
 			activeReconciliationId = randomUUID();
-			pi.sendMessage({ customType: RECONCILIATION_CONTEXT_TYPE, details: { reconciliationId: activeReconciliationId }, display: false, content: "Reconcile the attached plan's outcome before ending. This is a single bookkeeping reminder, not permission for more implementation or verification. If all approved work and required checks passed, call plan_complete. If essential user-only validation remains, call plan_finish awaiting_validation with the exact user action. Then summarize work/checks without restating the required validation action; the extension presents the validation request at the end of the turn. Do not repeat tool bookkeeping. Otherwise record blocked, waiting_for_input, or still_working with a reason. Optional feedback does not block completion. Do not infer success from this reminder and do not repeat tests merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
+			pi.sendMessage({ customType: RECONCILIATION_CONTEXT_TYPE, details: { reconciliationId: activeReconciliationId }, display: false, content: "Reconcile the attached plan's outcome before ending. This is a single bookkeeping reminder, not permission for more implementation or verification. If all approved work and required checks passed, call plan_complete. If essential user-only validation remains, call plan_finish awaiting_validation with the exact user action. For multiple checks, format the user action as a concise Markdown bullet list with one concrete check per bullet. Then summarize work/checks without restating the required validation action; the extension presents the validation request at the end of the turn. Do not repeat tool bookkeeping. Otherwise record blocked, waiting_for_input, or still_working with a reason. Optional feedback does not block completion. Do not infer success from this reminder and do not repeat tests merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
 			followUpDispatched = true;
 		}
 		if (pendingValidationNotice && !followUpDispatched) {
 			const record = plans.collection.records.find((candidate) => candidate.plan.sequence === plans.collection.attached);
 			if (record?.plan.outcome?.kind === "awaiting_validation") {
-				pi.appendEntry(VALIDATION_NOTICE_ENTRY_TYPE, { message: pendingValidationNotice });
+				pi.appendEntry(VALIDATION_NOTICE_ENTRY_TYPE, { userAction: pendingValidationNotice });
 			}
 			pendingValidationNotice = undefined;
 		}
