@@ -434,16 +434,14 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		handler: async (_args, ctx) => selectMode("build", ctx, "manual"),
 	});
 	pi.registerCommand("plan-settings", {
-		description: "Configure Plan/Build shortcuts and plan title visibility",
+		description: "Configure Plan/Build settings",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) return;
 			const customOption = "Custom (edit config file)";
+			const shortcutOption = `Shortcuts (active: ${shortcutPresetLabel(shortcutConfig)})`;
 			const modelOption = `Per-mode model/thinking (active: ${modeSelections.enabled ? "on" : "off"})`;
 			const titleOption = `Plan title (active: ${composerSettings.showPlanTitle ? "on" : "off"})`;
-			const selected = await ctx.ui.select(
-				`Plan/Build shortcuts — active: ${shortcutPresetLabel(shortcutConfig)} (global: ${shortcutConfig.toggleMode.join(", ") || "none"}; editor: ${shortcutConfig.toggleModeInEditor.join(", ") || "none"})`,
-				[...Object.keys(SHORTCUT_PRESETS), titleOption, modelOption, customOption],
-			);
+			const selected = await ctx.ui.select("Plan/Build settings", [shortcutOption, titleOption, modelOption]);
 			if (!selected) return;
 			if (selected === modelOption) {
 				if (!ctx.isIdle() || pendingMode !== undefined) { ctx.ui.notify("Wait for the agent and mode switch to finish before changing model routing.", "warning"); return; }
@@ -467,18 +465,25 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				}
 				return;
 			}
-			if (selected === customOption) {
-				ctx.ui.notify(
-					`Edit ${shortcutConfigPath}, then run /reload. Example: {"showPlanTitle":true,"shortcuts":{"toggleMode":["ctrl+alt+m"],"toggleModeInEditor":["tab"]}}. Use [] to disable an action. Put Tab only in toggleModeInEditor; it switches modes when autocomplete is closed instead of requesting file completion.`,
-					"info",
+			if (selected === shortcutOption) {
+				const shortcutSelection = await ctx.ui.select(
+					`Plan/Build shortcuts — active: ${shortcutPresetLabel(shortcutConfig)} (global: ${shortcutConfig.toggleMode.join(", ") || "none"}; editor: ${shortcutConfig.toggleModeInEditor.join(", ") || "none"})`,
+					[...Object.keys(SHORTCUT_PRESETS), customOption],
 				);
-				return;
-			}
-			try {
-				saveShortcutPreset(shortcutAgentDir, selected);
-				ctx.ui.notify(`Saved ${selected} to ${shortcutConfigPath}. Run /reload to apply the shortcuts.`, "info");
-			} catch (error) {
-				ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+				if (!shortcutSelection) return;
+				if (shortcutSelection === customOption) {
+					ctx.ui.notify(
+						`Edit ${shortcutConfigPath}, then run /reload. Example: {"showPlanTitle":true,"shortcuts":{"toggleMode":["ctrl+alt+m"],"toggleModeInEditor":["tab"]}}. Use [] to disable an action. Put Tab only in toggleModeInEditor; it switches modes when autocomplete is closed instead of requesting file completion.`,
+						"info",
+					);
+					return;
+				}
+				try {
+					saveShortcutPreset(shortcutAgentDir, shortcutSelection);
+					ctx.ui.notify(`Saved ${shortcutSelection} to ${shortcutConfigPath}. Run /reload to apply the shortcuts.`, "info");
+				} catch (error) {
+					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+				}
 			}
 		},
 	});

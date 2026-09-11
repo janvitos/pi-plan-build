@@ -22,7 +22,7 @@ Manual mode changes during a run defer automatic model switching until that run 
 
 ## Shortcut configuration
 
-`/plan-settings` offers **Tab + Alt+M**, **Alt+M only**, **Disabled**, **Plan title**, **Per-mode model/thinking**, and **Custom (edit config file)**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Shortcut changes require `/reload`; title and per-mode selection toggles apply immediately. Direct file edits require `/reload`.
+`/plan-settings` groups **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)** under the **Shortcuts** submenu. The main menu also offers **Plan title** and **Per-mode model/thinking**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Shortcut changes require `/reload`; title and per-mode selection toggles apply immediately. Direct file edits require `/reload`.
 
 Pi Plan Build reads `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`):
 

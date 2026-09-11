@@ -61,7 +61,7 @@ Open `/plan-settings`:
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
-| Shortcuts | Tab + Alt+M | Choose Alt+M only, disable shortcuts, or configure custom keys; reload to apply |
+| Shortcuts | Tab + Alt+M | Open its submenu to choose Alt+M only, disable shortcuts, or configure custom keys; reload to apply |
 | Plan title | Off | Show the current task's title in the composer; applies immediately |
 | Per-mode model/thinking | Off | Remember separate Plan and Build selections; applies immediately |
 

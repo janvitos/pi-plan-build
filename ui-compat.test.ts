@@ -327,13 +327,15 @@ test("plan title visibility persists through settings and reload without compose
 	assert.ok(h.statuses.at(-1)?.[1]?.includes("Plan Title"), "the live enabled preference applies to reduced UI too");
 });
 
-test("settings save the selected preset, retain active bindings until reload, and reload correctly", async () => {
+test("settings group shortcut presets in a submenu, retain active bindings until reload, and reload correctly", async () => {
 	const harness = createHarness();
 	await start(harness);
-	harness.selectOption("Alt+M only");
+	harness.selectOptions("Shortcuts (active: Tab + Alt+M)", "Alt+M only");
 	await harness.commands.get("plan-settings").handler("", harness.ctx);
-	assert.match(harness.selections[0]!.title, /active: Tab \+ Alt\+M/);
-	assert.deepEqual(harness.selections[0]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Plan title (active: off)", "Per-mode model/thinking (active: off)", "Custom (edit config file)"]);
+	assert.equal(harness.selections[0]!.title, "Plan/Build settings");
+	assert.deepEqual(harness.selections[0]!.options, ["Shortcuts (active: Tab + Alt+M)", "Plan title (active: off)", "Per-mode model/thinking (active: off)"]);
+	assert.match(harness.selections[1]!.title, /active: Tab \+ Alt\+M/);
+	assert.deepEqual(harness.selections[1]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Custom (edit config file)"]);
 	assert.match(harness.notifications.at(-1)![0], /Saved Alt\+M only.*\/reload/);
 	await toggle(harness, "\t", "plan");
 	await shutdown(harness);
@@ -341,9 +343,9 @@ test("settings save the selected preset, retain active bindings until reload, an
 	const reloaded = createHarness();
 	await start(reloaded);
 	await completeFile(reloaded);
-	reloaded.selectOption("Disabled");
+	reloaded.selectOptions("Shortcuts (active: Alt+M only)", "Disabled");
 	await reloaded.commands.get("plan-settings").handler("", reloaded.ctx);
-	assert.match(reloaded.selections[0]!.title, /active: Alt\+M only/);
+	assert.match(reloaded.selections[1]!.title, /active: Alt\+M only/);
 	assert.deepEqual(loadShortcutConfig(agentDir).config, { toggleMode: [], toggleModeInEditor: [] });
 });
 
@@ -354,7 +356,7 @@ test("settings cancellation and custom guidance do not create or overwrite confi
 	assert.equal(fs.existsSync(path.join(agentDir, SHORTCUT_CONFIG_FILE)), false);
 	writeConfig({ shortcuts: { toggleMode: "f6", toggleModeInEditor: [] }, unrelated: true });
 	const before = fs.readFileSync(path.join(agentDir, SHORTCUT_CONFIG_FILE), "utf8");
-	harness.selectOption("Custom (edit config file)");
+	harness.selectOptions("Shortcuts (active: Tab + Alt+M)", "Custom (edit config file)");
 	await command.handler("", harness.ctx);
 	assert.ok(harness.notifications.at(-1)![0].includes(path.join(agentDir, SHORTCUT_CONFIG_FILE)));
 	assert.match(harness.notifications.at(-1)![0], /toggleModeInEditor.*file completion/);
@@ -365,7 +367,7 @@ test("settings report a failed save without overwriting malformed JSON", async (
 	const configPath = path.join(agentDir, SHORTCUT_CONFIG_FILE);
 	fs.writeFileSync(configPath, "{");
 	const harness = createHarness();
-	harness.selectOption("Alt+M only");
+	harness.selectOptions("Shortcuts (active: Tab + Alt+M)", "Alt+M only");
 	await harness.commands.get("plan-settings").handler("", harness.ctx);
 	assert.equal(harness.notifications.at(-1)![1], "error");
 	assert.match(harness.notifications.at(-1)![0], /Could not save/);
