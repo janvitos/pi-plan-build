@@ -28,6 +28,7 @@ import {
 	displayedPlanTitle,
 	extractPlanTitle,
 	extractPromptHistory,
+	formatInstruction,
 	formatModeMetadata,
 	formatModeRail,
 	formatModeTopBorder,
@@ -46,7 +47,19 @@ import {
 	renderModeComposer,
 	sanitizeSessionId,
 	shouldReduceOptionalUi,
+	validationNotice,
 } from "./utils.ts";
+
+test("user-action instructions share one bold accent cue and the canonical validation wording", () => {
+	const calls: Array<{ color: string; text: string }> = [];
+	const theme = {
+		fg(color: string, text: string) { calls.push({ color, text }); return text; },
+		bold(text: string) { return `**${text}**`; },
+	};
+	assert.equal(formatInstruction(theme, "Awaiting your validation: Check the fix"), "**Awaiting your validation: Check the fix**");
+	assert.deepEqual(calls, [{ color: "accent", text: "Awaiting your validation: Check the fix" }]);
+	assert.equal(validationNotice("Check the fix"), "Awaiting your validation: Check the fix");
+});
 
 test("plan guards normalize Pi paths and resolve filesystem aliases without authorizing unresolved targets", () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-paths-"));

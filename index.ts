@@ -50,6 +50,7 @@ import {
 	type PlanLifecycle,
 	extractPromptHistory,
 	extractUserMessageText,
+	formatInstruction,
 	formatModeRail,
 	isAllowedPlanMutation,
 	makePlanPath,
@@ -62,6 +63,7 @@ import {
 	PLAN_STEP_READY_ACKNOWLEDGEMENT,
 	type Mode,
 	unique,
+	validationNotice,
 } from "./utils.ts";
 
 const PLAN_REVIEW_ENTRY_TYPE = "pi-plan-build-review";
@@ -69,6 +71,7 @@ const LEGACY_PLAN_REVIEW_ENTRY_TYPE = "opencode-plan-review";
 const MODE_NOTICE_ENTRY_TYPE = "pi-plan-build-notice";
 const LEGACY_MODE_NOTICE_ENTRY_TYPE = "opencode-mode-notice";
 const PLAN_STEP_GUIDANCE_ENTRY_TYPE = "pi-plan-build-step-guidance";
+const VALIDATION_NOTICE_ENTRY_TYPE = "pi-plan-build-validation-notice";
 const FRESH_ANNOUNCEMENT_MESSAGE_TYPE = "pi-plan-build-fresh-announcement";
 const PLAN_STEP_CHOICE = "Implement step by step";
 const MANAGED_TOOLS = new Set(["question", "plan_task", "plan_enter", "plan_exit", "plan_step_control", "plan_step_complete", "plan_complete", "plan_finish"]);
@@ -93,6 +96,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let modeTransition = 0;
 	const modeSelections = createModeSelections(pi, shortcutAgentDir, () => runMode ?? selectedMode);
 	let pendingFreshAnnouncement = false;
+	let pendingValidationNotice: string | undefined;
 	const plans = new PlanState();
 	let lastSnapshot = "";
 	function currentPlanPath(): string {
@@ -144,7 +148,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		return new Text(theme.fg("warning", message), 0, 0);
 	};
 	const renderPlanStepGuidance: EntryRenderer = (_entry, _options, theme) =>
-		new Text(theme.fg("success", PLAN_STEP_READY_ACKNOWLEDGEMENT), 0, 0);
+		new Text(formatInstruction(theme, PLAN_STEP_READY_ACKNOWLEDGEMENT), 0, 0);
 	pi.registerEntryRenderer<{ markdown: string }>("pi-plan-build-inspection", (entry) =>
 		new Markdown(entry.data?.markdown ?? "Plan inspection unavailable", 0, 0, getMarkdownTheme()));
 	pi.registerEntryRenderer<{ plan: string }>(PLAN_REVIEW_ENTRY_TYPE, renderPlanReview);
@@ -152,6 +156,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerEntryRenderer<{ message: string }>(MODE_NOTICE_ENTRY_TYPE, renderModeNotice);
 	pi.registerEntryRenderer<{ message: string }>(LEGACY_MODE_NOTICE_ENTRY_TYPE, renderModeNotice);
 	pi.registerEntryRenderer(PLAN_STEP_GUIDANCE_ENTRY_TYPE, renderPlanStepGuidance);
+	pi.registerEntryRenderer<{ message: string }>(VALIDATION_NOTICE_ENTRY_TYPE, (entry, _options, theme) =>
+		new Text(formatInstruction(theme, typeof entry.data?.message === "string" ? entry.data.message : "Awaiting your validation."), 0, 0));
 	pi.registerMessageRenderer(FRESH_ANNOUNCEMENT_MESSAGE_TYPE, (message, _options, theme) =>
 		new Text(theme.fg("warning", typeof message.content === "string" ? message.content : ""), 0, 0));
 
@@ -609,7 +615,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_finish",
 		label: "Record Plan Outcome",
-		promptGuidelines: ["After plan_finish awaiting_validation, give the final response in this order: summarize implementation and checks without overstating verification, provide every essential validation action once, and end with 'Awaiting your validation.' Do not repeat tool bookkeeping. During step execution describe only the active step, not the entire plan as finished. Optional feedback does not warrant awaiting_validation."],
+		promptGuidelines: ["After plan_finish awaiting_validation, summarize implementation and checks without overstating verification. The extension presents the validation request at the end of the turn, so do not restate the required action or add a closing ceremony. Do not repeat tool bookkeeping. During step execution describe only the active step, not the entire plan as finished. Optional feedback does not warrant awaiting_validation."],
 		description: "Before a final planned-work summary, record an unfinished Build outcome. For completed work with all required verification passed, use plan_complete instead. awaiting_validation requires an essential userAction and keeps the plan attached and visibly open until the user reports success or explicitly directs completion; optional feedback is not a blocker. During step execution it pauses mutation authority while preserving the active step. blocked, waiting_for_input, and still_working also keep the current plan unfinished. Never use this to imply tests passed or to complete steps.",
 		parameters: Type.Object({
 			expectedAttached: Type.Integer({ minimum: 0 }),
@@ -635,9 +641,11 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			plans.outcome(outcome);
 			if (reconciliation) reconciliation.handled = true;
 			syncAttachment(ctx);
-			const text = params.outcome === "awaiting_validation"
-				? "Validation request recorded."
+			const awaitingValidation = params.outcome === "awaiting_validation";
+			const text = awaitingValidation
+				? validationNotice(params.userAction!.trim())
 				: `${title}: ${params.outcome.replaceAll("_", " ")}.`;
+			if (awaitingValidation) pendingValidationNotice = text;
 			return { content: [{ type: "text", text }], details: { sequence, title, planPath: file, fileState: savedPlanState, outcome, attached: plans.collection.attached } };
 		},
 		renderCall: statusCall("Recording plan outcome…"),
@@ -647,12 +655,11 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			let text = resultText(result) || "No outcome available";
 			const details = result.details as { planPath?: string; fileState?: string; outcome?: PlanOutcome } | undefined;
 			if (details?.outcome?.kind === "awaiting_validation") {
-				const acknowledgement = theme.fg("muted", "Validation request recorded.");
-				if (!options.expanded) return new Text(acknowledgement, 0, 0);
+				if (!options.expanded) return new Container();
 				return new Text([
-					acknowledgement,
-					theme.fg("warning", "Required validation:"),
-					theme.fg("text", details.outcome.userAction ?? ""),
+					theme.fg("muted", "Validation request recorded."),
+					formatInstruction(theme, "Required validation:"),
+					formatInstruction(theme, details.outcome.userAction ?? ""),
 					...(details.planPath ? [theme.fg("muted", `${details.planPath} (${details.fileState})`)] : []),
 					theme.fg("text", details.outcome.reason),
 				].join("\n"), 0, 0);
@@ -1101,12 +1108,21 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		applyTools(selectedMode);
 		composer.update(ctx);
 		if (plans.execution && plans.execution.status !== "completed") composer.ensurePanel();
+		let followUpDispatched = false;
 		if (shouldReconcileCompletion(reconciliation, plans.collection.attached, selectedMode, ctx.sessionManager.getSessionId()!, !!plans.execution, ctx.isIdle(), ctx.hasPendingMessages())) {
 			reconciliation!.consumed = true;
 			reconciliationFollowUp = true;
 			persist();
 			activeReconciliationId = randomUUID();
-			pi.sendMessage({ customType: RECONCILIATION_CONTEXT_TYPE, details: { reconciliationId: activeReconciliationId }, display: false, content: "Reconcile the attached plan's outcome before ending. This is a single bookkeeping reminder, not permission for more implementation or verification. If all approved work and required checks passed, call plan_complete. If essential user-only validation remains, call plan_finish awaiting_validation with the exact user action. Then summarize work/checks, provide all essential validation actions once, and end the final response with 'Awaiting your validation.' Do not repeat tool bookkeeping. Otherwise record blocked, waiting_for_input, or still_working with a reason. Optional feedback does not block completion. Do not infer success from this reminder and do not repeat tests merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
+			pi.sendMessage({ customType: RECONCILIATION_CONTEXT_TYPE, details: { reconciliationId: activeReconciliationId }, display: false, content: "Reconcile the attached plan's outcome before ending. This is a single bookkeeping reminder, not permission for more implementation or verification. If all approved work and required checks passed, call plan_complete. If essential user-only validation remains, call plan_finish awaiting_validation with the exact user action. Then summarize work/checks without restating the required validation action; the extension presents the validation request at the end of the turn. Do not repeat tool bookkeeping. Otherwise record blocked, waiting_for_input, or still_working with a reason. Optional feedback does not block completion. Do not infer success from this reminder and do not repeat tests merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
+			followUpDispatched = true;
+		}
+		if (pendingValidationNotice && !followUpDispatched) {
+			const record = plans.collection.records.find((candidate) => candidate.plan.sequence === plans.collection.attached);
+			if (record?.plan.outcome?.kind === "awaiting_validation") {
+				pi.appendEntry(VALIDATION_NOTICE_ENTRY_TYPE, { message: pendingValidationNotice });
+			}
+			pendingValidationNotice = undefined;
 		}
 	});
 
@@ -1152,6 +1168,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		selectedMode = decodeModeState(raw)?.selectedMode ?? "build";
 		modeSelections.restore(ctx);
 		pendingFreshAnnouncement = raw?.pendingFreshAnnouncement === true;
+		pendingValidationNotice = undefined;
 		restorePlanState(raw, ctx);
 		runMode = undefined;
 		restoreUserMessageRails(ctx.sessionManager.getBranch());
@@ -1174,6 +1191,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		const raw = latestPlanState(ctx.sessionManager.getBranch());
 		const decoded = decodeModeState(raw);
 		pendingFreshAnnouncement = raw?.pendingFreshAnnouncement === true;
+		pendingValidationNotice = undefined;
 		selectedMode = decoded?.selectedMode ?? (pi.getFlag("plan") === true ? "plan" : "build");
 		restoreUserMessageRails(ctx.sessionManager.getBranch());
 		toolsBeforeModes = Array.isArray(raw?.toolsBeforeModes)
@@ -1215,6 +1233,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		activeReconciliationId = undefined;
 		modeTransition++;
 		pendingMode = undefined;
+		pendingValidationNotice = undefined;
 		modeSelections.dispose();
 		userMessageRail.deactivate();
 		composer.dispose(ctx);

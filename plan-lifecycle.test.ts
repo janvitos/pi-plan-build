@@ -73,7 +73,7 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		return collection?.records.find((r: any) => r.plan.sequence === collection.attached) ?? collection?.records.at(-1);
 	}
 	return {
-		ctx, pi, events, commands, tools,
+		ctx, pi, events, commands, tools, entryRenderers,
 		entries, active: () => active, setIdle: (value: boolean) => { idle = value; },
 		event: emit,
 		prompt: async (text: string) => {
@@ -294,7 +294,7 @@ test("validation presentation keeps compact bookkeeping and complete readable ex
 		await h.build();
 		const userAction = "Try every manual ability. Observe all passive defenses during safe gameplay.";
 		const result = await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Rendering remains unverified", userAction });
-		assert.equal(result.content[0].text, "Validation request recorded.");
+		assert.equal(result.content[0].text, `Awaiting your validation: ${userAction}`);
 		assert.equal(result.details.outcome.userAction, userAction);
 		assert.equal(h.state().collection.attached, 1);
 		const colors: Array<{ color: string; text: string }> = [];
@@ -302,25 +302,35 @@ test("validation presentation keeps compact bookkeeping and complete readable ex
 		const tool = h.tools.get("plan_finish");
 		for (const content of [result.content, [{ type: "text", text: `Implementation is finished. Required validation: ${userAction}` }]]) {
 			const stored = { ...result, content };
-			assert.equal(tool.renderResult(stored, { expanded: false, isPartial: false }, theme, {}).render(200).join("\n").trim(), "Validation request recorded.");
+			assert.deepEqual(tool.renderResult(stored, { expanded: false, isPartial: false }, theme, {}).render(200), []);
 			const expanded = tool.renderResult(stored, { expanded: true, isPartial: false }, theme, {}).render(200).join("\n");
 			assert.ok(expanded.includes(userAction));
 			assert.ok(expanded.includes(result.details.planPath));
 			assert.match(expanded, /Rendering remains unverified/);
 			assert.doesNotMatch(expanded, /Awaiting your validation/);
 		}
-		assert.ok(colors.some((call) => call.color === "text" && call.text === userAction));
+		assert.ok(colors.some((call) => call.color === "accent" && call.text === userAction));
 		const context = (await h.event("context", { messages: [] })).messages.at(-1).content;
 		assert.ok(context.includes(userAction));
 		for (const guidance of [context, COMPLETION_GUIDANCE, tool.promptGuidelines.join(" ")]) {
-			assert.match(guidance, /every essential validation action once/);
-			assert.match(guidance, /end with 'Awaiting your validation\.'/);
+			assert.match(guidance, /extension presents the validation request/);
+			assert.match(guidance, /do not restate the required action/);
 			assert.match(guidance, /Do not repeat tool bookkeeping/);
 		}
 		assert.match(tool.promptGuidelines.join(" "), /only the active step/);
 		assert.deepEqual(tool.renderResult(result, { expanded: false, isPartial: true }, theme, {}).render(200), []);
+		await h.event("agent_settled");
+		const notice = h.entries.find((entry) => entry.customType === "pi-plan-build-validation-notice");
+		assert.ok(notice, "the validation notice is appended when the turn settles");
+		const noticeColors: Array<{ color: string; text: string }> = [];
+		const noticeTheme = { fg: (color: string, text: string) => { noticeColors.push({ color, text }); return text; }, bold: (text: string) => `**${text}**` };
+		const noticeText = `Awaiting your validation: ${userAction}`;
+		assert.equal(h.entryRenderers.get("pi-plan-build-validation-notice")(notice, { expanded: false }, noticeTheme).render(200).join("\n").trim(), `**${noticeText}**`);
+		assert.ok(noticeColors.some((call) => call.color === "accent" && call.text === noticeText));
 		const blocked = await h.callTool("plan_finish", { expectedAttached: 1, outcome: "blocked", reason: "Missing access" });
 		assert.match(tool.renderResult(blocked, { expanded: false, isPartial: false }, theme, {}).render(200).join("\n"), /Ability visuals: blocked/);
+		await h.event("agent_settled");
+		assert.equal(h.entries.filter((entry) => entry.customType === "pi-plan-build-validation-notice").length, 1, "non-validation outcomes append no notice");
 		assert.match(tool.renderResult({ ...result, isError: true, content: [{ type: "text", text: "Failed to record" }] }, { expanded: false, isPartial: false }, theme, { isError: true }).render(200).join("\n"), /Failed to record/);
 		await h.event("session_shutdown");
 	} finally {
@@ -687,7 +697,7 @@ test("completion reconciliation is one-shot and unfinished outcomes preserve the
 		await assert.rejects(pending.tool("plan_finish", { expectedAttached: 9, outcome: "blocked", reason: "Blocked" }), /Stale/);
 		await assert.rejects(pending.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Hardware check" }), /userAction/);
 		const awaiting = await pending.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Hardware needed", userAction: "Run the hardware acceptance check" });
-		assert.equal(awaiting.content[0].text, "Validation request recorded.");
+		assert.equal(awaiting.content[0].text, "Awaiting your validation: Run the hardware acceptance check");
 		assert.equal(awaiting.details.outcome.userAction, "Run the hardware acceptance check");
 		await settle(pending);
 		assert.equal(pending.state().collection.attached, 1);
@@ -934,8 +944,8 @@ test("validation chat notice keeps instructions out of enabled plan titles acros
 		assert.equal(status(), "Fix redirects", "metadata takes precedence");
 		await h.build();
 		const outcome = await h.tool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs browser confirmation", userAction: "Confirm the login redirect in a browser" });
-		const chat = h.tools.get("plan_finish").renderResult(outcome, { expanded: false, isPartial: false }, h.ctx.ui.theme, {}).render(160).join("\n");
-		assert.equal(chat.trim(), "Validation request recorded.");
+		assert.equal(outcome.content[0].text, "Awaiting your validation: Confirm the login redirect in a browser");
+		assert.deepEqual(h.tools.get("plan_finish").renderResult(outcome, { expanded: false, isPartial: false }, h.ctx.ui.theme, {}).render(160), []);
 		assert.equal(outcome.details.outcome.userAction, "Confirm the login redirect in a browser");
 		assert.equal(h.state().collection.attached, 1);
 		assert.equal(status(), "Fix redirects");
@@ -1520,7 +1530,7 @@ test("paused active steps block both shells and edits until explicit resume; sta
 		assert.ok(h.active().includes("plan_step_complete"));
 		assert.match((await h.event("context", { messages: [] })).messages[0].content, /Implement only step 1/);
 		const waiting = await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user observation", userAction: "Confirm that the first step behaves correctly" });
-		assert.equal(waiting.content[0].text, "Validation request recorded.");
+		assert.equal(waiting.content[0].text, "Awaiting your validation: Confirm that the first step behaves correctly");
 		assert.equal(waiting.details.outcome.kind, "awaiting_validation");
 		const cancelled = harness(dir, structuredClone(h.entries));
 		await cancelled.event("session_start", { reason: "reload" });

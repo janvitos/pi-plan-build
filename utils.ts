@@ -9,6 +9,23 @@ import { VERIFICATION_GUIDANCE } from "./prompts.ts";
 
 export type Mode = "build" | "plan";
 
+/** Theme color for messages that ask the user to act. */
+export const INSTRUCTION_COLOR = "accent" as const;
+
+export interface InstructionTheme {
+	bold(text: string): string;
+	fg(color: typeof INSTRUCTION_COLOR, text: string): string;
+}
+
+/** Bold accent is the shared, theme-independent cue for user-action instructions. */
+export function formatInstruction(theme: InstructionTheme, text: string): string {
+	return theme.bold(theme.fg(INSTRUCTION_COLOR, text));
+}
+
+export function validationNotice(userAction: string): string {
+	return `Awaiting your validation: ${userAction}`;
+}
+
 const MODE_LABELS: Record<Mode, string> = {
 	plan: "plan",
 	build: "build",

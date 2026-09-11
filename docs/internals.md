@@ -14,6 +14,8 @@ The `context` hook refreshes one current mode/task block before each model reque
 
 The rounded composer uses the current theme’s `warning` color in Plan and `thinkingLow` in Build on the top-left border and continuous solid `│` left rail. The right rail uses Pi’s border color. The unfinished attached task’s title sits in the top border; mode, model, provider, and thinking level sit in the bottom border. Text truncates to terminal width. Model/thinking changes update the display live.
 
+Messages that ask the user to act use the theme’s `accent` color in bold through one shared helper: the awaiting-validation notice, the step-kickoff guidance, and the cancelled-question notice. Bold keeps the cue legible when a theme places `accent` near body text. `warning` is reserved for cautions and degraded state, `success` for confirmations, and `error` for failures.
+
 When enabled, titles stay through mode changes and execution pauses, disappear on completion/abandonment, and change only when the task identity changes. Validation notices belong in the main chat, never in the composer title or border. Metadata takes precedence over the first nonempty top-level Markdown heading outside fenced code. An existing unfinished file without a title displays `Untitled task`; empty reservations do not. No scope is inferred from the display fallback.
 
 Submitted user messages retain their original mode-colored rail after mode changes and session restoration. Recreated custom editors restore the latest 100 active-branch user prompts for Up/Down history. Pi Plan Build leaves the footer untouched; its keyed status is a fallback when another extension owns the composer.
