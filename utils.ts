@@ -149,6 +149,13 @@ export const PLAN_ACTION_ANNOUNCEMENTS = {
 } as const;
 export const PLAN_STEP_READY_ACKNOWLEDGEMENT = "Write “Proceed” to start the first step. Use /plan show for progress and instructions, also shown at the bottom of the plan panel when available.";
 
+export type PlanActionTone = "instruction" | "ack";
+
+/** Announcements that hand control back to the user render in the instruction style. */
+export function planActionTone(action: keyof typeof PLAN_ACTION_ANNOUNCEMENTS): PlanActionTone {
+	return action === "stay" || action === "step-by-step" ? "instruction" : "ack";
+}
+
 export type PlanExitDecision = "implement-here" | "implement-fresh" | "stay";
 
 export interface NormalizedPlanExitChoice {

@@ -10,7 +10,7 @@ import { STATE_VERSION, restoreCollection, allocationHighWater } from "./plan-st
 import planBuildModes from "./index.ts";
 import { COMPLETION_GUIDANCE } from "./prompts.ts";
 import { createPlanExecution } from "./plan-execution.ts";
-import { decodePlanLifecycle, makePlanPath, PLAN_EXIT_APPROVE_CHOICE, PLAN_EXIT_FRESH_CHOICE, PLAN_EXIT_STAY_CHOICE, PLAN_ACTION_ANNOUNCEMENTS } from "./utils.ts";
+import { decodePlanLifecycle, makePlanPath, PLAN_EXIT_APPROVE_CHOICE, PLAN_EXIT_FRESH_CHOICE, PLAN_EXIT_STAY_CHOICE, PLAN_ACTION_ANNOUNCEMENTS, planActionTone } from "./utils.ts";
 
 function harness(dir: string, entries: any[] = [], sessionId = "session") {
 	process.env.PI_CODING_AGENT_DIR = dir;
@@ -73,7 +73,7 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		return collection?.records.find((r: any) => r.plan.sequence === collection.attached) ?? collection?.records.at(-1);
 	}
 	return {
-		ctx, pi, events, commands, tools, entryRenderers,
+		ctx, pi, events, commands, tools, entryRenderers, messageRenderers,
 		entries, active: () => active, setIdle: (value: boolean) => { idle = value; },
 		event: emit,
 		prompt: async (text: string) => {
@@ -333,6 +333,31 @@ test("validation presentation keeps compact bookkeeping and complete readable ex
 		assert.equal(h.entries.filter((entry) => entry.customType === "pi-plan-build-validation-notice").length, 1, "non-validation outcomes append no notice");
 		assert.match(tool.renderResult({ ...result, isError: true, content: [{ type: "text", text: "Failed to record" }] }, { expanded: false, isPartial: false }, theme, { isError: true }).render(200).join("\n"), /Failed to record/);
 		await h.event("session_shutdown");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("user-action handoffs render bold accent while state acknowledgements stay off warning", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "instruction-tone-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		const colors: Array<{ color: string; text: string }> = [];
+		const theme = { ...h.ctx.ui.theme, fg: (color: string, text: string) => { colors.push({ color, text }); return text; } };
+		const stepControl = h.tools.get("plan_step_control");
+		const awaiting = { content: [{ type: "text", text: "The step was marked complete. The next step is ready and awaits user instruction." }], details: { stepId: "step-1", awaitingUser: true } };
+		assert.match(stepControl.renderResult(awaiting, { expanded: false, isPartial: false }, theme, {}).render(200).join("\n"), /Step 1: The step was marked complete/);
+		assert.ok(colors.some((call) => call.color === "accent" && call.text.includes("awaits user instruction")));
+		colors.length = 0;
+		stepControl.renderResult({ content: [{ type: "text", text: "The requested step is approved." }], details: { stepId: "step-1" } }, { expanded: false, isPartial: false }, theme, {}).render(200);
+		assert.ok(colors.some((call) => call.color === "success" && call.text.includes("approved")));
+		assert.equal(colors.some((call) => call.color === "accent"), false);
+		colors.length = 0;
+		h.tools.get("plan_exit").renderResult({ content: [{ type: "text", text: "Remaining in Plan mode." }], details: { approved: false } }, { expanded: false, isPartial: false }, theme, {}).render(200);
+		assert.ok(colors.some((call) => call.color === "muted" && call.text === "Remaining in Plan mode"));
+		assert.equal(colors.some((call) => call.color === "warning"), false);
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
@@ -1237,6 +1262,9 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 					if (mode === "tui") {
 						assert.equal(renders[0].text, "I’ll implement the approved plan in this clean session.");
 						assert.ok(user < destination.indexOf(renders[0]) && destination.indexOf(renders[0]) < assistant);
+						const freshColors: Array<{ color: string; text: string }> = [];
+						child.messageRenderers.get("pi-plan-build-fresh-announcement")({ content: PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"] }, { expanded: false }, { fg: (color: string, text: string) => { freshColors.push({ color, text }); return text; }, bold: (text: string) => text }).render(160);
+						assert.ok(freshColors.some((call) => call.color === "success" && call.text === PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"]));
 					}
 					const rpcNotices = destination.filter(e => e.kind === "notify" && e.text === PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"]);
 					assert.equal(rpcNotices.length, mode === "rpc" ? 1 : 0);
@@ -1256,6 +1284,10 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 					assert.equal(notices.length, 1);
 					const action = choice === PLAN_EXIT_APPROVE_CHOICE ? "implement-here" : "stay";
 					assert.equal(notices[0].data.message, PLAN_ACTION_ANNOUNCEMENTS[action]);
+					assert.equal(notices[0].data.tone, planActionTone(action));
+					const noticeColors: Array<{ color: string; text: string }> = [];
+					h.entryRenderers.get("pi-plan-build-notice")(notices[0], { expanded: false }, { fg: (color: string, text: string) => { noticeColors.push({ color, text }); return text; }, bold: (text: string) => text }).render(160);
+					assert.ok(noticeColors.some((call) => call.color === (action === "stay" ? "accent" : "success") && call.text === notices[0].data.message));
 					assert.equal(h.events.filter(e => e.kind === "notify" && e.text === notices[0].data.message).length, mode === "rpc" ? 1 : 0);
 					if (action === "implement-here") {
 						assert.ok(h.events.indexOf(notices[0]) < h.events.findIndex(e => e.kind === "tools"));

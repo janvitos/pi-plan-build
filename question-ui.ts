@@ -132,7 +132,7 @@ export function registerQuestionTool(pi: ExtensionAPI): void {
 			if (status) return status;
 			const details = result.details as { answers?: QuestionAnswer[]; cancelled?: boolean } | undefined;
 			if (details?.cancelled && !options.expanded && notices.has(context)) return new Container();
-			if (details?.cancelled) return new Text(theme.fg("warning", "Question(s) skipped"), 0, 0);
+			if (details?.cancelled) return new Text(theme.fg("muted", "Question(s) skipped"), 0, 0);
 			if (!details?.answers) return new Text(theme.fg("muted", "Answer status unavailable"), 0, 0);
 			return new Text(details.answers.map((a) => `${theme.fg("success", "✓")} ${a.header}: ${a.answers.join(", ")}`).join("\n"), 0, 0);
 		},

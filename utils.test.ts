@@ -43,6 +43,7 @@ import {
 	PLAN_EXIT_STAY_CHOICE,
 	PLAN_ACTION_ANNOUNCEMENTS,
 	PLAN_STEP_READY_ACKNOWLEDGEMENT,
+	planActionTone,
 	ownsUiSlot,
 	renderModeComposer,
 	sanitizeSessionId,
@@ -343,6 +344,13 @@ test("every plan action has a single-line next-action announcement", () => {
 		assert.equal(/[\r\n]/.test(message), false);
 	}
 	assert.match(PLAN_ACTION_ANNOUNCEMENTS["step-by-step"], /wait for your instruction before starting a step/);
+});
+
+test("plan action announcements classify instructions and acknowledgements", () => {
+	assert.equal(planActionTone("stay"), "instruction");
+	assert.equal(planActionTone("step-by-step"), "instruction");
+	assert.equal(planActionTone("implement-here"), "ack");
+	assert.equal(planActionTone("implement-fresh"), "ack");
 });
 
 test("step-by-step startup guidance works without a panel", () => {

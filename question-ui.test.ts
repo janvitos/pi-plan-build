@@ -62,6 +62,10 @@ test("question output preserves answers without coaching and distinguishes rende
 		assert.deepEqual(tool.renderCall({}, theme, { isPartial: false }).render(100), []);
 		assert.equal(render({ content: [], details: { cancelled: true } }), "Question(s) skipped");
 	}
+	const skippedColors: Array<{ color: string; text: string }> = [];
+	const capture = { fg: (color: string, text: string) => { skippedColors.push({ color, text }); return text; }, bold: (text: string) => text };
+	tool.renderResult({ content: [], details: { cancelled: true } }, { expanded: false, isPartial: false }, capture, {}).render(100);
+	assert.ok(skippedColors.some((call) => call.color === "muted" && call.text === "Question(s) skipped"));
 });
 
 test("cancelling a selector terminates cleanly and reports a skipped question", async () => {

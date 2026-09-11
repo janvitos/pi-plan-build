@@ -1,5 +1,6 @@
 import { getMarkdownTheme, type Theme, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
+import { formatInstruction } from "./utils.ts";
 
 export function resultText(result: { content: readonly { type: string; text?: string }[] }, fallback = ""): string {
 	return result.content.filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n") || fallback;
@@ -25,8 +26,8 @@ export function noticeTracker(pi: ExtensionAPI, type: string) {
 	pi.on("session_start", restore);
 	pi.on("session_tree", restore);
 	return {
-		append(message: string, toolCallId: string) {
-			pi.appendEntry(type, { message, toolCallId });
+		append(message: string, toolCallId: string, data: Record<string, unknown> = {}) {
+			pi.appendEntry(type, { message, toolCallId, ...data });
 			ids.add(toolCallId);
 		},
 		has(context: { toolCallId?: string }) { return !!context.toolCallId && ids.has(context.toolCallId); },
@@ -58,11 +59,12 @@ export function renderStepResult(
 ): Text | Markdown | Container {
 	const status = pendingOrError(result, options, theme, context, pending, fallback);
 	if (status) return status;
-	const details = result.details as { planCompleted?: boolean; stepId?: string } | undefined;
+	const details = result.details as { planCompleted?: boolean; stepId?: string; awaitingUser?: boolean } | undefined;
 	const text = resultText(result, fallback);
 	if (details?.planCompleted) return new Markdown(text, 0, 0, getMarkdownTheme());
 	const storedStep = typeof details?.stepId === "string" ? /^step-(\d+)$/.exec(details.stepId)?.[1] : undefined;
 	const requested = context.args?.step;
 	const step = storedStep ? Number(storedStep) : typeof requested === "number" ? Math.floor(requested) : undefined;
-	return new Text(theme.fg("success", `${Number.isInteger(step) && step! > 0 ? `Step ${step}: ` : ""}${text}`), 0, 0);
+	const line = `${Number.isInteger(step) && step! > 0 ? `Step ${step}: ` : ""}${text}`;
+	return new Text(details?.awaitingUser ? formatInstruction(theme, line) : theme.fg("success", line), 0, 0);
 }

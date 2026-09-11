@@ -318,10 +318,11 @@ test("plan title visibility persists through settings and reload without compose
 		current = reloaded;
 	}
 	const titleGuidance = h.registeredTools.get("plan_task").promptGuidelines.join(" ");
-	assert.match(titleGuidance, /makes the task recognizable when returning to the session/);
-	assert.match(titleGuidance, /Don’t sacrifice meaning to make the title shorter/);
+	assert.match(titleGuidance, /one imperative phrase naming the action/);
+	assert.match(titleGuidance, /single action/);
+	assert.match(titleGuidance, /Add color to the composer/);
 	assert.doesNotMatch(titleGuidance, /3–6 words/);
-	assert.match(h.registeredTools.get("plan_task").parameters.properties.title.description, /without sacrificing meaning/);
+	assert.match(h.registeredTools.get("plan_task").parameters.properties.title.description, /One imperative phrase naming the action/);
 	h.setCurrentEditor({});
 	await h.handlers.get("before_agent_start")?.({}, h.ctx);
 	assert.ok(h.statuses.at(-1)?.[1]?.includes("Plan Title"), "the live enabled preference applies to reduced UI too");

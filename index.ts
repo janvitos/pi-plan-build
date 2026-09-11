@@ -61,6 +61,7 @@ import {
 	PLAN_ACTION_ANNOUNCEMENTS,
 	PLAN_EXIT_STAY_CHOICE,
 	PLAN_STEP_READY_ACKNOWLEDGEMENT,
+	planActionTone,
 	type Mode,
 	unique,
 	validationNotice,
@@ -143,9 +144,11 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		const plan = typeof entry.data?.plan === "string" ? entry.data.plan : "Plan unavailable";
 		return new Markdown(buildPlanReviewMessage(plan), 0, 0, getMarkdownTheme());
 	};
-	const renderModeNotice: EntryRenderer<{ message: string }> = (entry, _options, theme) => {
+	const renderModeNotice: EntryRenderer<{ message: string; tone?: "instruction" | "ack" }> = (entry, _options, theme) => {
 		const message = typeof entry.data?.message === "string" ? entry.data.message : "Plan mode unchanged.";
-		return new Text(theme.fg("warning", message), 0, 0);
+		if (entry.data?.tone === "instruction") return new Text(formatInstruction(theme, message), 0, 0);
+		if (entry.data?.tone === "ack") return new Text(theme.fg("success", message), 0, 0);
+		return new Text(theme.fg("muted", message), 0, 0);
 	};
 	const renderPlanStepGuidance: EntryRenderer = (_entry, _options, theme) =>
 		new Text(formatInstruction(theme, PLAN_STEP_READY_ACKNOWLEDGEMENT), 0, 0);
@@ -159,7 +162,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerEntryRenderer<{ message: string }>(VALIDATION_NOTICE_ENTRY_TYPE, (entry, _options, theme) =>
 		new Text(formatInstruction(theme, typeof entry.data?.message === "string" ? entry.data.message : "Awaiting your validation."), 0, 0));
 	pi.registerMessageRenderer(FRESH_ANNOUNCEMENT_MESSAGE_TYPE, (message, _options, theme) =>
-		new Text(theme.fg("warning", typeof message.content === "string" ? message.content : ""), 0, 0));
+		new Text(theme.fg("success", typeof message.content === "string" ? message.content : ""), 0, 0));
 
 	function stateData(): StoredState {
 		return { version: STATE_VERSION, selectedMode, collection: plans.collection, toolsBeforeModes, planSessionId: currentContext?.sessionManager.getSessionId(), ...(pendingFreshAnnouncement ? { pendingFreshAnnouncement: true } : {}), ...(reconciliation?.consumed ? { reconciliation: { sequence: reconciliation.sequence, sessionId: reconciliation.sessionId, consumed: true as const } } : {}) };
@@ -544,13 +547,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		name: "plan_task",
 		label: "Plan Task",
 		description: "Manage the single current plan without editing Markdown. list reports only the current plan. new is Plan-only and requires no current plan. abandon is irreversible lifecycle closure, preserves the file, requires explicit user direction and a reason, and never implies success. update establishes identity once, then changes it only for user-driven material deliverable/constraint changes, explicit renames, or correction of mistaken identity. include/discussion record explicit task-boundary decisions. Supply expectedAttached (current sequence or null); legacy sequence is accepted. Deprecated pause/resume inputs never mutate state. Keep lifecycle transitions separate from dependent project edits and shell calls.",
-		promptGuidelines: ["Use plan_task to establish concise task identity once. Use a concise, descriptive plan title that makes the task recognizable when returning to the session. Include the context needed for clarity, but omit filler and unnecessary detail. Don’t sacrifice meaning to make the title shorter. Later updates require a user-driven material change to the deliverable/defining constraints, an explicit rename, or correction of mistaken identity. Do not log progress, findings, proposed/rejected techniques, implementation adjustments, or message paraphrases. Use include/discussion only for explicit task-boundary decisions. In Plan mode, create a task when the user requests a planning deliverable or accepts a concrete proposed change in the planning conversation—not for informational agreement or discussion alone. Start a new plan only when no current plan exists, using expectedAttached: null, title, and scope; await the returned canonical path before saving the plan and requesting implementation approval through plan_exit. If the user explicitly abandons the current plan, call plan_task abandon with its expected attachment and a concise reason; otherwise complete the current plan before starting another."],
+		promptGuidelines: ["Use plan_task to establish concise task identity once. Write the title as one imperative phrase naming the action, its object, and at most a short goal—for example `Add color to the composer` or `Refactor the code to make it leaner`. Keep it to a single action; put additional requirements and detail in scope. Later updates require a user-driven material change to the deliverable/defining constraints, an explicit rename, or correction of mistaken identity. Do not log progress, findings, proposed/rejected techniques, implementation adjustments, or message paraphrases. Use include/discussion only for explicit task-boundary decisions. In Plan mode, create a task when the user requests a planning deliverable or accepts a concrete proposed change in the planning conversation—not for informational agreement or discussion alone. Start a new plan only when no current plan exists, using expectedAttached: null, title, and scope; await the returned canonical path before saving the plan and requesting implementation approval through plan_exit. If the user explicitly abandons the current plan, call plan_task abandon with its expected attachment and a concise reason; otherwise complete the current plan before starting another."],
 		parameters: Type.Object({
 			action: Type.String({ enum: ["list", "pause", "resume", "update", "include", "discussion", "new", "abandon"] }),
 			sequence: Type.Optional(Type.Integer({ minimum: 0 })),
 			expectedAttached: Type.Optional(Type.Union([Type.Integer({ minimum: 0 }), Type.Null()])),
 			targetSequence: Type.Optional(Type.Integer({ minimum: 0 })),
-			title: Type.Optional(Type.String({ maxLength: 160, description: "Concise, descriptive plan title that makes the task recognizable. Include context needed for clarity; omit filler and unnecessary detail without sacrificing meaning." })),
+			title: Type.Optional(Type.String({ maxLength: 160, description: "One imperative phrase naming the action, its object, and at most a short goal, e.g. `Add color to the composer`. Keep it to a single action; put additional requirements in scope." })),
 			scope: Type.Optional(Type.String({ maxLength: 4000 })),
 			topic: Type.Optional(Type.String({ maxLength: 1000 })),
 			reason: Type.Optional(Type.String({ maxLength: 1000 })),
@@ -750,7 +753,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					? activePlanStep(plans.execution)
 					: plans.execution.steps.find((step) => step.status === "ready")
 				: plans.execution.steps[Math.floor(params.step) - 1];
-			const finish = (message: string, extraDetails?: { planCompleted?: boolean }) => ({
+			const finish = (message: string, extraDetails?: { planCompleted?: boolean; awaitingUser?: boolean }) => ({
 				content: [{ type: "text" as const, text: message }],
 				details: { action: params.action, stepId: target?.id, ...extraDetails },
 				terminate: true,
@@ -785,14 +788,14 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				const completion = completeExecutionStep(target.id);
 				return finish(
 					completion ?? "The step was marked complete. The next step is ready and awaits user instruction.",
-					{ planCompleted: completion !== undefined },
+					{ planCompleted: completion !== undefined, awaitingUser: completion === undefined },
 				);
 			}
 			if (params.action === "skip") {
 				const completion = applyExecutionTransition(skipPlanStep(plans.execution, target.id));
 				return finish(
 					completion ?? "The step was skipped. The next step awaits user instruction.",
-					{ planCompleted: completion !== undefined },
+					{ planCompleted: completion !== undefined, awaitingUser: completion === undefined },
 				);
 			}
 			if (!params.instruction?.trim()) throw new Error("Revising a step requires a replacement instruction");
@@ -806,7 +809,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				await fs.promises.writeFile(currentPlanPath(), updatedPlan, "utf8");
 				updateExecution(next);
 			});
-			return finish("The plan step instruction was revised and is awaiting user approval.");
+			return finish("The plan step instruction was revised and is awaiting user approval.", { awaitingUser: true });
 		},
 		renderCall: statusCall("Updating step…"),
 		renderResult(result, options, theme, context) {
@@ -829,7 +832,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const completion = completeExecutionStep(step.id, params.summary);
 			return {
 				content: [{ type: "text", text: completion ?? "The step was completed. The next step is ready and awaits user instruction." }],
-				details: { stepId: step.id, completed: true, planCompleted: completion !== undefined },
+				details: { stepId: step.id, completed: true, planCompleted: completion !== undefined, awaitingUser: completion === undefined },
 				terminate: true,
 			};
 		},
@@ -903,7 +906,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			}
 			if (action !== "implement-fresh") {
 				const message = PLAN_ACTION_ANNOUNCEMENTS[action];
-				modeNotices.append(message, _toolCallId);
+				modeNotices.append(message, _toolCallId, { tone: planActionTone(action) });
 				if (ctx.mode === "rpc") ctx.ui.notify(message, "info");
 			}
 			if (selection.choice === PLAN_STEP_CHOICE && stepExecution) {
@@ -973,7 +976,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (details?.approved === true && !context.isError) {
 				return new Text(theme.fg("success", "Plan approved; switched to Build mode"), 0, 0);
 			}
-			return new Text(theme.fg("warning", details?.approved === false ? "Remaining in Plan mode" : "Plan approval status unavailable"), 0, 0);
+			if (details?.approved === false) return new Text(theme.fg("muted", "Remaining in Plan mode"), 0, 0);
+			return new Text(theme.fg("warning", "Plan approval status unavailable"), 0, 0);
 		},
 	});
 
