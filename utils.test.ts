@@ -468,7 +468,9 @@ test("phase-specific verification policy remains complete and bounded", () => {
 	assert.match(VERIFICATION_GUIDANCE, /Report passed, blocked, and unperformed checks truthfully/);
 	assert.match(VERIFICATION_GUIDANCE, /Never weaken checks, claim an unperformed check passed, or fix unrelated failures/);
 
-	assert.ok(planning.length <= 3500, `planning context grew to ${planning.length} characters`);
+	assert.match(planning, /Visual design policy/);
+	assert.match(planning, /sequenceDiagram/);
+	assert.ok(planning.length <= 3900, `planning context grew to ${planning.length} characters`);
 	assert.ok(build.length <= 3700, `Build context grew to ${build.length} characters`);
 	assert.ok(step.length <= 1900, `step context grew to ${step.length} characters`);
 	assert.ok(handoff.length - "Approved plan".length <= 1200, `fresh handoff overhead grew to ${handoff.length} characters`);

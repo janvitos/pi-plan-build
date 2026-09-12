@@ -6,6 +6,9 @@ export const VERIFICATION_GUIDANCE = `Follow the approved Verification section u
 - Report passed, blocked, and unperformed checks truthfully. Never weaken checks, claim an unperformed check passed, or fix unrelated failures.
 - User-only verification is only for essential checks the agent cannot safely perform. Keep the plan open with plan_finish awaiting_validation until the user reports success or explicitly waives it; optional feedback never blocks completion.`;
 
+export const PLAN_VISUALIZATION_GUIDANCE = `## Visual design policy
+Include a \`## Design\` section with one Mermaid figure per architecture, flow, or interaction: a flowchart (TD or LR) for structure and control flow, a sequenceDiagram for interactions over time. One idea per figure; labels of 2–4 words with real file, component, and step names; captions carry the sentences; no decorative chrome; skip any figure a single sentence already explains.`;
+
 export const PLAN_VERIFICATION_GUIDANCE = `Design a brief \`## Verification\` section with the smallest credible proof of changed behavior.
 
 - Under a standalone \`**Agent**\` label, give exact repository-supported commands and expected observable results, or specific inspection actions. Never invent commands. Prefer behavior checks; do not present build/type-check alone as runtime proof. Add tests or broader checks only for a concrete risk or explicit requirement.
@@ -35,6 +38,8 @@ Develop a concise, executable plan through read-only investigation and clarifica
 
 ${TASK_SELECTION_GUIDANCE}
 ${TASK_BOUNDARY_GUIDANCE}
+
+${PLAN_VISUALIZATION_GUIDANCE}
 
 ## Verification policy
 Execution remains deferred until approval.
@@ -70,7 +75,7 @@ ${paused ? "Step execution is paused; retained progress grants no mutation autho
 
 ${progress}
 
-Interpret clear intent contextually. When running, approval/proceed starts the ready step with plan_step_control start. A clear report that work is already finished may use complete; that records past work and authorizes no implementation. The same tool handles skip, revise, pause/resume, cancel, and panel visibility. Clarify ambiguity; ignore hypothetical or unrelated discussion. The sidebar is passive.
+Interpret clear intent contextually. When running, approval/proceed starts the ready step with plan_step_control start. A clear report that work is already finished may use complete; that records past work and authorizes no implementation. The same tool handles skip, revise, pause/resume, cancel, and panel visibility. An explicit user order is always followed—plan edits, out-of-plan work, and step actions included—and is never unrelated. Clarify ambiguity; ignore hypothetical discussion. The sidebar is passive.
 </system-reminder>`;
 }
 
