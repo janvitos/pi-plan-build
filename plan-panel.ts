@@ -1,6 +1,20 @@
 import type { Theme } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
+import { ScrollView, truncateToWidth, visibleWidth, wrapTextWithAnsi, type Component } from "@earendil-works/pi-tui";
 import type { PlanExecutionState } from "./plan-execution.ts";
+
+/**
+ * ScrollView whose wheel events never chain to the chat. pi-tui's routeWheel stops walking
+ * the hit ScrollViews when overscroll is "contain", but its primary fallback still forwards
+ * unconsumed wheel lines to the chat's ScrollView. Returning 0 from scrollBy marks every
+ * wheel as fully consumed, so that fallback never fires.
+ * ponytail: delete this class once pi-tui's routeWheel honors containment against the primary fallback.
+ */
+export class ContainedScrollView extends ScrollView {
+	override scrollBy(lines: number): number {
+		super.scrollBy(lines);
+		return 0;
+	}
+}
 
 const GLYPHS = {
 	pending: "○",

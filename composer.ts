@@ -1,6 +1,6 @@
 import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { HStack, matchesKey, ScrollView, truncateToWidth, visibleWidth, isViewportTUI, type Component, type TUI, type ViewportTUI } from "@earendil-works/pi-tui";
-import { PlanPanel } from "./plan-panel.ts";
+import { HStack, matchesKey, truncateToWidth, visibleWidth, isViewportTUI, type Component, type TUI, type ViewportTUI } from "@earendil-works/pi-tui";
+import { PlanPanel, ContainedScrollView } from "./plan-panel.ts";
 import type { PlanExecutionState } from "./plan-execution.ts";
 import { formatModeRail, formatModeMetadata, formatModeTopBorder, nextMode, ownsUiSlot, renderModeComposer, shouldReduceOptionalUi, type Mode } from "./utils.ts";
 
@@ -71,8 +71,8 @@ export function createComposer(
 		if (!panelRoot) {
 			const layoutToken = { enabled: true };
 			token = layoutToken;
-			// ponytail: wheel-scroll isolation and a scrollbar come free from ScrollView; "contain" never chains to the chat
-			const scroller = new ScrollView(panel, { overscroll: "contain", scrollbar: "auto" });
+			// ponytail: ContainedScrollView swallows leftover wheel lines so scrolling never chains to the chat
+			const scroller = new ContainedScrollView(panel, { overscroll: "contain", scrollbar: "auto" });
 			panelRoot = new HStack([
 				{ component: originalRoot, basis: 0, grow: 1, shrink: 1, minSize: 58 },
 				{ component: scroller, basis: PANEL_WIDTH, grow: 0, shrink: 0, minSize: PANEL_WIDTH, maxSize: PANEL_WIDTH,
