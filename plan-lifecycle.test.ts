@@ -202,7 +202,7 @@ test("approval freshness, sidebar-free execution, and read-only inspection", asy
 		h.ctx.ui.select = async () => "Implement step by step";
 		await h.tool("plan_exit");
 		assert.equal(h.record().execution.steps[0].status, "ready");
-		assert.equal((await h.event("tool_call", { toolName: "write", input: { path: path.join(dir, "project") } })).block, true);
+		assert.equal(await h.event("tool_call", { toolName: "write", input: { path: path.join(dir, "project") } }), undefined, "Build mode no longer blocks user-ordered writes while step execution waits");
 		const before = JSON.stringify(h.state());
 		await h.command("show");
 		await h.command("history");
@@ -570,7 +570,7 @@ test("planning tool renderers preserve errors and never report success for parti
 		assert.match(approved.content[0].text, /separately required deployment\/restart approval/);
 		assert.notEqual(approved.terminate, true);
 		const buildContext = await h.event("context", { messages: [] });
-		assert.match(buildContext.messages.at(-1).content, /Build mode allows/);
+		assert.match(buildContext.messages.at(-1).content, /Build mode is the user/);
 		const completed = await h.tool("plan_complete");
 		assert.equal(completed.content[0].text, "Plan complete.");
 		const samples: Record<string, any> = { plan_exit: approved, plan_complete: completed };
@@ -696,7 +696,7 @@ test("operational context precedes the real request and preserves the tool-excha
 		for (let i = 0; i < 3; i++) {
 			result = await h.event("context", { messages: result.messages });
 			assert.equal(result.messages.filter((m: any) => m.customType === "pi-plan-build-task").length, 1);
-			assert.match(result.messages[1].content, /Build mode allows/);
+			assert.match(result.messages[1].content, /Build mode is the user/);
 			assert.doesNotMatch(result.messages[1].content, /Plan mode is active/);
 			const converted = convertToLlm(result.messages);
 			assert.equal(converted[1].role, "user", "Pi converts custom context to user-role content");
@@ -843,7 +843,7 @@ test("completion reconciliation is one-shot and unfinished outcomes preserve the
 		assert.equal(pending.state().collection.attached, 1);
 		assert.equal(pending.state().collection.records.length, 1);
 		assert.equal(pending.state().collection.counter, 1);
-		assert.equal((await pending.event("tool_call", { toolName: "write", input: { path: file } })).block, true);
+		assert.equal(await pending.event("tool_call", { toolName: "write", input: { path: file } }), undefined, "Build mode follows user-ordered writes even while a plan awaits validation");
 		const listed = await pending.tool("plan_task", { action: "list" });
 		assert.match(listed.content[0].text, /Current plan: 1 · Work · awaiting validation/);
 		assert.doesNotMatch(listed.content[0].text, /hardware acceptance|\.md/);
@@ -985,7 +985,7 @@ test("task results are compact while hidden context retains current planning con
 		assert.match(list.content[0].text, /Current plan: 1 · Fix login · open/);
 		assert.doesNotMatch(list.content[0].text, /Build mode permits|paused/);
 		const buildContext = await h.event("context", { messages: [] });
-		assert.match(buildContext.messages.at(-1).content, /Build mode allows/);
+		assert.match(buildContext.messages.at(-1).content, /Build mode is the user/);
 		assert.match(buildContext.messages.at(-1).content, /Task #1/);
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -1187,8 +1187,7 @@ test("plan lifecycle keeps revisions, preserves completed plans, and restores th
 			["write", { path: first, content: "# Replaced task\n" }],
 		] as const) {
 			const blocked = await h.event("tool_call", { toolName, input });
-			assert.equal(blocked.block, true, `${toolName} cannot mutate the active plan in Build mode`);
-			assert.match(blocked.reason, /plan_complete/);
+			assert.equal(blocked, undefined, `${toolName} may mutate the active plan in Build mode when the user orders it`);
 		}
 		assert.equal(fs.readFileSync(first, "utf8"), "# First task\n");
 		await h.event("agent_settled");
@@ -1577,7 +1576,7 @@ test("canonical aliases obey Plan and Build guards for new, current, and histori
 			if (historical) await h.command("done");
 			for (const toolName of ["write", "edit"]) {
 				for (const alias of [shorthand, path.join(dir, "alias.md")]) {
-					assert.equal((await h.event("tool_call", { toolName, input: { path: alias } })).block, true);
+					assert.equal(await h.event("tool_call", { toolName, input: { path: alias } }), undefined, `Build mode follows user-ordered ${toolName} on ${historical ? "historical" : "current"} plan aliases`);
 				}
 			}
 		}
@@ -1667,7 +1666,7 @@ test("paused active steps block both shells and edits until explicit resume; sta
 		assert.match(operational.content, /execution is paused/);
 		assert.doesNotMatch(operational.content, /Implement only step|Build mode permits/);
 		for (const toolName of ["edit", "write", "bash", "powershell"]) {
-			assert.equal((await h.event("tool_call", { toolName, input: { path: path.join(dir, "project.ts"), command: "echo test" } })).block, true);
+			assert.equal(await h.event("tool_call", { toolName, input: { path: path.join(dir, "project.ts"), command: "echo test" } }), undefined, `Build mode follows user-ordered ${toolName} while a step is paused`);
 		}
 		await assert.rejects(h.tool("plan_step_complete", { summary: "Not eligible" }), /No plan step/);
 		await h.callTool("plan_step_control", { action: "resume" });
@@ -1688,7 +1687,7 @@ test("paused active steps block both shells and edits until explicit resume; sta
 		assert.equal(h.state().collection.attached, 1);
 		assert.equal(h.record().execution.status, "paused");
 		assert.ok(h.active().includes("plan_step_complete"), "user-confirmed active validation can complete without resuming implementation");
-		assert.equal((await h.event("tool_call", { toolName: "edit", input: { path: path.join(dir, "project.ts") } })).block, true);
+		assert.equal(await h.event("tool_call", { toolName: "edit", input: { path: path.join(dir, "project.ts") } }), undefined, "Build mode follows user-ordered edits while awaiting validation");
 		assert.match((await h.event("context", { messages: [] })).messages[0].content, /Confirm that the first step behaves correctly/);
 		await h.callTool("plan_step_complete", { summary: "User confirmed the first step" });
 		assert.equal(h.record().plan.outcome, undefined);

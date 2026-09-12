@@ -172,6 +172,27 @@ export function revisePlanStep(state: PlanExecutionState, id: string, text: stri
 	return next;
 }
 
+/** Re-derive execution after a direct user-ordered plan-file edit in Build mode. ponytail: statuses match by normalized text; the first pending step after the last done step becomes ready. */
+export function resyncPlanExecution(state: PlanExecutionState, planMarkdown: string): PlanExecutionState | undefined {
+	let parsed: PlanStep[];
+	try { parsed = parseImplementationSteps(planMarkdown); }
+	catch { return undefined; }
+	const key = (text: string) => text.toLocaleLowerCase();
+	const prior = new Map(state.steps.map((step) => [key(step.text), step]));
+	const steps = parsed.map((step) => {
+		const before = prior.get(key(step.text));
+		const status: PlanStepStatus = before && (before.status === "completed" || before.status === "skipped" || before.status === "active") ? before.status : "pending";
+		return { ...step, status, ...(before?.summary?.trim() ? { summary: before.summary } : {}) };
+	});
+	if (!steps.some((step) => step.status === "active")) {
+		const lastDone = steps.reduce((last, step, index) => step.status === "completed" || step.status === "skipped" ? index : last, -1);
+		const next = steps.slice(lastDone + 1).find((step) => step.status === "pending");
+		if (next) next.status = "ready";
+		else if (steps.every((step) => step.status === "completed" || step.status === "skipped")) return { ...state, status: "completed", steps, planMarkdown };
+	}
+	return { ...state, steps, planMarkdown };
+}
+
 export function pausePlanExecution(state: PlanExecutionState): PlanExecutionState {
 	if (state.status === "completed") return state;
 	return { ...clone(state), status: state.status === "paused" ? "running" : "paused" };

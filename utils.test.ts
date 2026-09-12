@@ -469,7 +469,7 @@ test("phase-specific verification policy remains complete and bounded", () => {
 	assert.match(VERIFICATION_GUIDANCE, /Never weaken checks, claim an unperformed check passed, or fix unrelated failures/);
 
 	assert.ok(planning.length <= 3500, `planning context grew to ${planning.length} characters`);
-	assert.ok(build.length <= 3700, `Build context grew to ${build.length} characters`);
+	assert.ok(build.length <= 3900, `Build context grew to ${build.length} characters`);
 	assert.ok(step.length <= 1900, `step context grew to ${step.length} characters`);
 	assert.ok(handoff.length - "Approved plan".length <= 1200, `fresh handoff overhead grew to ${handoff.length} characters`);
 });
@@ -478,7 +478,7 @@ test("step execution prompts constrain work to an approved active step", () => {
 	const reminder = buildPlanStepReminder("/tmp/plan.md", 2, 4, "Build the parser");
 	assert.match(reminder, /only step 2 of 4/);
 	assert.match(reminder, /Build the parser/);
-	assert.match(reminder, /Do not edit approved Markdown or begin later steps/);
+	assert.match(reminder, /implement only this step and do not begin later steps/);
 	assert.match(reminder, /plan_step_complete/);
 	assert.match(reminder, /Verify only this step where possible/);
 	assert.match(reminder, /Defer checks dependent on later steps/);
@@ -486,7 +486,7 @@ test("step execution prompts constrain work to an approved active step", () => {
 	assert.match(PLAN_STEP_COMPLETE_DESCRIPTION, /after its implementation and applicable checks/);
 	assert.match(PLAN_STEP_COMPLETE_DESCRIPTION, /report later-step deferrals without claiming they passed/);
 	const waiting = buildPlanStepWaitingReminder("1. [ready] Build parser");
-	assert.match(waiting, /No step is approved for project mutation/);
+	assert.match(waiting, /By default no step is approved/);
 	assert.match(waiting, /Interpret clear intent contextually/);
 	assert.match(waiting, /work is already finished may use complete/);
 	assert.match(waiting, /approval\/proceed starts the ready step with plan_step_control start/);

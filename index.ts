@@ -22,6 +22,7 @@ import {
 	createPlanExecution,
 	formatPlanCompletionSummary,
 	pausePlanExecution,
+	resyncPlanExecution,
 	revisePlanStep,
 	skipPlanStep,
 	startPlanStep,
@@ -721,7 +722,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_step_control",
 		label: "Control Plan Execution",
-		description: `Apply one clear natural-language step action: start or skip a ready step; record a finished ready step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical, ambiguous, or unrelated text.`,
+		description: `Apply one clear natural-language step action: start or skip a ready step; record a finished ready step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical or ambiguous text; an explicit user order is never unrelated.`,
 		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("start"),
@@ -1021,6 +1022,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		if (event.isError && reconciliation) reconciliation.failed = true;
 		if (!event.isError && (event.toolName === "edit" || event.toolName === "write") && !plans.collection.records.some((r) => isAllowedPlanMutation(ctx.cwd, (event.input as { path?: unknown }).path, planPathFor(r.plan.sequence, ctx)))) armReconciliation(ctx);
 		if (!event.isError && (event.toolName === "write" || event.toolName === "edit") && isAllowedPlanMutation(ctx.cwd, (event.input as { path?: unknown }).path, currentPlanPath())) {
+			if (plans.execution && plans.execution.status !== "completed") {
+				try {
+					const resynced = resyncPlanExecution(plans.execution, fs.readFileSync(currentPlanPath(), "utf8"));
+					if (resynced) updateExecution(resynced);
+				} catch { /* keep the last known execution state */ }
+			}
 			refreshSavedPlanTitle();
 			applyTools(runMode ?? selectedMode);
 			composer.update(ctx);
@@ -1036,21 +1043,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				return { block: true, reason: "Await plan_task in a separate tool batch before dependent edits, shell commands, or execution actions." };
 			}
 		}
-		if (effectiveMode === "build" && (event.toolName === "edit" || event.toolName === "write")) {
-			const inputPath = (event.input as { path?: unknown }).path;
-			if (isAllowedPlanMutation(ctx.cwd, inputPath, currentPlanPath()) || plans.collection.records.some((r) => isAllowedPlanMutation(ctx.cwd, inputPath, planPathFor(r.plan.sequence, ctx)))) {
-				return {
-					block: true,
-					reason: "Current and historical plan files are read-only in Build mode. Do not add completion markers or otherwise update their steps; report completion through plan_step_complete during step execution or plan_complete after normal implementation and verification.",
-				};
-			}
-		}
-		if (effectiveMode === "build" && plans.execution && plans.execution.status !== "completed" && !executablePlanStep(plans.execution) && (event.toolName === "edit" || event.toolName === "write" || event.toolName === "bash" || event.toolName === "powershell")) {
-			return {
-				block: true,
-				reason: "Step-by-step execution is waiting for an explicit natural-language instruction from the user; no step is approved for project mutations.",
-			};
-		}
+		// Build mode is the user's workspace: plan files may be edited when the user orders it
+		// (execution re-syncs on the resulting tool_result), and user-ordered work is never blocked here.
 		if (effectiveMode !== "plan" || (event.toolName !== "edit" && event.toolName !== "write")) return;
 		const inputPath = (event.input as { path?: unknown }).path;
 		if (plans.collection.attached !== null && isAllowedPlanMutation(ctx.cwd, inputPath, currentPlanPath())) return;
