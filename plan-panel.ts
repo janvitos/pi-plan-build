@@ -39,7 +39,7 @@ export class PlanPanel implements Component {
 		const lines = [
 			border(`╭${"─".repeat(inner)}╮`),
 			pad(`${this.theme.bold(this.theme.fg("accent", "Plan"))} ${this.theme.fg("dim", `${done}/${this.state.steps.length}`)}`),
-			pad(this.theme.fg(this.state.status === "paused" ? "warning" : "muted", status)),
+			pad(this.theme.fg(this.state.status === "completed" ? "success" : this.state.status === "paused" ? "warning" : "muted", status)),
 			border(`├${"─".repeat(inner)}┤`),
 		];
 		for (let index = 0; index < this.state.steps.length; index++) {

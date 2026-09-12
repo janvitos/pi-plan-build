@@ -288,7 +288,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		const labels: Record<string, string> = { update: "Plan title/scope updated", include: "Plan scope updated", discussion: "Discussion decision saved", new: "New plan started", abandon: "Plan abandoned" };
 		const item = action === "list" ? currentPlanItem() : undefined;
 		const text = action === "list" ? planInventory() : `${changed ? labels[action] ?? "Plan updated" : "Plan unchanged"}: ${title}`;
-		return { content: [{ type: "text" as const, text }], details: { action, attached: plans.collection.attached, ...(plans.collection.attached !== null ? { planPath: currentPlanPath(), fileState: savedPlanState, plan: structuredClone(plans.plan) } : {}), ...(action === "list" ? { plans: item ? [item] : [] } : {}) } };
+		return { content: [{ type: "text" as const, text }], details: { action, changed, attached: plans.collection.attached, ...(plans.collection.attached !== null ? { planPath: currentPlanPath(), fileState: savedPlanState, plan: structuredClone(plans.plan) } : {}), ...(action === "list" ? { plans: item ? [item] : [] } : {}) } };
 	}
 
 	function planPathFor(sequence: number, ctx: ExtensionContext): string {
@@ -618,13 +618,17 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		renderResult(result, { expanded, isPartial }, theme, context) {
 			const status = pendingOrError(result, { isPartial }, theme, context, "Updating plan task…", "Plan task update failed");
 			if (status) return status;
-			const details = result.details as { attached?: number | null; planPath?: string; fileState?: string; plans?: Array<{ sequence: number; title: string; path: string; fileState: string; outcome?: PlanOutcome }> } | undefined;
-			let text = resultText(result);
+			const details = result.details as { action?: string; changed?: boolean; attached?: number | null; planPath?: string; fileState?: string; plans?: Array<{ sequence: number; title: string; path: string; fileState: string; outcome?: PlanOutcome }> } | undefined;
+			const resultLine = resultText(result);
+			const changed = details?.action !== "list" && (details?.changed ?? (details?.action !== undefined && !resultLine.startsWith("Plan unchanged:")));
+			const primary = theme.fg(changed ? "success" : "muted", resultLine);
+			const metadata: string[] = [];
 			if (expanded && !context.isError && details) {
-				text += `\nAttachment: ${details.attached ?? "none"}${details.planPath && !details.plans?.length ? `\n${details.planPath} (${details.fileState})` : ""}`;
-				for (const item of details.plans ?? []) text += `\n${item.sequence}: ${item.title}\n${item.path} (${item.fileState})${item.outcome ? `\n${item.outcome.reason}${item.outcome.userAction ? `\nUser action: ${item.outcome.userAction}` : ""}` : ""}`;
+				metadata.push(`Attachment: ${details.attached ?? "none"}`);
+				if (details.planPath && !details.plans?.length) metadata.push(`${details.planPath} (${details.fileState})`);
+				for (const item of details.plans ?? []) metadata.push(`${item.sequence}: ${item.title}`, `${item.path} (${item.fileState})`, ...(item.outcome ? [item.outcome.reason, ...(item.outcome.userAction ? [`User action: ${item.outcome.userAction}`] : [])] : []));
 			}
-			return new Text(theme.fg(context.isError ? "error" : "muted", text), 0, 0);
+			return new Text([primary, ...(metadata.length ? [theme.fg("muted", metadata.join("\n"))] : [])].join("\n"), 0, 0);
 		},
 	});
 
@@ -680,13 +684,14 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					theme.fg("text", details.outcome.reason),
 				].join("\n"), 0, 0);
 			}
+			const lines = [theme.fg(details?.outcome ? "warning" : "muted", text)];
 			if (options.expanded && details) {
-				if (details.planPath) text += `\n${details.planPath} (${details.fileState})`;
+				if (details.planPath) lines.push(theme.fg("muted", `${details.planPath} (${details.fileState})`));
 				for (const extra of [details.outcome?.reason, details.outcome?.userAction]) {
-					if (extra && !text.includes(extra)) text += `\n${extra}`;
+					if (extra && !text.includes(extra)) lines.push(theme.fg("text", extra));
 				}
 			}
-			return new Text(theme.fg(context.isError ? "error" : "muted", text), 0, 0);
+			return new Text(lines.join("\n"), 0, 0);
 		},
 	});
 
@@ -710,7 +715,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const status = pendingOrError(result, options, theme, context, "Completing plan…", "Plan completion failed");
 			if (status) return status;
 			const details = result.details as { completed?: boolean; planPath?: string } | undefined;
-			return new Text(theme.fg(details?.completed ? "success" : "muted", details?.completed ? `Plan complete.${options.expanded && details.planPath ? `\n${details.planPath}` : ""}` : "Completion status unavailable"), 0, 0);
+			if (!details?.completed) return new Text(theme.fg("muted", "Completion status unavailable"), 0, 0);
+			return new Text([theme.fg("success", "Plan complete."), ...(options.expanded && details.planPath ? [theme.fg("muted", details.planPath)] : [])].join("\n"), 0, 0);
 		},
 	});
 
@@ -733,7 +739,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const status = pendingOrError(result, options, theme, context, "Switching to Plan mode…", "Plan mode transition failed");
 			if (status) return status;
 			const details = result.details as { mode?: string; planPath?: string } | undefined;
-			return new Text(theme.fg(details?.mode === "plan" ? "success" : "muted", details?.mode === "plan" ? `Switched to Plan mode${options.expanded && details.planPath ? `\n${details.planPath}` : ""}` : "Mode transition status unavailable"), 0, 0);
+			if (details?.mode !== "plan") return new Text(theme.fg("muted", "Mode transition status unavailable"), 0, 0);
+			return new Text([theme.fg("success", "Switched to Plan mode"), ...(options.expanded && details.planPath ? [theme.fg("muted", details.planPath)] : [])].join("\n"), 0, 0);
 		},
 	});
 
@@ -766,9 +773,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					? activePlanStep(plans.execution)
 					: plans.execution.steps.find((step) => step.status === "ready")
 				: plans.execution.steps[Math.floor(params.step) - 1];
-			const finish = (message: string, extraDetails?: { planCompleted?: boolean; awaitingUser?: boolean }) => ({
+			const finish = (message: string, extraDetails?: { planCompleted?: boolean; awaitingUser?: boolean; changed?: boolean; confirmation?: string; instruction?: string }) => ({
 				content: [{ type: "text" as const, text: message }],
-				details: { action: params.action, stepId: target?.id, ...extraDetails },
+				details: { action: params.action, stepId: target?.id, changed: true, ...extraDetails },
 				terminate: true,
 			});
 
@@ -785,7 +792,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			}
 			if (plans.execution.status === "completed") throw new Error("The plan is already complete");
 			if (params.action === "pause" || params.action === "resume") {
-				if ((params.action === "pause") === (plans.execution.status === "paused")) return finish(`Plan execution is already ${params.action === "pause" ? "paused" : "running"}.`);
+				if ((params.action === "pause") === (plans.execution.status === "paused")) return finish(`Plan execution is already ${params.action === "pause" ? "paused" : "running"}.`, { changed: false });
 				if (params.action === "resume" && plans.plan.outcome?.kind === "awaiting_validation") plans.outcome(undefined);
 				updateExecution(pausePlanExecution(plans.execution));
 				return finish(`Plan execution is now ${params.action === "pause" ? "paused" : "running"}.`);
@@ -801,14 +808,14 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				const completion = completeExecutionStep(target.id);
 				return finish(
 					completion ?? "The step was marked complete. The next step is ready and awaits user instruction.",
-					{ planCompleted: completion !== undefined, awaitingUser: completion === undefined },
+					{ planCompleted: completion !== undefined, awaitingUser: completion === undefined, ...(completion === undefined ? { confirmation: "The step was marked complete.", instruction: "The next step is ready and awaits user instruction." } : {}) },
 				);
 			}
 			if (params.action === "skip") {
 				const completion = applyExecutionTransition(skipPlanStep(plans.execution, target.id));
 				return finish(
 					completion ?? "The step was skipped. The next step awaits user instruction.",
-					{ planCompleted: completion !== undefined, awaitingUser: completion === undefined },
+					{ planCompleted: completion !== undefined, awaitingUser: completion === undefined, ...(completion === undefined ? { confirmation: "The step was skipped.", instruction: "The next step awaits user instruction." } : {}) },
 				);
 			}
 			if (!params.instruction?.trim()) throw new Error("Revising a step requires a replacement instruction");
@@ -822,7 +829,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				await fs.promises.writeFile(currentPlanPath(), updatedPlan, "utf8");
 				updateExecution(next);
 			});
-			return finish("The plan step instruction was revised and is awaiting user approval.", { awaitingUser: true });
+			return finish("The plan step instruction was revised and is awaiting user approval.", { awaitingUser: true, confirmation: "The plan step instruction was revised", instruction: "and is awaiting user approval." });
 		},
 		renderCall: statusCall("Updating step…"),
 		renderResult(result, options, theme, context) {
@@ -845,7 +852,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const completion = completeExecutionStep(step.id, params.summary);
 			return {
 				content: [{ type: "text", text: completion ?? "The step was completed. The next step is ready and awaits user instruction." }],
-				details: { stepId: step.id, completed: true, planCompleted: completion !== undefined, awaitingUser: completion === undefined },
+				details: { stepId: step.id, completed: true, planCompleted: completion !== undefined, awaitingUser: completion === undefined, ...(completion === undefined ? { confirmation: "The step was completed.", instruction: "The next step is ready and awaits user instruction." } : {}) },
 				terminate: true,
 			};
 		},
@@ -990,7 +997,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				return new Text(theme.fg("success", "Plan approved; switched to Build mode"), 0, 0);
 			}
 			if (details?.approved === false) return new Text(theme.fg("muted", "Remaining in Plan mode"), 0, 0);
-			return new Text(theme.fg("warning", "Plan approval status unavailable"), 0, 0);
+			return new Text(theme.fg("muted", "Plan approval status unavailable"), 0, 0);
 		},
 	});
 

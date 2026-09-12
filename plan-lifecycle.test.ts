@@ -374,7 +374,8 @@ test("user-action handoffs render bold accent while state acknowledgements stay 
 		const stepControl = h.tools.get("plan_step_control");
 		const awaiting = { content: [{ type: "text", text: "The step was marked complete. The next step is ready and awaits user instruction." }], details: { stepId: "step-1", awaitingUser: true } };
 		assert.match(stepControl.renderResult(awaiting, { expanded: false, isPartial: false }, theme, {}).render(200).join("\n"), /Step 1: The step was marked complete/);
-		assert.ok(colors.some((call) => call.color === "accent" && call.text.includes("awaits user instruction")));
+		assert.ok(colors.some((call) => call.color === "success" && call.text === "Step 1: The step was marked complete."));
+		assert.ok(colors.some((call) => call.color === "accent" && call.text === "The next step is ready and awaits user instruction."));
 		colors.length = 0;
 		stepControl.renderResult({ content: [{ type: "text", text: "The requested step is approved." }], details: { stepId: "step-1" } }, { expanded: false, isPartial: false }, theme, {}).render(200);
 		assert.ok(colors.some((call) => call.color === "success" && call.text.includes("approved")));
@@ -383,6 +384,69 @@ test("user-action handoffs render bold accent while state acknowledgements stay 
 		h.tools.get("plan_exit").renderResult({ content: [{ type: "text", text: "Remaining in Plan mode." }], details: { approved: false } }, { expanded: false, isPartial: false }, theme, {}).render(200);
 		assert.ok(colors.some((call) => call.color === "muted" && call.text === "Remaining in Plan mode"));
 		assert.equal(colors.some((call) => call.color === "warning"), false);
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("tool results consistently separate confirmations, instructions, warnings, and bookkeeping", () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "semantic-colors-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		const calls: Array<{ color: string; text: string }> = [];
+		const theme = { ...h.ctx.ui.theme, fg: (color: string, text: string) => { calls.push({ color, text }); return text; } };
+		const render = (name: string, result: any, expanded = false, context: Record<string, unknown> = {}) => {
+			calls.length = 0;
+			const output = h.tools.get(name).renderResult(result, { expanded, isPartial: false }, theme, context).render(240).join("\n");
+			return { output, colors: [...calls] };
+		};
+
+		for (const [action, message] of [
+			["new", "New plan started: Test"],
+			["update", "Plan title/scope updated: Test"],
+			["include", "Plan scope updated: Test"],
+			["discussion", "Discussion decision saved: Test"],
+			["abandon", "Plan abandoned: Test"],
+		] as const) {
+			const rendered = render("plan_task", { content: [{ type: "text", text: message }], details: { action, changed: true, attached: 1 } });
+			assert.ok(rendered.colors.some((call) => call.color === "success" && call.text === message), action);
+		}
+		assert.ok(render("plan_task", { content: [{ type: "text", text: "New plan started: Legacy" }], details: { action: "new", attached: 1 } }).colors.some((call) => call.color === "success"), "legacy state confirmation");
+		assert.ok(render("plan_task", { content: [{ type: "text", text: "Plan unchanged: Test" }], details: { action: "update", changed: false, attached: 1 } }).colors.some((call) => call.color === "muted"));
+		assert.ok(render("plan_task", { content: [{ type: "text", text: "Current plan: none." }], details: { action: "list", changed: true, attached: null } }).colors.some((call) => call.color === "muted"));
+		const expandedTask = render("plan_task", { content: [{ type: "text", text: "New plan started: Test" }], details: { action: "new", changed: true, attached: 1, planPath: "/tmp/plan.md", fileState: "saved" } }, true);
+		assert.ok(expandedTask.colors.some((call) => call.color === "success" && call.text === "New plan started: Test"));
+		assert.ok(expandedTask.colors.some((call) => call.color === "muted" && call.text.includes("/tmp/plan.md")));
+
+		for (const kind of ["blocked", "waiting_for_input", "still_working"]) {
+			const rendered = render("plan_finish", { content: [{ type: "text", text: `Test: ${kind.replaceAll("_", " ")}.` }], details: { outcome: { kind, reason: "Reason" }, planPath: "/tmp/plan.md", fileState: "saved" } }, true);
+			assert.ok(rendered.colors.some((call) => call.color === "warning" && call.text.startsWith("Test:")), kind);
+			assert.ok(rendered.colors.some((call) => call.color === "muted" && call.text.includes("/tmp/plan.md")), kind);
+			assert.ok(rendered.colors.some((call) => call.color === "text" && call.text === "Reason"), kind);
+		}
+
+		for (const [name, result, confirmation] of [
+			["plan_complete", { content: [{ type: "text", text: "Plan complete." }], details: { completed: true, planPath: "/tmp/plan.md" } }, "Plan complete."],
+			["plan_enter", { content: [{ type: "text", text: "Switched to Plan mode." }], details: { mode: "plan", planPath: "/tmp/plan.md" } }, "Switched to Plan mode"],
+		] as const) {
+			const rendered = render(name, result, true);
+			assert.ok(rendered.colors.some((call) => call.color === "success" && call.text === confirmation), name);
+			assert.ok(rendered.colors.some((call) => call.color === "muted" && call.text === "/tmp/plan.md"), name);
+		}
+		assert.ok(render("plan_exit", { content: [], details: {} }).colors.some((call) => call.color === "muted" && call.text === "Plan approval status unavailable"));
+
+		const noOp = render("plan_step_control", { content: [{ type: "text", text: "Plan execution is already paused." }], details: { action: "pause", changed: false } });
+		assert.ok(noOp.colors.some((call) => call.color === "muted" && call.text.includes("already paused")));
+		assert.ok(render("plan_step_control", { content: [] }).colors.some((call) => call.color === "muted" && call.text === "Step status unavailable"));
+		const mixed = render("plan_step_control", {
+			content: [{ type: "text", text: "The step was marked complete. The next step is ready and awaits user instruction." }],
+			details: { action: "complete", changed: true, stepId: "step-1", awaitingUser: true, confirmation: "The step was marked complete.", instruction: "The next step is ready and awaits user instruction." },
+		});
+		assert.equal(mixed.output.trimEnd(), "Step 1: The step was marked complete. The next step is ready and awaits user instruction.");
+		assert.ok(mixed.colors.some((call) => call.color === "success" && call.text === "Step 1: The step was marked complete."));
+		assert.ok(mixed.colors.some((call) => call.color === "accent" && call.text === "The next step is ready and awaits user instruction."));
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
@@ -872,10 +936,12 @@ test("task results are compact while hidden context retains current planning con
 		const renderer = h.tools.get("plan_task");
 		const result = await h.tool("plan_task", { action: "update", sequence: 1, title: "Fix login", scope: "Login redirects" });
 		assert.equal(result.content[0].text, "Plan title/scope updated: Fix login");
+		assert.equal(result.details.changed, true);
 		assert.equal(result.details.fileState, "absent");
 		const count = h.entries.length;
 		const unchanged = await h.tool("plan_task", { action: "update", sequence: 1, title: "Fix login", scope: "Login redirects" });
 		assert.match(unchanged.content[0].text, /Plan unchanged/);
+		assert.equal(unchanged.details.changed, false);
 		assert.equal(h.entries.length, count);
 		const rendered = renderer.renderResult(result, { expanded: false, isPartial: false }, h.ctx.ui.theme, {}).render(120).join("\n");
 		assert.match(rendered, /Fix login/);

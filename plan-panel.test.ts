@@ -77,6 +77,23 @@ test("keeps complete instructions in the last cell across states and step transi
 	}
 });
 
+test("panel statuses use neutral, caution, and success colors consistently", () => {
+	const calls: Array<{ color: string; text: string }> = [];
+	const capture = { fg(color: string, text: string) { calls.push({ color, text }); return text; }, bold(text: string) { return text; } } as any;
+	const panel = new PlanPanel(makeState(), capture);
+	panel.render(72);
+	assert.ok(calls.some((call) => call.color === "muted" && call.text === "running"));
+	calls.length = 0;
+	panel.setState({ ...makeState(), status: "paused" });
+	panel.render(72);
+	assert.ok(calls.some((call) => call.color === "warning" && call.text === "paused"));
+	calls.length = 0;
+	const completed = completePlanStep(completePlanStep(makeState(), "step-1"), "step-2", "Done");
+	panel.setState(completed);
+	panel.render(72);
+	assert.ok(calls.some((call) => call.color === "success" && call.text === "complete"));
+});
+
 test("wraps long step instructions instead of truncating them", () => {
 	const text = "This deliberately long step instruction must wrap across multiple panel rows without losing its final words.";
 	const panel = new PlanPanel(createPlanExecution(`## Implementation Steps\n1. ${text}`), theme);

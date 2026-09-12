@@ -300,7 +300,7 @@ test("plan title visibility persists through settings and reload without compose
 		current.selectOptions(`Plan title (active: ${enabled ? "off" : "on"})`, enabled ? "On" : "Off (default)");
 		await current.commands.get("plan-settings").handler("", current.ctx);
 		assert.equal(loadShortcutConfig(agentDir).showPlanTitle, enabled);
-		assert.equal(current.notifications.at(-1)![0], `Plan title ${enabled ? "on" : "off"}.`);
+		assert.deepEqual(current.notifications.at(-1), [`Plan title ${enabled ? "on" : "off"}.`, "info"]);
 		if (enabled) assert.match(current.editor().render(100)[0], /plan title/);
 		else assert.ok(!current.statuses.at(-1)?.[1]?.includes("Plan Title"));
 		const reloaded = await setup();
@@ -424,6 +424,7 @@ test("an editor installed before Pi Plan Build triggers reduced optional UI", as
 	assert.deepEqual(harness.editorCalls, []);
 	assert.equal(harness.notifications.length, 1);
 	assert.match(harness.notifications[0]![0], /disabled its custom composer and experimental step-by-step panel/);
+	assert.equal(harness.notifications[0]![1], "warning");
 	assert.equal(harness.statuses.at(-1)?.[0], "pi-plan-build-mode");
 	assert.match(harness.statuses.at(-1)?.[1] ?? "", /build/);
 

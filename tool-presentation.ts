@@ -48,6 +48,14 @@ export function pendingOrError(
 	return undefined;
 }
 
+function stepHandoffParts(text: string): { confirmation: string; instruction: string } | undefined {
+	const nextStep = text.indexOf(". The next step");
+	if (nextStep >= 0) return { confirmation: text.slice(0, nextStep + 1), instruction: text.slice(nextStep + 2) };
+	const approval = text.indexOf(" and is awaiting user approval.");
+	if (approval >= 0) return { confirmation: text.slice(0, approval), instruction: text.slice(approval + 1) };
+	return undefined;
+}
+
 /** Both step tools share a Markdown completion summary and compact ordinary results. */
 export function renderStepResult(
 	result: { content: readonly { type: string; text?: string }[]; details?: unknown },
@@ -59,12 +67,19 @@ export function renderStepResult(
 ): Text | Markdown | Container {
 	const status = pendingOrError(result, options, theme, context, pending, fallback);
 	if (status) return status;
-	const details = result.details as { planCompleted?: boolean; stepId?: string; awaitingUser?: boolean } | undefined;
+	const details = result.details as { action?: string; completed?: boolean; changed?: boolean; planCompleted?: boolean; stepId?: string; awaitingUser?: boolean; confirmation?: string; instruction?: string } | undefined;
 	const text = resultText(result, fallback);
 	if (details?.planCompleted) return new Markdown(text, 0, 0, getMarkdownTheme());
 	const storedStep = typeof details?.stepId === "string" ? /^step-(\d+)$/.exec(details.stepId)?.[1] : undefined;
 	const requested = context.args?.step;
 	const step = storedStep ? Number(storedStep) : typeof requested === "number" ? Math.floor(requested) : undefined;
-	const line = `${Number.isInteger(step) && step! > 0 ? `Step ${step}: ` : ""}${text}`;
-	return new Text(details?.awaitingUser ? formatInstruction(theme, line) : theme.fg("success", line), 0, 0);
+	const prefix = Number.isInteger(step) && step! > 0 ? `Step ${step}: ` : "";
+	const handoff = details?.awaitingUser
+		? details.confirmation && details.instruction ? { confirmation: details.confirmation, instruction: details.instruction } : stepHandoffParts(text)
+		: undefined;
+	if (handoff) return new Text(`${theme.fg("success", `${prefix}${handoff.confirmation}`)} ${formatInstruction(theme, handoff.instruction)}`, 0, 0);
+	const line = `${prefix}${text}`;
+	if (details?.awaitingUser) return new Text(formatInstruction(theme, line), 0, 0);
+	if (details?.changed === false || text.startsWith("Plan execution is already ") || !details?.action && !details?.completed && !details?.stepId) return new Text(theme.fg("muted", line), 0, 0);
+	return new Text(theme.fg("success", line), 0, 0);
 }
