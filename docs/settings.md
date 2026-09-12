@@ -2,6 +2,27 @@
 
 [← README](../README.md)
 
+## Default startup mode
+
+Build is the default startup mode for new sessions. To start new sessions in Plan instead, choose **Default mode → Plan** in `/plan-settings`, or set `defaultMode` directly:
+
+```json
+{
+  "defaultMode": "plan"
+}
+```
+
+Only `"build"` and `"plan"` are accepted; any other value warns and falls back to Build. **Default mode** applies to sessions that have no mode recorded on their branch, so it takes effect immediately for the next session without `/reload` and never changes the current session's mode. Override it for a single run with `pi --plan` or `pi --build`.
+
+Startup mode resolves in this order:
+
+1. The mode recorded on the session branch.
+2. The `--plan` / `--build` CLI flag (`--plan` wins if both are passed).
+3. The `defaultMode` setting.
+4. Build.
+
+Restoring or forking a session therefore keeps its recorded mode, and `/reload` is only needed after editing the file by hand.
+
 ## Per-mode model and thinking selection
 
 In `/plan-settings`, choose **Per-mode model/thinking → On** to remember separate Plan and Build selections. This is **off by default**. Continue using Pi's normal model picker and thinking controls in each mode; switching modes restores that mode's last pair.
@@ -22,7 +43,7 @@ Manual mode changes during a run defer automatic model switching until that run 
 
 ## Shortcut configuration
 
-`/plan-settings` groups **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)** under the **Shortcuts** submenu. The main menu also offers **Plan title** and **Per-mode model/thinking**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Shortcut changes require `/reload`; title and per-mode selection toggles apply immediately. Direct file edits require `/reload`.
+`/plan-settings` groups **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)** under the **Shortcuts** submenu. The main menu also offers **Default mode**, **Plan title**, and **Per-mode model/thinking**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Shortcut changes require `/reload`; default mode, title, and per-mode selection changes apply without reloading. Direct file edits require `/reload`.
 
 Pi Plan Build reads `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`):
 

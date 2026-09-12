@@ -43,7 +43,8 @@ One plan stays current through discussion, mode changes, and revisions. Complete
 | `Alt+M` | Toggle Plan/Build globally |
 | `Tab` | Toggle in the custom composer when autocomplete is closed; accept a suggestion when open |
 | `/plan` / `/build` | Select a mode |
-| `pi --plan` | Start in Plan |
+| `pi --plan` | Start in Plan for one run |
+| `pi --build` | Start in Build for one run |
 | `/plan new` | Start a plan when none is unfinished |
 | `/plan list` | Show the current plan's brief status |
 | `/plan show` | Read the current plan, progress, and outstanding validation |
@@ -51,7 +52,7 @@ One plan stays current through discussion, mode changes, and revisions. Complete
 | `/plan done` | Explicitly mark work complete in Build |
 | `/plan abandon` | Confirm abandonment without deleting the plan file |
 | `/build-fresh` | Retry a pending approved clean-session handoff |
-| `/plan-settings` | Configure shortcuts, titles, and per-mode model/thinking memory |
+| `/plan-settings` | Configure the default mode, shortcuts, titles, and per-mode model/thinking memory |
 
 Lifecycle and inspection commands require an idle agent. `/plan show` and `/plan history` do not require a model turn or start implementation.
 
@@ -61,6 +62,7 @@ Open `/plan-settings`:
 
 | Setting | Default | Behavior |
 | --- | --- | --- |
+| Default mode | Build | Startup mode for new sessions; the current session is unchanged |
 | Shortcuts | Tab + Alt+M | Open its submenu to choose Alt+M only, disable shortcuts, or configure custom keys; reload to apply |
 | Plan title | Off | Show the current task's title in the composer; applies immediately |
 | Per-mode model/thinking | Off | Remember separate Plan and Build selections; applies immediately |
@@ -107,7 +109,7 @@ The optional sidebar needs fullscreen TUI and at least **132 columns**. Step exe
 ## Documentation
 
 - [Workflow](docs/workflow.md): task boundaries, approval, clean sessions, completion, validation, and step execution.
-- [Settings](docs/settings.md): shortcuts, titles, and remembered model/thinking selections.
+- [Settings](docs/settings.md): default startup mode, shortcuts, titles, and remembered model/thinking selections.
 - [Internals](docs/internals.md): persistence, branch/fork handling, context, permission limits, and UI compatibility.
 - [Development](docs/development.md): local setup, tests, and release procedures.
 

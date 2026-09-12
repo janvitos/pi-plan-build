@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { matchesKey } from "@earendil-works/pi-tui";
-import { isKeyId, loadShortcutConfig, parseShortcutConfig, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_CONFIG_FILE, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { DEFAULT_MODE, isKeyId, loadShortcutConfig, parseShortcutConfig, saveDefaultMode, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_CONFIG_FILE, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 
 test("plan title visibility defaults off and saves safely", () => {
 	assert.equal(parseShortcutConfig(undefined).showPlanTitle, false);
@@ -36,14 +36,48 @@ test("obsolete small-caps settings are ignored", () => {
 	for (const smallCapsPlanTitle of [true, false, "false"]) {
 		assert.deepEqual(parseShortcutConfig({ smallCapsPlanTitle, shortcuts: { toggleMode: [] } }), {
 			showPlanTitle: false,
+			defaultMode: "build",
 			config: { toggleMode: [], toggleModeInEditor: ["tab"] },
 		});
 	}
 });
 
+test("default startup mode parses, warns on invalid values, and saves without clobbering other settings", () => {
+	assert.equal(DEFAULT_MODE, "build");
+	assert.equal(parseShortcutConfig(undefined).defaultMode, "build");
+	for (const mode of ["build", "plan"] as const) {
+		const parsed = parseShortcutConfig({ defaultMode: mode });
+		assert.equal(parsed.defaultMode, mode);
+		assert.equal(parsed.warning, undefined);
+	}
+	for (const invalid of ["Plan", "remember", true, 1, null, [], {}]) {
+		const parsed = parseShortcutConfig({ defaultMode: invalid });
+		assert.equal(parsed.defaultMode, "build", `${JSON.stringify(invalid)} must fall back to build`);
+		assert.match(parsed.warning ?? "", /defaultMode must be "build" or "plan"/);
+	}
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-default-mode-"));
+	try {
+		const file = path.join(dir, SHORTCUT_CONFIG_FILE);
+		fs.writeFileSync(file, JSON.stringify({ unrelated: 42, showPlanTitle: true, shortcuts: { toggleMode: ["alt+m"], future: "value" } }));
+		assert.equal(saveDefaultMode(dir, "plan"), file);
+		assert.equal(loadShortcutConfig(dir).defaultMode, "plan");
+		const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+		assert.equal(saved.unrelated, 42);
+		assert.equal(saved.showPlanTitle, true);
+		assert.deepEqual(saved.shortcuts, { toggleMode: ["alt+m"], future: "value" });
+		assert.deepEqual(fs.readdirSync(dir), [SHORTCUT_CONFIG_FILE], "atomic save leaves no temporary file");
+		for (const malformed of ["{", "null", "[]", '{"shortcuts":[]}']) {
+			fs.writeFileSync(file, malformed);
+			assert.throws(() => saveDefaultMode(dir, "plan"));
+			assert.equal(fs.readFileSync(file, "utf8"), malformed);
+		}
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("shortcut defaults preserve Tab and Alt+M", () => {
 	assert.deepEqual(parseShortcutConfig(undefined), {
 		showPlanTitle: false,
+		defaultMode: "build",
 		config: {
 			toggleMode: ["alt+m"],
 			toggleModeInEditor: ["tab"],
@@ -61,6 +95,7 @@ test("shortcut configuration accepts remapping and explicit disabling", () => {
 
 	assert.deepEqual(result, {
 		showPlanTitle: false,
+		defaultMode: "build",
 		config: {
 			toggleMode: ["ctrl+alt+m"],
 			toggleModeInEditor: ["ctrl+shift+m", "f6"],
@@ -145,6 +180,7 @@ test("shortcut configuration reads the Pi agent directory and fails safely", () 
 	try {
 		assert.deepEqual(loadShortcutConfig(dir), {
 			showPlanTitle: false,
+			defaultMode: "build",
 			config: { toggleMode: ["alt+m"], toggleModeInEditor: ["tab"] },
 			path: path.join(dir, SHORTCUT_CONFIG_FILE),
 		});
