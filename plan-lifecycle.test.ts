@@ -20,6 +20,8 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 	const tools = new Map<string, any>();
 	const entryRenderers = new Map<string, any>();
 	const messageRenderers = new Map<string, any>();
+	const flags = new Map<string, any>();
+	const flagValues = new Map<string, boolean>();
 	let active = ["read", "write", "edit", "bash"];
 	let idle = true;
 	const events: any[] = [];
@@ -32,10 +34,10 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		on,
 		registerCommand: (name: string, command: any) => commands.set(name, command),
 		registerTool: (tool: any) => tools.set(tool.name, tool),
-		registerShortcut() {}, registerFlag() {},
+		registerShortcut() {}, registerFlag: (name: string, flag: any) => flags.set(name, flag),
 		registerEntryRenderer: (type: string, renderer: any) => entryRenderers.set(type, renderer),
 		registerMessageRenderer: (type: string, renderer: any) => messageRenderers.set(type, renderer),
-		getFlag: () => false,
+		getFlag: (name: string) => flagValues.get(name) === true,
 		getActiveTools: () => active,
 		setActiveTools: (next: string[]) => { events.push({ kind: "tools" }); active = next; },
 		appendEntry: (customType: string, data: any) => {
@@ -74,7 +76,8 @@ function harness(dir: string, entries: any[] = [], sessionId = "session") {
 		return collection?.records.find((r: any) => r.plan.sequence === collection.attached) ?? collection?.records.at(-1);
 	}
 	return {
-		ctx, pi, events, commands, tools, entryRenderers, messageRenderers,
+		ctx, pi, events, commands, tools, entryRenderers, messageRenderers, flags,
+		setFlag: (name: string, value: boolean) => { flagValues.set(name, value); },
 		entries, active: () => active, setIdle: (value: boolean) => { idle = value; },
 		event: emit,
 		prompt: async (text: string) => {
@@ -142,6 +145,75 @@ test("per-mode settings toggle immediately and cancellation preserves the file",
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
 });
 
+test("startup mode follows the session record, then the CLI flag, then defaultMode", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-default-mode-startup-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	// session_start applies the startup mode to tool routing, which is observable without persisting a record.
+	const startedInPlan = (h: ReturnType<typeof harness>) => h.active().includes("plan_exit") && !h.active().includes("plan_enter");
+	try {
+		fs.writeFileSync(path.join(dir, "pi-plan-build.json"), JSON.stringify({ defaultMode: "plan" }));
+		const configured = harness(dir);
+		await configured.event("session_start", { reason: "startup" });
+		assert.ok(startedInPlan(configured), "a new session must honor defaultMode");
+		assert.deepEqual(configured.flags.get("build"), { description: "Start in Build mode", type: "boolean", default: false });
+		await configured.event("session_shutdown");
+
+		const single = harness(dir);
+		single.setFlag("plan", true);
+		await single.event("session_start", { reason: "startup" });
+		assert.ok(startedInPlan(single), "--plan must still start in Plan");
+		await single.event("session_shutdown");
+
+		const override = harness(dir);
+		override.setFlag("build", true);
+		await override.event("session_start", { reason: "startup" });
+		assert.ok(!startedInPlan(override), "--build must override defaultMode plan for one run");
+		await override.event("session_shutdown");
+
+		const both = harness(dir);
+		both.setFlag("plan", true);
+		both.setFlag("build", true);
+		await both.event("session_start", { reason: "startup" });
+		assert.ok(startedInPlan(both), "--plan wins when both flags are set");
+		await both.event("session_shutdown");
+
+		const recorded = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data: { version: STATE_VERSION, selectedMode: "build", collection: { records: [], attached: null, counter: 0 } } }]);
+		await recorded.event("session_start", { reason: "resume" });
+		assert.ok(!startedInPlan(recorded), "the session branch record must win over defaultMode");
+		assert.equal(recorded.state().selectedMode, "build");
+		await recorded.event("session_shutdown");
+
+		fs.rmSync(path.join(dir, "pi-plan-build.json"));
+		const fallback = harness(dir);
+		await fallback.event("session_start", { reason: "startup" });
+		assert.ok(!startedInPlan(fallback), "no record, no flag, and no setting falls back to Build");
+		await fallback.event("session_shutdown");
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
+});
+
+test("/plan-settings saves the default startup mode and preserves unrelated settings", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-default-mode-settings-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const file = path.join(dir, "pi-plan-build.json");
+		fs.writeFileSync(file, JSON.stringify({ showPlanTitle: true, shortcuts: { toggleMode: ["alt+m"], future: "value" } }));
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		let answers: any[] = ["Default mode (active: build)", "Plan"];
+		h.ctx.ui.select = async () => answers.shift();
+		await h.commands.get("plan-settings").handler("", h.ctx);
+		const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+		assert.equal(saved.defaultMode, "plan");
+		assert.equal(saved.showPlanTitle, true);
+		assert.deepEqual(saved.shortcuts, { toggleMode: ["alt+m"], future: "value" });
+		assert.ok(h.events.some((event) => event.kind === "notify" && event.text.includes("New sessions start in Plan mode")));
+		const before = fs.readFileSync(file, "utf8");
+		answers = ["Default mode (active: plan)", undefined];
+		await h.commands.get("plan-settings").handler("", h.ctx);
+		assert.equal(fs.readFileSync(file, "utf8"), before);
+		await h.event("session_shutdown");
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
+});
 test("enabled per-mode selection defers manual routing until the active run settles", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-mode-model-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;

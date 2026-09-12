@@ -4,7 +4,7 @@
 
 ## Overview
 
-1. Start in **Build** for ordinary discussion and coding. Small fixes need no plan.
+1. Start in **Build**, or in your configured [**Default mode**](settings.md#default-startup-mode), for ordinary discussion and coding. Small fixes need no plan.
 2. Select **Plan** with `/plan`, `Alt+M`, or the default editor `Tab` shortcut. This changes permissions, **not task selection**. Plan entry is user-controlled: the agent cannot auto-route a Build request into Plan, so a planning request made in Build requires you to switch modes. Discuss and research read-only; no Markdown is written merely by entering Plan.
 3. When you request a planning deliverable or accept a concrete proposed change during planning, the agent creates the current task; `/plan new` is the manual equivalent. It waits for the returned canonical path, completes necessary read-only investigation, saves the plan, and calls `plan_exit` for review and implementation approval. Accepting scope does not authorize implementation; informational agreement alone creates no task. You need not say “make a plan” again or switch manually to Build to get a plan written.
 4. Approve implementation **here**, in a **clean linked session**, or **step by step** (experimental; sidebar optional). Staying in Plan—or Escape—stops the run and waits for your next message.

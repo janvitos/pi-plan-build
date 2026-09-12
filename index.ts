@@ -10,7 +10,7 @@ import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker
 import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
 import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
 import { registerQuestionTool } from "./question-ui.ts";
-import { loadShortcutConfig, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { loadShortcutConfig, saveDefaultMode, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
 	PLAN_EXIT_DESCRIPTION,
 	PLAN_STEP_COMPLETE_DESCRIPTION,
@@ -89,9 +89,10 @@ function shorten(filePath: string, cwd: string): string {
 
 export default function planBuildModes(pi: ExtensionAPI): void {
 	const shortcutAgentDir = getAgentDir();
-	const { config: shortcutConfig, showPlanTitle, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
+	const { config: shortcutConfig, showPlanTitle, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
 	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
+	let defaultMode: Mode = configuredDefaultMode;
 	let runMode: Mode | undefined;
 	let pendingMode: Mode | undefined;
 	let modeTransition = 0;
@@ -134,6 +135,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 
 	pi.registerFlag("plan", {
 		description: "Start in Plan mode",
+		type: "boolean",
+		default: false,
+	});
+
+	pi.registerFlag("build", {
+		description: "Start in Build mode",
 		type: "boolean",
 		default: false,
 	});
@@ -459,10 +466,24 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (!ctx.hasUI) return;
 			const customOption = "Custom (edit config file)";
 			const shortcutOption = `Shortcuts (active: ${shortcutPresetLabel(shortcutConfig)})`;
+			const defaultModeOption = `Default mode (active: ${defaultMode})`;
 			const modelOption = `Per-mode model/thinking (active: ${modeSelections.enabled ? "on" : "off"})`;
 			const titleOption = `Plan title (active: ${composerSettings.showPlanTitle ? "on" : "off"})`;
-			const selected = await ctx.ui.select("Plan/Build settings", [shortcutOption, titleOption, modelOption]);
+			const selected = await ctx.ui.select("Plan/Build settings", [defaultModeOption, shortcutOption, titleOption, modelOption]);
 			if (!selected) return;
+			if (selected === defaultModeOption) {
+				const choice = await ctx.ui.select("Default mode for new sessions", ["Build (default)", "Plan"]);
+				if (!choice) return;
+				try {
+					const mode: Mode = choice === "Plan" ? "plan" : "build";
+					saveDefaultMode(shortcutAgentDir, mode);
+					defaultMode = mode;
+					ctx.ui.notify(`New sessions start in ${mode === "plan" ? "Plan" : "Build"} mode. The current session is unchanged.`, "info");
+				} catch (error) {
+					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+				}
+				return;
+			}
 			if (selected === modelOption) {
 				if (!ctx.isIdle() || pendingMode !== undefined) { ctx.ui.notify("Wait for the agent and mode switch to finish before changing model routing.", "warning"); return; }
 				const choice = await ctx.ui.select("Remember separate Plan and Build model/thinking selections", ["Off (default)", "On"]);
@@ -1190,7 +1211,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		const decoded = decodeModeState(raw);
 		pendingFreshAnnouncement = raw?.pendingFreshAnnouncement === true;
 		pendingValidationNotice = undefined;
-		selectedMode = decoded?.selectedMode ?? (pi.getFlag("plan") === true ? "plan" : "build");
+		const flagMode: Mode | undefined = pi.getFlag("plan") === true ? "plan" : pi.getFlag("build") === true ? "build" : undefined;
+		// Startup mode priority: session branch record > CLI flag (--plan / --build) > defaultMode setting > Build.
+		selectedMode = decoded?.selectedMode ?? flagMode ?? defaultMode ?? "build";
 		restoreUserMessageRails(ctx.sessionManager.getBranch());
 		toolsBeforeModes = Array.isArray(raw?.toolsBeforeModes)
 			? raw.toolsBeforeModes.filter((name): name is string => typeof name === "string" && !MANAGED_TOOLS.has(name))

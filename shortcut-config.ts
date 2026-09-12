@@ -2,8 +2,11 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import type { KeyId } from "@earendil-works/pi-tui";
+import type { Mode } from "./utils.ts";
 
 export const SHORTCUT_CONFIG_FILE = "pi-plan-build.json";
+
+export const DEFAULT_MODE: Mode = "build";
 
 const BASE_KEYS = new Set([
 	..."abcdefghijklmnopqrstuvwxyz",
@@ -21,6 +24,7 @@ export interface ShortcutConfig {
 
 export interface LoadedShortcutConfig {
 	showPlanTitle: boolean;
+	defaultMode: Mode;
 	config: ShortcutConfig;
 	path: string;
 	warning?: string;
@@ -122,11 +126,18 @@ function parseShortcuts(value: unknown): {
 	};
 }
 
+function parseDefaultMode(value: unknown): { defaultMode: Mode; warning?: string } {
+	if (value === undefined) return { defaultMode: DEFAULT_MODE };
+	if (value === "build" || value === "plan") return { defaultMode: value };
+	return { defaultMode: DEFAULT_MODE, warning: 'defaultMode must be "build" or "plan"' };
+}
+
 export function parseShortcutConfig(value: unknown): Omit<LoadedShortcutConfig, "path"> {
 	const parsed = parseShortcuts(value);
 	const preference = isObject(value) ? value.showPlanTitle : undefined;
-	const warning = [parsed.warning, preference !== undefined && typeof preference !== "boolean" ? "showPlanTitle must be a boolean" : undefined].filter(Boolean).join("; ");
-	return { ...parsed, showPlanTitle: preference === true, ...(warning ? { warning } : {}) };
+	const mode = isObject(value) ? parseDefaultMode(value.defaultMode) : { defaultMode: DEFAULT_MODE };
+	const warning = [parsed.warning, mode.warning, preference !== undefined && typeof preference !== "boolean" ? "showPlanTitle must be a boolean" : undefined].filter(Boolean).join("; ");
+	return { ...parsed, showPlanTitle: preference === true, defaultMode: mode.defaultMode, ...(warning ? { warning } : {}) };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -141,6 +152,11 @@ export function saveShortcutPreset(agentDir: string, presetName: string): string
 
 export function saveShowPlanTitle(agentDir: string, enabled: boolean): string {
 	return saveSettings(agentDir, (document) => ({ ...document, showPlanTitle: enabled }));
+}
+
+export function saveDefaultMode(agentDir: string, mode: Mode): string {
+	if (mode !== "build" && mode !== "plan") throw new Error("The default mode must be build or plan");
+	return saveSettings(agentDir, (document) => ({ ...document, defaultMode: mode }));
 }
 
 export function saveSettings(agentDir: string, update: (document: Record<string, unknown>) => Record<string, unknown>): string {
