@@ -318,8 +318,8 @@ test("plan title visibility persists through settings and reload without compose
 		current = reloaded;
 	}
 	const titleGuidance = h.registeredTools.get("plan_task").promptGuidelines.join(" ");
-	assert.match(titleGuidance, /one imperative phrase naming the action/);
-	assert.match(titleGuidance, /single action/);
+	assert.match(titleGuidance, /imperative, single-action title/);
+	assert.match(titleGuidance, /detailed scope/);
 	assert.match(titleGuidance, /Add color to the composer/);
 	assert.doesNotMatch(titleGuidance, /3–6 words/);
 	assert.match(h.registeredTools.get("plan_task").parameters.properties.title.description, /One imperative phrase naming the action/);
@@ -381,8 +381,39 @@ test("exposes plan_exit in the textual tool inventory metadata", () => {
 
 	assert.equal(planExit?.promptSnippet, "Display the saved plan and request user approval");
 	assert.deepEqual(planExit?.promptGuidelines, [
-		"Call plan_exit after finalizing the saved plan when the user asks to show, review, or approve it.",
+		"Call plan_exit only after finalizing the saved plan for review.",
 	]);
+});
+
+test("model-facing tool metadata keeps schemas stable and prompt overhead bounded", () => {
+	const harness = createHarness();
+	const metadataSize = (names: string[]) => names.reduce((size, name) => {
+		const tool = harness.registeredTools.get(name);
+		assert.ok(tool, `missing registered tool ${name}`);
+		return size + JSON.stringify({
+			name: tool.name,
+			description: tool.description,
+			promptSnippet: tool.promptSnippet,
+			promptGuidelines: tool.promptGuidelines,
+			parameters: tool.parameters,
+		}).length;
+	}, 0);
+	const sets = {
+		plan: ["question", "plan_exit", "plan_task"],
+		buildWithoutPlan: ["question", "plan_enter", "plan_task"],
+		buildWithPlan: ["question", "plan_enter", "plan_task", "plan_complete", "plan_finish"],
+		activeStep: ["question", "plan_enter", "plan_task", "plan_finish", "plan_step_control", "plan_step_complete"],
+	};
+	assert.ok(metadataSize(sets.plan) <= 3500);
+	assert.ok(metadataSize(sets.buildWithoutPlan) <= 3200);
+	assert.ok(metadataSize(sets.buildWithPlan) <= 5200);
+	assert.ok(metadataSize(sets.activeStep) <= 5900);
+
+	const task = harness.registeredTools.get("plan_task");
+	assert.deepEqual(Object.keys(task.parameters.properties), ["action", "sequence", "expectedAttached", "targetSequence", "title", "scope", "topic", "reason"]);
+	assert.deepEqual(task.parameters.properties.action.enum, ["list", "pause", "resume", "update", "include", "discussion", "new", "abandon"]);
+	assert.deepEqual(harness.registeredTools.get("plan_finish").parameters.properties.outcome.enum, ["awaiting_validation", "blocked", "waiting_for_input", "still_working"]);
+	assert.deepEqual(harness.registeredTools.get("plan_step_control").parameters.properties.action.anyOf.map((item: any) => item.const), ["start", "complete", "skip", "revise", "pause", "resume", "cancel", "hide", "show"]);
 });
 
 test("an editor installed before Pi Plan Build triggers reduced optional UI", async () => {

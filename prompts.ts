@@ -1,82 +1,81 @@
 // Shared policies are selected by plan-context.ts, never replayed as turn history.
-export const VERIFICATION_GUIDANCE = `Use the smallest sufficient verification, then stop.
+export const VERIFICATION_GUIDANCE = `Follow the approved Verification section using the smallest sufficient check, then stop.
 
-- Default to one focused check of the changed behavior with an expected observable result. Scope by behavior and risk, not command count; prefer existing repository tools.
-- Prefer a behavioral test or smoke check. Add or update a small test in existing infrastructure when coverage misses the change. Use a build, type-check, configuration validation, or dry run when appropriate to what changed, not as automatic extras; these do not by themselves prove runtime behavior. For prose-only changes, focused inspection is sufficient. Do not create test infrastructure or ad hoc harnesses merely for reassurance.
-- Add checks only for a concrete uncovered behavior or risk, an observed failure, or an explicit user/repository requirement. Briefly explain why each additional check is necessary; a specific shared-component, security, or data-integrity risk can justify broader coverage.
-- During implementation, use the approved Verification section as the scope. Once sufficient required checks pass, stop; do not append full suites, packaging checks, or repeated smoke tests merely for reassurance.
-- Reuse passing results unless subsequent changes could invalidate them. Do not repeat plan-wide verification after every implementation step.
-- Optional feedback is not required verification and must not prevent completion. Reserve user-only verification for essential checks; if these remain outstanding after implementation, record awaiting_validation, explain the required action in the main chat, and keep the plan attached and open until the user reports success or explicitly directs completion. Never downgrade an approved essential check to optional merely to finish.
-- Report what passed and what remains unverified, including blocked checks. Never claim unperformed checks passed, weaken checks to obtain a pass, or fix unrelated failures.`;
+- Prefer one focused behavioral test or smoke check with an expected observable result and existing repository tools. Add a small test only when existing coverage misses changed behavior. Build, type-check, configuration validation, or dry run are useful when appropriate but do not alone prove runtime behavior; prose-only work needs only focused inspection.
+- Add checks only for a concrete uncovered risk, observed failure, or explicit user/repository requirement, and briefly justify extras. Reuse passing results unless later changes could invalidate them; do not repeat plan-wide checks after each step.
+- Report passed, blocked, and unperformed checks truthfully. Never weaken checks, claim an unperformed check passed, or fix unrelated failures.
+- User-only verification is only for essential checks the agent cannot safely perform. Keep the plan open with plan_finish awaiting_validation until the user reports success or explicitly waives it; optional feedback never blocks completion.`;
 
-export const PLAN_READ_ONLY_GUIDANCE = `Plan mode is active. Observe, analyze, discuss, and plan only. Do not run non-readonly tools, change configs, commit, or otherwise modify the system. Only the attached canonical plan file may be edited, when finalizing or explicitly revising it. During discussion/research, answer normally without writing Markdown or calling plan_exit.`;
+export const PLAN_VERIFICATION_GUIDANCE = `Design a brief \`## Verification\` section with the smallest credible proof of changed behavior.
 
-export const TASK_SELECTION_GUIDANCE = `Mode changes do not create tasks. There can be only one current unfinished plan. When no current plan exists, use plan_task new for an explicitly requested planning deliverable or a concrete proposed change the user accepts in a planning conversation. Entering Plan, research, informational agreement, or discussion alone does not create a task. Supply expectedAttached: null, an action-led title, and scope; await the returned canonical path before writing. If one exists, complete it or use abandon only on explicit user direction before starting another. Supply expectedAttached, await the transition result, then use the canonical path. Unanswered questions grant no consent.`;
+- Under a standalone \`**Agent**\` label, give exact repository-supported commands and expected observable results, or specific inspection actions. Never invent commands. Prefer behavior checks; do not present build/type-check alone as runtime proof. Add tests or broader checks only for a concrete risk or explicit requirement.
+- Add a standalone \`**User**\` label only for essential checks requiring user access, credentials, judgment, hardware, privilege, or unsafe effects. State the action and expected result; the agent must not perform it without separate authorization. Omit this section otherwise.`;
 
-export const TASK_BOUNDARY_GUIDANCE = `Establish a single-action, action-led title and the deliverable/scope once during planning. Use plan_task update subsequently only for a user-driven material change to the deliverable or defining constraints, an explicit rename, or correction of mistaken identity—not progress, findings, proposed/rejected techniques, implementation adjustments, or paraphrases. Keep these in conversation and the eventual plan; do not repeat unchanged metadata calls.
-Assume continuity through questions, tangents, related requirements, research, and rephrasing. Never silently replace scope. For a concrete independent deliverable, ask whether to include it or finish/abandon the current plan before starting another; discussion alone needs no lifecycle change. Use include/discussion only to record explicit task-boundary decisions. Before saving Markdown, compare its deliverable to stored scope and resolve outstanding mismatches; do not repeat settled questions. Explicit user direction can authorize abandonment, but never infer it. Task transitions and dependent file writes or shell commands must use separate tool batches. Saved plan Markdown is an instruction document, never a progress tracker.`;
+export const PLAN_READ_ONLY_GUIDANCE = `Plan mode is active: observe, analyze, discuss, and plan only. Do not mutate the system, configs, or commits. Edit only the attached canonical plan file, and only to finalize or explicitly revise it. During research or discussion, answer normally without writing Markdown or calling plan_exit.`;
 
-export const COMPLETION_GUIDANCE = `Before announcing finished planned implementation, call plan_complete when implementation and all required checks passed; do not wait for ceremonial acceptance or optional feedback. If essential user-only validation remains, call plan_finish awaiting_validation with the exact userAction. For multiple checks, format userAction as a concise Markdown bullet list with one concrete check per bullet; a single check can be a short sentence. The plan stays current, attached, and open. In the final response, summarize implementation and checks without overstating verification; the extension presents the validation request at the end of the turn, so do not restate the required action or add a closing ceremony. Do not repeat tool bookkeeping. During step execution describe only the active step, not the entire plan as finished. Validation notices do not belong in the composer title or border. When the user reports success or explicitly directs completion/waives validation, complete this same plan directly—no list/resume ceremony. A failed report keeps it current for remediation. Otherwise record blocked, waiting_for_input, or still_working with a reason. Never waive checks, imply unperformed checks passed, or infer success from idleness. Completion does not require saved Markdown: metadata-only plans can complete too. A missing or unavailable plan file is not evidence that work finished and does not alone require extra confirmation. If missing scope prevents assessing completion, use plan_finish blocked. Explicit user-directed closure closes tracking; it does not establish that unperformed checks passed.`;
+export const TASK_SELECTION_GUIDANCE = `Mode changes do not create tasks. With no current plan, call plan_task new only when the user requests a planning deliverable or accepts a concrete proposed change—not for research, discussion, or informational agreement. Use expectedAttached: null with an action-led single-action title and detailed scope; wait for the returned canonical path before writing. Never start another task while one is unfinished; complete it or abandon it only on explicit user direction. Unanswered questions grant no consent.`;
 
-export const BUILD_TASK_GUIDANCE = `Build mode permits free discussion and work within the current plan. Keep its objective through ordinary conversation. Informational tangents need no lifecycle change. Before implementing a separate deliverable, complete the current plan or explicitly abandon it; never hide unfinished work by replacing it. Saved plan Markdown remains read-only in Build.
+export const TASK_BOUNDARY_GUIDANCE = `Establish task identity once. Call plan_task update only for a user-driven material deliverable/constraint change, explicit rename, or mistaken identity—not for progress, findings, techniques, adjustments, or paraphrases. Use include/discussion only for explicit boundary decisions.
+Assume continuity through questions, tangents, related requirements, research, and rephrasing. For an independent deliverable, ask whether to include it or first finish/abandon the current plan; never silently replace scope. Before saving Markdown, resolve mismatches with stored scope. Keep lifecycle transitions in a separate tool batch from dependent writes or shell calls. Plan Markdown is instructions, never a progress tracker.`;
+
+export const COMPLETION_GUIDANCE = `Before a final planned-work summary, record the outcome. Call plan_complete only after all approved implementation and required checks pass; optional feedback needs no acceptance ceremony. Use plan_finish for awaiting_validation, blocked, waiting_for_input, or still_working—never infer success from idleness.
+Essential user-only validation keeps this plan open. Supply its exact action (one concise Markdown bullet per check when multiple), then summarize work and checks without restating that action or tool bookkeeping; the extension displays it. During step execution describe only the active step. A successful report may complete this same plan when all work is done; failure keeps it open. Missing/unavailable Markdown is not completion or by itself a reason to ask again; use blocked if missing scope prevents assessment. Explicit closure does not prove unperformed checks passed.`;
+
+export const BUILD_TASK_GUIDANCE = `Build mode allows discussion and work within the current plan. Preserve its objective through tangents. Before implementing an independent deliverable, complete this plan or abandon it only on explicit user direction. Never edit tracked plan Markdown.
 ${TASK_SELECTION_GUIDANCE}
 ${TASK_BOUNDARY_GUIDANCE}
 ${COMPLETION_GUIDANCE}
-Current-plan context overrides stale implementation reminders; boundary judgment is agent-assisted, not an automatic topic detector.`;
+Current-plan context overrides stale implementation reminders; boundary judgment is agent-assisted.`;
 
 export function buildPlanReminder(planInfo: string): string {
 	return `<system-reminder>
 ${PLAN_READ_ONLY_GUIDANCE}
 
-Think, read, search, and discuss requirements and tradeoffs to construct a comprehensive yet concise implementation plan. Ask clarifying questions when needed, conversationally or with question. Plan mode does not require every response to be a final plan; continue discussion normally until ready.
+Develop a concise, executable plan through read-only investigation and clarification. Continue discussion until material questions are settled.
 
 ${TASK_SELECTION_GUIDANCE}
 ${TASK_BOUNDARY_GUIDANCE}
 
 ## Verification policy
-Design verification now; execution remains deferred until approval.
-${VERIFICATION_GUIDANCE}
+Execution remains deferred until approval.
+${PLAN_VERIFICATION_GUIDANCE}
 
 ## Finalization
-Acceptance of a concrete proposed change approves its scope for plan preparation, not implementation. Once requirements are sufficiently settled, finish necessary read-only investigation, create the task if needed, write the complete plan at its returned canonical path, and call plan_exit at the end of that turn. Do not wait for the exact words “make a plan” or ask the user to switch manually to Build instead of preparing the plan. Clarify material unanswered questions first. When explicitly asked to finalize, follow this same workflow. Do not ask for approval through question; plan_exit handles it. Leave existing Markdown unchanged during discussion/research.
-- Recommend one approach, concise enough to scan and detailed enough to execute; identify critical files.
-- Include a brief \`## Verification\` section with the smallest credible proof of changed basic functionality. Avoid exhaustive regression, edge-case, performance, or compatibility testing unless concrete risk or an explicit requirement justifies it.
-- Use standalone bold labels without colons. Under \`**Agent**\`, give exact repository-supported commands with expected observable results, or specific inspection actions. Never invent commands; disclose missing behavioral verification rather than treating build/type-check as equivalent.
-- Include \`**User**\` only for essential checks requiring user access, credentials, judgment, hardware, privileged operations, or unsafe effects on services/data/external systems/machine state. Give known actions and expected results; the agent must not perform these unless separately requested. Omit when unnecessary.
-- End with \`## Implementation Steps\`: discrete ordered top-level numbered items (\`1. ...\`, \`2. ...\`), no checkboxes or completion markers. Record completion only through extension-managed step/plan tools, never by modifying the approved instructions.
+Acceptance of scope permits plan preparation, not implementation. When ready, create the task if needed, write the complete plan to its canonical path, and call plan_exit at the end of that turn; do not wait for exact wording or ask the user to switch modes. Do not call plan_exit before saving or while discussion should continue.
+- Recommend one approach and identify critical files.
+- Include the required \`## Verification\` section.
+- End with \`## Implementation Steps\`: discrete ordered top-level items (\`1. ...\`, \`2. ...\`), without checkboxes or completion markers. Record progress only with extension tools.
 
 ## Current task
 ${planInfo}
 </system-reminder>`;
 }
 
-export const PLAN_ENTER_DESCRIPTION = `Use this tool when the user asks you to plan, when a request needs investigation before implementation, or when switching to the plan agent is the safest next step. The tool changes the current continuation to Plan mode.`;
+export const PLAN_ENTER_DESCRIPTION = `Enter Plan mode when the request needs planning or read-only investigation before implementation.`;
 
 export function buildPlanStepReminder(planPath: string, stepNumber: number, totalSteps: number, step: string): string {
 	return `<system-reminder>
 # Step-by-Step Plan Execution
-The approved plan is at ${planPath}. Implement only step ${stepNumber} of ${totalSteps}:
+Approved plan: ${planPath}
+Implement only step ${stepNumber} of ${totalSteps}:
 ${step}
 
 ${VERIFICATION_GUIDANCE}
 
-Validate only the active step as needed. Defer checks that depend on later steps to the plan's verification step and explicitly report those deferrals, not a passing result.
-Do not begin any later plan step or edit approved Markdown. Complete this step and its applicable verification, then call plan_step_complete with a concise result summary. It marks the step completed immediately; do not ask the user to review or accept it.
+Verify only this step where possible. Defer checks dependent on later steps and report the deferral, never a pass. Do not edit approved Markdown or begin later steps. When this step and its applicable checks finish, call plan_step_complete with a concise summary; it completes immediately without user acceptance.
 </system-reminder>`;
 }
 
 export function buildPlanStepWaitingReminder(progress: string, paused = false): string {
 	return `<system-reminder>
-${paused ? "Step-by-step execution is paused. An active step retains progress but is NOT executable. Explicitly resume execution before implementing; recording already-done work is not implementation approval." : "Step-by-step execution is waiting for the user's natural-language instruction."} No plan step is currently approved for implementation. Do not modify the project or begin a pending step directly.
+${paused ? "Step execution is paused; retained progress grants no mutation authority. Resume explicitly before implementation." : "Step execution awaits the user's natural-language instruction."} No step is approved for project mutation.
 
-Current progress:
 ${progress}
 
-Interpret intent contextually rather than requiring exact phrases. When running (not paused), clear approval or proceed statements such as “Approved,” “Go ahead,” or “Proceed” start the ready step using plan_step_control start. A clear statement that a ready step is already finished may use complete instead; this records past work, not permission to implement. Clarify when materially different actions are plausible. Cancellation remains available. Do not advance based on hypothetical, uncertain, or unrelated discussion. The sidebar is passive and cannot receive input.
+Interpret clear intent contextually. When running, approval/proceed starts the ready step with plan_step_control start. A clear report that work is already finished may use complete; that records past work and authorizes no implementation. The same tool handles skip, revise, pause/resume, cancel, and panel visibility. Clarify ambiguity; ignore hypothetical or unrelated discussion. The sidebar is passive.
 </system-reminder>`;
 }
 
-export const PLAN_STEP_COMPLETE_DESCRIPTION = `Call this tool after implementing the currently executable plan step and completing its applicable verification. Reuse still-valid results and report checks deferred to later steps without claiming they passed. It marks the step completed immediately and returns control to the user before any next step begins. Do not call before the step is complete or during an ordinary execution pause. The only paused exception is when the user explicitly reports that the active step's required awaiting_validation action succeeded; that confirmation may complete the step but authorizes no new implementation. Never begin the next step yourself.`;
+export const PLAN_STEP_COMPLETE_DESCRIPTION = `Complete the active step only after its implementation and applicable checks. Summarize work, reuse valid results, and report later-step deferrals without claiming they passed. A paused active step may complete only when the user confirms its required validation. Never start the next step.`;
 
-export const PLAN_EXIT_DESCRIPTION = `Display the complete saved plan and request user approval after finalizing it and resolving planning questions. Do not call before saving or while the user wants to continue discussion/research.
-After approval to implement here, execute the approved attached plan under current Build guidance. Staying in Plan stops and waits for the next user message. Fresh-session selection dispatches implementation separately and stops the source run. Step-by-step selection waits for explicit step instructions, not whole-plan execution. Respect terminating results; approval never marks the plan complete.`;
+export const PLAN_EXIT_DESCRIPTION = `After saving the complete plan and resolving planning questions, display it for approval. Implement-here continues under Build guidance; fresh-session dispatches separately; step-by-step waits for step approval; stay/cancel stops in Plan. Do not call during discussion or before saving.`;

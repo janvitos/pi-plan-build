@@ -12,6 +12,7 @@ import {
 	buildPlanStepWaitingReminder,
 	PLAN_EXIT_DESCRIPTION,
 	PLAN_STEP_COMPLETE_DESCRIPTION,
+	PLAN_VERIFICATION_GUIDANCE,
 	VERIFICATION_GUIDANCE,
 } from "./prompts.ts";
 import {
@@ -426,75 +427,72 @@ test("fresh implementation selection terminates and preserves the handoff", () =
 
 test("plan guidance supports conversation before persisted finalization", () => {
 	const reminder = buildPlanReminder("No plan file exists yet. Create it only when finalizing.");
-	assert.match(reminder, /Plan mode does not require every response to be a final plan/);
-	assert.match(reminder, /answer normally without writing Markdown or calling plan_exit/);
-	assert.match(reminder, /continue discussion normally until ready/);
-	assert.match(reminder, /explicitly asked to finalize/);
-	assert.match(reminder, /write the complete plan at its returned canonical path, and call plan_exit/);
-	assert.match(reminder, /brief `## Verification` section/);
-	assert.match(reminder, /standalone bold labels without colons/i);
-	assert.match(reminder, /`\*\*Agent\*\*`/);
-	assert.match(reminder, /execution remains deferred until approval/);
-	assert.match(reminder, /repository-supported commands with expected observable results/);
+	assert.match(reminder, /During research or discussion, answer normally without writing Markdown or calling plan_exit/);
+	assert.match(reminder, /Continue discussion until material questions are settled/);
+	assert.match(reminder, /write the complete plan to its canonical path, and call plan_exit/);
+	assert.match(reminder, /Design a brief `## Verification` section/);
+	assert.match(reminder, /standalone `\*\*Agent\*\*` label/);
+	assert.match(reminder, /Execution remains deferred until approval/);
+	assert.match(reminder, /repository-supported commands and expected observable results/);
 	assert.match(reminder, /Never invent commands/i);
-	assert.match(reminder, /disclose missing behavioral verification rather than treating build\/type-check as equivalent/);
-	assert.match(reminder, /`\*\*User\*\*` only for essential checks/);
-	assert.match(reminder, /must not perform these unless separately requested/);
+	assert.match(reminder, /do not present build\/type-check alone as runtime proof/);
+	assert.match(reminder, /standalone `\*\*User\*\*` label only for essential checks/);
+	assert.match(reminder, /must not perform it without separate authorization/);
 	assert.doesNotMatch(reminder, /`### (?:Agent|User)`|\*\*(?:Agent|User):\*\*/);
-	assert.match(PLAN_EXIT_DESCRIPTION, /after finalizing it and resolving planning questions/);
+	assert.match(PLAN_EXIT_DESCRIPTION, /saving the complete plan and resolving planning questions/);
 	assert.match(reminder, /## Implementation Steps/);
-	assert.match(reminder, /numbered items \(`1\. \.\.\.`, `2\. \.\.\.`\)/);
-	assert.match(reminder, /no checkboxes or completion markers/);
-	assert.match(reminder, /Record completion only through extension-managed step\/plan tools/);
+	assert.match(reminder, /ordered top-level items \(`1\. \.\.\.`, `2\. \.\.\.`\)/);
+	assert.match(reminder, /without checkboxes or completion markers/);
+	assert.match(reminder, /Record progress only with extension tools/);
 	assert.equal(reminder.includes("- [ ]"), false);
 });
 
-test("verification policy reaches planning and every implementation handoff", () => {
-	const prompts = [
-		buildPlanReminder("Plan path: /tmp/plan.md"),
-		buildPlanContext("build", { records: [{ plan: { sequence: 1, status: "open" } }], attached: 1, counter: 1 }, { path: "/tmp/plan.md", state: "saved" })!,
-		buildFreshImplementationHandoff("Approved plan"),
-		buildPlanStepReminder("/tmp/plan.md", 1, 2, "Update behavior"),
-	];
-	for (const prompt of prompts) {
-		assert.equal(prompt.split(VERIFICATION_GUIDANCE).length, 2);
-	}
-	assert.match(VERIFICATION_GUIDANCE, /Use the smallest sufficient verification, then stop/);
-	assert.match(VERIFICATION_GUIDANCE, /Default to one focused check/);
-	assert.match(VERIFICATION_GUIDANCE, /Scope by behavior and risk, not command count/);
-	assert.match(VERIFICATION_GUIDANCE, /Add or update a small test in existing infrastructure/);
-	assert.match(VERIFICATION_GUIDANCE, /not as automatic extras/);
-	assert.match(VERIFICATION_GUIDANCE, /For prose-only changes, focused inspection is sufficient/);
-	assert.match(VERIFICATION_GUIDANCE, /Add checks only for a concrete uncovered behavior or risk, an observed failure, or an explicit user\/repository requirement/);
-	assert.match(VERIFICATION_GUIDANCE, /Briefly explain why each additional check is necessary/);
-	assert.match(VERIFICATION_GUIDANCE, /use the approved Verification section as the scope/);
-	assert.match(VERIFICATION_GUIDANCE, /Once sufficient required checks pass, stop/);
-	assert.match(VERIFICATION_GUIDANCE, /Reuse passing results unless subsequent changes could invalidate them/);
-	assert.match(VERIFICATION_GUIDANCE, /Do not repeat plan-wide verification after every implementation step/);
-	assert.match(VERIFICATION_GUIDANCE, /Report what passed and what remains unverified, including blocked checks/);
-	assert.match(VERIFICATION_GUIDANCE, /Never claim unperformed checks passed, weaken checks to obtain a pass, or fix unrelated failures/);
+test("phase-specific verification policy remains complete and bounded", () => {
+	const planning = buildPlanReminder("Plan path: /tmp/plan.md");
+	const build = buildPlanContext("build", { records: [{ plan: { sequence: 1, status: "open" } }], attached: 1, counter: 1 }, { path: "/tmp/plan.md", state: "saved" })!;
+	const handoff = buildFreshImplementationHandoff("Approved plan");
+	const step = buildPlanStepReminder("/tmp/plan.md", 1, 2, "Update behavior");
+	assert.equal(planning.split(PLAN_VERIFICATION_GUIDANCE).length, 2);
+	for (const prompt of [build, handoff, step]) assert.equal(prompt.split(VERIFICATION_GUIDANCE).length, 2);
+
+	assert.match(PLAN_VERIFICATION_GUIDANCE, /smallest credible proof of changed behavior/);
+	assert.match(PLAN_VERIFICATION_GUIDANCE, /repository-supported commands and expected observable results/);
+	assert.match(PLAN_VERIFICATION_GUIDANCE, /Never invent commands/);
+	assert.match(PLAN_VERIFICATION_GUIDANCE, /build\/type-check alone as runtime proof/);
+	assert.match(PLAN_VERIFICATION_GUIDANCE, /User.*only for essential checks/);
+	assert.match(VERIFICATION_GUIDANCE, /smallest sufficient check, then stop/);
+	assert.match(VERIFICATION_GUIDANCE, /one focused behavioral test or smoke check/);
+	assert.match(VERIFICATION_GUIDANCE, /existing coverage misses changed behavior/);
+	assert.match(VERIFICATION_GUIDANCE, /concrete uncovered risk, observed failure, or explicit user\/repository requirement/);
+	assert.match(VERIFICATION_GUIDANCE, /Reuse passing results unless later changes could invalidate them/);
+	assert.match(VERIFICATION_GUIDANCE, /Report passed, blocked, and unperformed checks truthfully/);
+	assert.match(VERIFICATION_GUIDANCE, /Never weaken checks, claim an unperformed check passed, or fix unrelated failures/);
+
+	assert.ok(planning.length <= 3500, `planning context grew to ${planning.length} characters`);
+	assert.ok(build.length <= 3700, `Build context grew to ${build.length} characters`);
+	assert.ok(step.length <= 1900, `step context grew to ${step.length} characters`);
+	assert.ok(handoff.length - "Approved plan".length <= 1200, `fresh handoff overhead grew to ${handoff.length} characters`);
 });
 
 test("step execution prompts constrain work to an approved active step", () => {
 	const reminder = buildPlanStepReminder("/tmp/plan.md", 2, 4, "Build the parser");
 	assert.match(reminder, /only step 2 of 4/);
 	assert.match(reminder, /Build the parser/);
-	assert.match(reminder, /Do not begin any later plan step/);
+	assert.match(reminder, /Do not edit approved Markdown or begin later steps/);
 	assert.match(reminder, /plan_step_complete/);
-	assert.match(reminder, /Validate only the active step as needed/);
-	assert.match(reminder, /Defer checks that depend on later steps/);
-	assert.match(reminder, /explicitly report those deferrals, not a passing result/);
-	assert.match(PLAN_STEP_COMPLETE_DESCRIPTION, /completing its applicable verification/);
-	assert.match(PLAN_STEP_COMPLETE_DESCRIPTION, /report checks deferred to later steps without claiming they passed/);
+	assert.match(reminder, /Verify only this step where possible/);
+	assert.match(reminder, /Defer checks dependent on later steps/);
+	assert.match(reminder, /report the deferral, never a pass/);
+	assert.match(PLAN_STEP_COMPLETE_DESCRIPTION, /after its implementation and applicable checks/);
+	assert.match(PLAN_STEP_COMPLETE_DESCRIPTION, /report later-step deferrals without claiming they passed/);
 	const waiting = buildPlanStepWaitingReminder("1. [ready] Build parser");
-	assert.match(waiting, /No plan step is currently approved/);
-	assert.match(waiting, /Do not modify the project/);
-	assert.match(waiting, /Interpret intent contextually/);
-	assert.match(waiting, /already finished may use complete instead/);
-	assert.match(waiting, /When running \(not paused\).*plan_step_control start/);
-	assert.match(waiting, /records past work, not permission to implement/);
-	assert.match(waiting, /Cancellation remains available/);
-	assert.match(waiting, /sidebar is passive and cannot receive input/);
+	assert.match(waiting, /No step is approved for project mutation/);
+	assert.match(waiting, /Interpret clear intent contextually/);
+	assert.match(waiting, /work is already finished may use complete/);
+	assert.match(waiting, /approval\/proceed starts the ready step with plan_step_control start/);
+	assert.match(waiting, /records past work and authorizes no implementation/);
+	assert.match(waiting, /handles skip, revise, pause\/resume, cancel/);
+	assert.match(waiting, /sidebar is passive/i);
 });
 
 test("prompt history restores normalized user text in chronological order", () => {

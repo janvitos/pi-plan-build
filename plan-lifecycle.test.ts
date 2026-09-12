@@ -212,6 +212,11 @@ test("approval freshness, sidebar-free execution, and read-only inspection", asy
 		await h.command("show");
 		assert.ok(h.events.some(e => e.customType === "pi-plan-build-inspection" && e.data.markdown.includes("[ready]")));
 		assert.equal(JSON.stringify(h.state()), before);
+		await h.callTool("plan_step_control", { action: "start" });
+		const kickoff = h.events.findLast((event) => event.kind === "dispatch");
+		assert.equal(kickoff.text, "Implement the approved active plan step now.");
+		assert.doesNotMatch(kickoff.text, /Do work/);
+		assert.match((await h.event("context", { messages: [] })).messages[0].content, /Implement only step 1 of 1:\nDo work/);
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
 });
 
@@ -270,11 +275,11 @@ test("completion safeguards separate file availability from evidence and retain 
 				else assert.equal(fs.existsSync(file), false);
 			}
 			for (const guidance of [COMPLETION_GUIDANCE, h.tools.get("plan_complete").promptGuidelines.join(" ")]) {
-				assert.match(guidance, /missing scope prevents assessing completion/i);
-				assert.match(guidance, /plan_finish blocked/);
-				assert.match(guidance, /not evidence/i);
+				assert.match(guidance, /missing scope prevents assessment/i);
+				assert.match(guidance, /(?:plan_finish )?blocked/);
+				assert.match(guidance, /not (?:evidence|completion)/i);
 				assert.match(guidance, /unperformed checks passed/);
-				assert.match(guidance, /alone require extra confirmation/);
+				assert.match(guidance, /(?:alone|by itself).*(?:requires no confirmation|reason to ask again)/);
 			}
 			await h.event("session_shutdown");
 		}
@@ -315,13 +320,13 @@ test("validation presentation keeps compact bookkeeping and complete readable ex
 		const context = (await h.event("context", { messages: [] })).messages.at(-1).content;
 		assert.ok(context.includes(userAction));
 		for (const guidance of [context, COMPLETION_GUIDANCE, tool.promptGuidelines.join(" ")]) {
-			assert.match(guidance, /extension presents the validation request/);
-			assert.match(guidance, /do not restate the required action/);
-			assert.match(guidance, /Do not repeat tool bookkeeping/);
+			assert.match(guidance, /extension (?:displays|presents) (?:it|the validation request)/);
+			assert.match(guidance, /without (?:overstating.*)?restating (?:this|that|the) action|do not restate the required action/);
+			assert.match(guidance, /tool bookkeeping/i);
 		}
 		for (const guidance of [COMPLETION_GUIDANCE, tool.promptGuidelines.join(" "), tool.parameters.properties.userAction.description]) {
-			assert.match(guidance, /Markdown bullet list/);
-			assert.match(guidance, /one concrete check per bullet/);
+			assert.match(guidance, /Markdown bullet/);
+			assert.match(guidance, /one .*check per bullet|one .*bullet per check/);
 		}
 		assert.match(tool.promptGuidelines.join(" "), /only the active step/);
 		assert.deepEqual(tool.renderResult(result, { expanded: false, isPartial: true }, theme, {}).render(200), []);
@@ -428,10 +433,10 @@ test("fresh Plan sessions receive full guidance before accepted scope becomes a 
 		assert.match(guidance, /## Verification policy/);
 		assert.match(guidance, /Current plan: none/);
 		assert.match(guidance, /expectedAttached: null/);
-		assert.match(guidance, /informational agreement, or discussion alone does not create a task/);
-		assert.match(guidance, /scope for plan preparation, not implementation/);
+		assert.match(guidance, /not for research, discussion, or informational agreement/);
+		assert.match(guidance, /scope permits plan preparation, not implementation/);
 		assert.match(guidance, /call plan_exit/);
-		assert.match(guidance, /Do not wait for the exact words/);
+		assert.match(guidance, /do not wait for exact wording/);
 		assert.equal(h.state().collection.attached, null);
 		assert.deepEqual(h.state().collection.records, []);
 		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
@@ -474,13 +479,13 @@ test("planning tool renderers preserve errors and never report success for parti
 		const file = makePlanPath(path.join(dir, "plans"), "session", 1);
 		fs.writeFileSync(file, "# Plan\n");
 		const approved = await h.tool("plan_exit");
-		assert.match(approved.content[0].text, /^Plan approved; switched to Build mode\./);
-		assert.match(approved.content[0].text, /Implement the approved plan now within its authorization boundaries/);
-		assert.match(approved.content[0].text, /acknowledgment or initial inspection alone is not completion/);
-		assert.match(approved.content[0].text, /Deployment and restarts still require any separately specified approval/);
+		assert.match(approved.content[0].text, /^Plan approved; implement it now under Build guidance\./);
+		assert.match(approved.content[0].text, /implement it now under Build guidance/);
+		assert.match(approved.content[0].text, /acknowledgment or inspection alone is not completion/);
+		assert.match(approved.content[0].text, /separately required deployment\/restart approval/);
 		assert.notEqual(approved.terminate, true);
 		const buildContext = await h.event("context", { messages: [] });
-		assert.match(buildContext.messages.at(-1).content, /Build mode permits/);
+		assert.match(buildContext.messages.at(-1).content, /Build mode allows/);
 		const completed = await h.tool("plan_complete");
 		assert.equal(completed.content[0].text, "Plan complete.");
 		const samples: Record<string, any> = { plan_enter: entered, plan_exit: approved, plan_complete: completed };
@@ -606,7 +611,7 @@ test("operational context precedes the real request and preserves the tool-excha
 		for (let i = 0; i < 3; i++) {
 			result = await h.event("context", { messages: result.messages });
 			assert.equal(result.messages.filter((m: any) => m.customType === "pi-plan-build-task").length, 1);
-			assert.match(result.messages[1].content, /Build mode permits/);
+			assert.match(result.messages[1].content, /Build mode allows/);
 			assert.doesNotMatch(result.messages[1].content, /Plan mode is active/);
 			const converted = convertToLlm(result.messages);
 			assert.equal(converted[1].role, "user", "Pi converts custom context to user-role content");
@@ -704,7 +709,7 @@ test("completion reconciliation is one-shot and unfinished outcomes preserve the
 		const reminder = h.events.find((e) => e.kind === "internal");
 		assert.equal(reminder.message.display, false);
 		assert.equal(reminder.options.triggerTurn, true);
-		assert.match(reminder.message.content, /not permission for more implementation/);
+		assert.match(reminder.message.content, /grants no more work or verification/);
 		assert.equal(h.state().reconciliation.consumed, true);
 		await h.event("before_agent_start", { prompt: "" });
 		await mutation(h);
@@ -763,7 +768,7 @@ test("completion reconciliation is one-shot and unfinished outcomes preserve the
 		assert.equal((outcomeText.match(/Run the hardware acceptance check/g) ?? []).length, 1);
 		assert.equal(detailsText.split(file).length - 1, 1, "expanded inventory shows the current path once");
 		const pendingContext = await pending.event("context", { messages: [] });
-		assert.match(pendingContext.messages.at(-1).content, /plan remains open and current/);
+		assert.match(pendingContext.messages.at(-1).content, /plan remains open for essential validation/);
 		assert.match(pendingContext.messages.at(-1).content, /Run the hardware acceptance check/);
 		assert.doesNotMatch(pendingContext.messages.at(-1).content, /resume another plan/);
 		await pending.tool("plan_complete");
@@ -893,8 +898,8 @@ test("task results are compact while hidden context retains current planning con
 		assert.match(list.content[0].text, /Current plan: 1 · Fix login · open/);
 		assert.doesNotMatch(list.content[0].text, /Build mode permits|paused/);
 		const buildContext = await h.event("context", { messages: [] });
-		assert.match(buildContext.messages.at(-1).content, /Build mode permits/);
-		assert.match(buildContext.messages.at(-1).content, /Current task sequence \(internal\): 1/);
+		assert.match(buildContext.messages.at(-1).content, /Build mode allows/);
+		assert.match(buildContext.messages.at(-1).content, /Task #1/);
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
@@ -1590,8 +1595,8 @@ test("paused active steps block both shells and edits until explicit resume; sta
 		assert.equal(cancelled.record().plan.status, "open");
 		assert.equal(cancelled.record().plan.outcome.userAction, "Confirm that the first step behaves correctly");
 		const cancelledContext = (await cancelled.event("context", { messages: [] })).messages[0].content;
-		assert.match(cancelledContext, /only after all approved implementation and required verification/);
-		assert.match(cancelledContext, /cancelled step execution is not evidence/);
+		assert.match(cancelledContext, /only after user success\/waiver and all approved work and checks/);
+		assert.match(cancelledContext, /Cancelled step execution never proves remaining work complete/);
 		await cancelled.event("session_shutdown");
 		assert.equal(h.state().collection.attached, 1);
 		assert.equal(h.record().execution.status, "paused");

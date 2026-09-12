@@ -559,8 +559,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_task",
 		label: "Plan Task",
-		description: "Manage the single current plan without editing Markdown. list reports only the current plan. new is Plan-only and requires no current plan. abandon is irreversible lifecycle closure, preserves the file, requires explicit user direction and a reason, and never implies success. update establishes identity once, then changes it only for user-driven material deliverable/constraint changes, explicit renames, or correction of mistaken identity. include/discussion record explicit task-boundary decisions. Supply expectedAttached (current sequence or null); legacy sequence is accepted. Deprecated pause/resume inputs never mutate state. Keep lifecycle transitions separate from dependent project edits and shell calls.",
-		promptGuidelines: ["Use plan_task to establish concise task identity once. Write the title as one imperative phrase naming the action, its object, and at most a short goal—for example `Add color to the composer` or `Refactor the code to make it leaner`. Keep it to a single action; put additional requirements and detail in scope. Later updates require a user-driven material change to the deliverable/defining constraints, an explicit rename, or correction of mistaken identity. Do not log progress, findings, proposed/rejected techniques, implementation adjustments, or message paraphrases. Use include/discussion only for explicit task-boundary decisions. In Plan mode, create a task when the user requests a planning deliverable or accepts a concrete proposed change in the planning conversation—not for informational agreement or discussion alone. Start a new plan only when no current plan exists, using expectedAttached: null, title, and scope; await the returned canonical path before saving the plan and requesting implementation approval through plan_exit. If the user explicitly abandons the current plan, call plan_task abandon with its expected attachment and a concise reason; otherwise complete the current plan before starting another."],
+		description: "Manage the one current plan's metadata, not its Markdown. new is Plan-only; update changes user-approved identity; include/discussion record explicit boundary decisions; abandon requires explicit direction and a reason; list is read-only. Supply expectedAttached (or legacy sequence). Deprecated pause/resume never mutate state. Keep transitions separate from dependent writes or shell calls.",
+		promptGuidelines: ["Use plan_task once to establish an imperative, single-action title and detailed scope—for example `Add color to the composer`. Update only for a material user-driven scope/constraint change, rename, or identity correction; do not log progress or implementation details. Create only after an explicit planning request or accepted concrete proposal, with expectedAttached: null, then use the returned path. Never replace an unfinished plan; abandon only on explicit user direction."],
 		parameters: Type.Object({
 			action: Type.String({ enum: ["list", "pause", "resume", "update", "include", "discussion", "new", "abandon"] }),
 			sequence: Type.Optional(Type.Integer({ minimum: 0 })),
@@ -631,8 +631,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_finish",
 		label: "Record Plan Outcome",
-		promptGuidelines: ["After plan_finish awaiting_validation, summarize implementation and checks without overstating verification. Write userAction as a concise Markdown bullet list with one concrete check per bullet when validation requires multiple checks; a single check can be a short sentence. The extension presents the validation request at the end of the turn, so do not restate the required action or add a closing ceremony. Do not repeat tool bookkeeping. During step execution describe only the active step, not the entire plan as finished. Optional feedback does not warrant awaiting_validation."],
-		description: "Before a final planned-work summary, record an unfinished Build outcome. For completed work with all required verification passed, use plan_complete instead. awaiting_validation requires an essential userAction and keeps the plan attached and visibly open until the user reports success or explicitly directs completion; optional feedback is not a blocker. During step execution it pauses mutation authority while preserving the active step. blocked, waiting_for_input, and still_working also keep the current plan unfinished. Never use this to imply tests passed or to complete steps.",
+		description: "Record why an attached Build plan remains unfinished. awaiting_validation requires an essential userAction and pauses an active step; blocked, waiting_for_input, and still_working require a reason. Use plan_complete only when all work and required checks passed.",
+		promptGuidelines: ["After awaiting_validation, summarize work and checks without restating the action or tool bookkeeping; the extension displays it. Use one Markdown bullet per check when multiple. Optional feedback is not validation, and step summaries cover only the active step."],
 		parameters: Type.Object({
 			expectedAttached: Type.Integer({ minimum: 0 }),
 			outcome: Type.String({ enum: ["awaiting_validation", "blocked", "waiting_for_input", "still_working"] }),
@@ -693,8 +693,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_complete",
 		label: "Complete Plan",
-		description: "Mark the current plan complete (including metadata-only plans without saved Markdown) only after its implementation and required verification are finished, or the user explicitly confirms completion or waives pending validation. Do not call for partial work, errors, or merely approving a plan. Preserves the plan file; the next planning task gets a new file.",
-		promptGuidelines: ["Before announcing finished planned implementation, call plan_complete when all required work and verification have passed. Do not wait for ceremonial user acceptance or optional feedback. Use plan_finish for unfinished outcomes; never infer completion solely from a turn ending. Saved Markdown is not required for completion. Missing or unavailable files are not evidence of finished work and do not alone require extra confirmation. If missing scope prevents assessing completion, use plan_finish blocked. Explicit user-directed closure does not establish that unperformed checks passed."],
+		description: "Complete the attached Build plan only after all implementation and required verification finish, or explicit user confirmation/waiver resolves pending validation. Metadata-only plans are valid. Never use for partial work, errors, or approval alone.",
+		promptGuidelines: ["Call plan_complete before the final summary when work and checks passed; otherwise use plan_finish. Missing/unavailable Markdown is not evidence of completion and alone requires no confirmation; if missing scope prevents assessment, use plan_finish blocked. Explicit closure does not prove unperformed checks passed."],
 		parameters: Type.Object({ summary: Type.Optional(Type.String({ maxLength: 4000, description: "Optional factual summary of implementation and verification; omit rather than invent evidence." })) }),
 		executionMode: "sequential",
 		async execute(_id, params) {
@@ -740,7 +740,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_step_control",
 		label: "Control Plan Execution",
-		description: `Use this tool to translate the user's natural-language instructions into one step-execution action. Available actions: start a ready step, complete a clearly finished ready step or a paused active step whose required user validation explicitly succeeded, skip a ready step, revise an unimplemented instruction, pause/resume or cancel execution, or hide/show the visual plan panel. A successful validation report authorizes only completion; a failed report may resume the same active step for remediation. Do not advance based on hypothetical, uncertain, or unrelated conversation.`,
+		description: `Apply one clear natural-language step action: start or skip a ready step; record a finished ready step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical, ambiguous, or unrelated text.`,
 		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("start"),
@@ -794,7 +794,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (params.action === "start") {
 				if (plans.execution.status === "paused") throw new Error("Resume plan execution before starting a step");
 				updateExecution(startPlanStep(plans.execution, target.id));
-				pi.sendUserMessage(`Implement plan step ${plans.execution.steps.findIndex((step) => step.id === target.id) + 1}: ${target.text}`, { deliverAs: "followUp" });
+				pi.sendUserMessage("Implement the approved active plan step now.", { deliverAs: "followUp" });
 				return finish("The requested step is approved. Its implementation is starting in a follow-up turn.");
 			}
 			if (params.action === "complete") {
@@ -861,7 +861,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		label: "Exit Plan Mode",
 		description: PLAN_EXIT_DESCRIPTION,
 		promptSnippet: "Display the saved plan and request user approval",
-		promptGuidelines: ["Call plan_exit after finalizing the saved plan when the user asks to show, review, or approve it."],
+		promptGuidelines: ["Call plan_exit only after finalizing the saved plan for review."],
 		parameters: EMPTY_PARAMETERS,
 		executionMode: "sequential",
 		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
@@ -964,7 +964,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				content: [
 					{
 						type: "text",
-						text: "Plan approved; switched to Build mode. Implement the approved plan now within its authorization boundaries. Continue actionable work and required verification; acknowledgment or initial inspection alone is not completion. Stop for genuine blockers, essential user input, or interruption. Deployment and restarts still require any separately specified approval.",
+						text: "Plan approved; implement it now under Build guidance. Continue through required verification; acknowledgment or inspection alone is not completion. Stop for blockers, essential input, or separately required deployment/restart approval.",
 					},
 				],
 				details: { approved: true, mode: "build", planPath: currentPlanPath() },
@@ -1131,7 +1131,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			reconciliationFollowUp = true;
 			persist();
 			activeReconciliationId = randomUUID();
-			pi.sendMessage({ customType: RECONCILIATION_CONTEXT_TYPE, details: { reconciliationId: activeReconciliationId }, display: false, content: "Reconcile the attached plan's outcome before ending. This is a single bookkeeping reminder, not permission for more implementation or verification. If all approved work and required checks passed, call plan_complete. If essential user-only validation remains, call plan_finish awaiting_validation with the exact user action. For multiple checks, format the user action as a concise Markdown bullet list with one concrete check per bullet. Then summarize work/checks without restating the required validation action; the extension presents the validation request at the end of the turn. Do not repeat tool bookkeeping. Otherwise record blocked, waiting_for_input, or still_working with a reason. Optional feedback does not block completion. Do not infer success from this reminder and do not repeat tests merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
+			pi.sendMessage({ customType: RECONCILIATION_CONTEXT_TYPE, details: { reconciliationId: activeReconciliationId }, display: false, content: "Record the attached plan's truthful terminal outcome now; this grants no more work or verification. Use plan_complete only if all work and required checks passed, otherwise plan_finish with the reason and exact essential validation action when applicable. Then summarize without repeating that action or tool bookkeeping. Do not infer success or rerun checks merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
 			followUpDispatched = true;
 		}
 		if (pendingValidationNotice && !followUpDispatched) {
