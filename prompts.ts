@@ -15,13 +15,16 @@ export const PLAN_READ_ONLY_GUIDANCE = `Plan mode is active: observe, analyze, d
 
 export const TASK_SELECTION_GUIDANCE = `Mode changes do not create tasks. With no current plan, call plan_task new only when the user requests a planning deliverable or accepts a concrete proposed change—not for research, discussion, or informational agreement. Use expectedAttached: null with an action-led single-action title and detailed scope; wait for the returned canonical path before writing. Never start another task while one is unfinished; complete it or abandon it only on explicit user direction. Unanswered questions grant no consent.`;
 
-export const TASK_BOUNDARY_GUIDANCE = `Establish task identity once. Call plan_task update only for a user-driven material deliverable/constraint change, explicit rename, or mistaken identity—not for progress, findings, techniques, adjustments, or paraphrases. Use include/discussion only for explicit boundary decisions.
+export const TASK_BOUNDARY_GUIDANCE = `Establish task identity once. Call plan_task update when the user changes the deliverable or its constraints, renames it, or corrects mistaken identity—not for progress, findings, techniques, or paraphrases. Use include/discussion only for explicit boundary decisions.
 Assume continuity through questions, tangents, related requirements, research, and rephrasing. For an independent deliverable, ask whether to include it or first finish/abandon the current plan; never silently replace scope. Before saving Markdown, resolve mismatches with stored scope. Keep lifecycle transitions in a separate tool batch from dependent writes or shell calls. Plan Markdown is instructions, never a progress tracker.`;
 
 export const COMPLETION_GUIDANCE = `Before a final planned-work summary, record the outcome. Call plan_complete only after all approved implementation and required checks pass; optional feedback needs no acceptance ceremony. Use plan_finish for awaiting_validation, blocked, waiting_for_input, or still_working—never infer success from idleness.
 Essential user-only validation keeps this plan open. Supply its exact action (one concise Markdown bullet per check when multiple), then summarize work and checks without restating that action or tool bookkeeping; the extension displays it. During step execution describe only the active step. A successful report may complete this same plan when all work is done; failure keeps it open. Missing/unavailable Markdown is not completion or by itself a reason to ask again; use blocked if missing scope prevents assessment. Explicit closure does not prove unperformed checks passed.`;
 
-export const BUILD_TASK_GUIDANCE = `Build mode allows discussion and work within the current plan. Preserve its objective through tangents. Before implementing an independent deliverable, complete this plan or abandon it only on explicit user direction. Never edit tracked plan Markdown.
+export const BUILD_TASK_GUIDANCE = `Build mode is the user's workspace: execute the approved plan, but an explicit user instruction always wins, even when it departs from the plan.
+- Apply user-ordered plan changes directly: edit the plan Markdown, keep the Implementation Steps list truthful, and say what changed; step statuses reconcile automatically.
+- Perform user-ordered work outside the plan without ceremony; report its effect on remaining steps.
+- Otherwise keep working the remaining steps in order.
 ${TASK_SELECTION_GUIDANCE}
 ${TASK_BOUNDARY_GUIDANCE}
 ${COMPLETION_GUIDANCE}
@@ -60,17 +63,17 @@ ${step}
 
 ${VERIFICATION_GUIDANCE}
 
-Verify only this step where possible. Defer checks dependent on later steps and report the deferral, never a pass. Do not edit approved Markdown or begin later steps. When this step and its applicable checks finish, call plan_step_complete with a concise summary; it completes immediately without user acceptance.
+Verify only this step where possible. Defer checks dependent on later steps and report the deferral, never a pass. Without a contrary user order, implement only this step and do not begin later steps; an explicit user instruction always takes precedence, including plan edits and out-of-plan work. When this step and its applicable checks finish, call plan_step_complete with a concise summary; it completes immediately without user acceptance.
 </system-reminder>`;
 }
 
 export function buildPlanStepWaitingReminder(progress: string, paused = false): string {
 	return `<system-reminder>
-${paused ? "Step execution is paused; retained progress grants no mutation authority. Resume explicitly before implementation." : "Step execution awaits the user's natural-language instruction."} No step is approved for project mutation.
+${paused ? "Step execution is paused; retained progress grants no mutation authority by default. Resume explicitly before implementation." : "Step execution awaits the user's natural-language instruction."} By default no step is approved for project mutation; an explicit user order always overrides.
 
 ${progress}
 
-Interpret clear intent contextually. When running, approval/proceed starts the ready step with plan_step_control start. A clear report that work is already finished may use complete; that records past work and authorizes no implementation. The same tool handles skip, revise, pause/resume, cancel, and panel visibility. Clarify ambiguity; ignore hypothetical or unrelated discussion. The sidebar is passive.
+Interpret clear intent contextually. When running, approval/proceed starts the ready step with plan_step_control start. A clear report that work is already finished may use complete; that records past work and authorizes no implementation. The same tool handles skip, revise, pause/resume, cancel, and panel visibility. An explicit user order is always followed—plan edits, out-of-plan work, and step actions included—and is never unrelated. Clarify ambiguity; ignore hypothetical discussion. The sidebar is passive.
 </system-reminder>`;
 }
 

@@ -8,6 +8,7 @@ import {
 	decodePlanExecution,
 	formatPlanCompletionSummary,
 	pausePlanExecution,
+	resyncPlanExecution,
 	revisePlanStep,
 	parseImplementationSteps,
 	skipPlanStep,
@@ -170,4 +171,50 @@ test("pause toggles without losing state and persisted state decodes defensively
 	assert.equal(migrated?.steps[0]?.status, "completed");
 	assert.equal(migrated?.steps[1]?.status, "ready");
 	assert.equal(decodePlanExecution({ version: 1, status: "running", steps: [] }), undefined);
+});
+
+test("resync re-derives statuses from a user-edited plan", () => {
+	const running = startPlanStep(createPlanExecution(plan), "step-1");
+	const done = completePlanStep(running, "step-1", "parser landed");
+	const edited = plan.replace("2. Build panel", "2. Build scrolling panel").replace("3. Verify workflow", "3. Verify workflow\n4. Ship the release");
+	const resynced = resyncPlanExecution(done, edited);
+	assert.ok(resynced);
+	assert.deepEqual(resynced.steps.map((step) => [step.text, step.status]), [
+		["Add parser", "completed"],
+		["Build scrolling panel", "ready"],
+		["Verify workflow", "pending"],
+		["Ship the release", "pending"],
+	]);
+	assert.equal(resynced.steps[0]?.summary, "parser landed");
+	assert.equal(resynced.status, "running");
+	assert.equal(resynced.panelVisible, true);
+});
+
+test("resync preserves an active step whose text survives", () => {
+	const running = startPlanStep(createPlanExecution(plan), "step-1");
+	const resynced = resyncPlanExecution(running, plan);
+	assert.ok(resynced);
+	assert.equal(resynced.steps[0]?.status, "active");
+	assert.equal(resynced.status, "running");
+});
+
+test("resync keeps a paused plan paused", () => {
+	const paused = pausePlanExecution(startPlanStep(createPlanExecution(plan), "step-1"));
+	const resynced = resyncPlanExecution(paused, plan);
+	assert.ok(resynced);
+	assert.equal(resynced.status, "paused");
+});
+
+test("resync completes the plan when the remaining steps were removed", () => {
+	let execution = startPlanStep(createPlanExecution(plan), "step-1");
+	execution = completePlanStep(execution, "step-1");
+	const trimmed = "# Plan\n\n## Implementation Steps\n\n1. Add parser\n";
+	const resynced = resyncPlanExecution(execution, trimmed);
+	assert.ok(resynced);
+	assert.equal(resynced.status, "completed");
+	assert.equal(resynced.steps.length, 1);
+});
+
+test("resync rejects unparseable plan markdown", () => {
+	assert.equal(resyncPlanExecution(createPlanExecution(plan), "# No steps here"), undefined);
 });
