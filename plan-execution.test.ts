@@ -171,3 +171,8 @@ test("pause toggles without losing state and persisted state decodes defensively
 	assert.equal(migrated?.steps[1]?.status, "ready");
 	assert.equal(decodePlanExecution({ version: 1, status: "running", steps: [] }), undefined);
 });
+
+test("mermaid design sections do not disturb step parsing", () => {
+	const withDesign = "# Plan\n\n## Design\n\n```mermaid\nflowchart TD\n    1. Fake step inside fence\n```\n\n## Implementation Steps\n\n1. Add parser\n2. Build panel\n3. Verify workflow\n";
+	assert.equal(createPlanExecution(withDesign).steps.length, 3);
+});
