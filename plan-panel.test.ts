@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { visibleWidth } from "@earendil-works/pi-tui";
+import { ScrollView, visibleWidth, type Component } from "@earendil-works/pi-tui";
 import { completePlanStep, createPlanExecution, startPlanStep } from "./plan-execution.ts";
-import { PlanPanel } from "./plan-panel.ts";
+import { ContainedScrollView, PlanPanel } from "./plan-panel.ts";
 
 const theme = {
 	fg(_color: string, text: string) { return text; },
@@ -15,6 +15,20 @@ const panelText = (lines: string[]) => lines
 	.map((line) => line.slice(2, -2).trim())
 	.filter(Boolean)
 	.join(" ");
+
+test("contained scroller swallows leftover wheel lines so the chat never chains", () => {
+	const child = { render: () => ["a", "b", "c"], invalidate: () => {} } as unknown as Component;
+	const requestRender = () => {};
+	const plain = new ScrollView(child);
+	plain.updateLayout(3, 2, requestRender);
+	assert.equal(plain.scrollBy(5), 4, "a plain ScrollView reports the unconsumed remainder");
+	const contained = new ContainedScrollView(child, { overscroll: "contain" });
+	contained.updateLayout(3, 2, requestRender);
+	contained.scrollBy(5);
+	assert.equal(contained.scrollTop, 1, "the scroller itself still moves and clamps");
+	assert.equal(contained.scrollBy(5), 0, "leftover wheel lines are consumed, so routeWheel cannot chain to the primary");
+	assert.equal(contained.scrollBy(-5), 0);
+});
 
 test("passive panel renders steps within its reserved width with fixed instructions", () => {
 	const panel = new PlanPanel(makeState(), theme);
