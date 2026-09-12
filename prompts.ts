@@ -18,8 +18,8 @@ export const TASK_SELECTION_GUIDANCE = `Mode changes do not create tasks. With n
 export const TASK_BOUNDARY_GUIDANCE = `Establish task identity once. Call plan_task update only for a user-driven material deliverable/constraint change, explicit rename, or mistaken identity—not for progress, findings, techniques, adjustments, or paraphrases. Use include/discussion only for explicit boundary decisions.
 Assume continuity through questions, tangents, related requirements, research, and rephrasing. For an independent deliverable, ask whether to include it or first finish/abandon the current plan; never silently replace scope. Before saving Markdown, resolve mismatches with stored scope. Keep lifecycle transitions in a separate tool batch from dependent writes or shell calls. Plan Markdown is instructions, never a progress tracker.`;
 
-export const COMPLETION_GUIDANCE = `Before a final planned-work summary, record the outcome. Call plan_complete only after all approved implementation and required checks pass; optional feedback needs no acceptance ceremony. Use plan_finish for awaiting_validation, blocked, waiting_for_input, or still_working—never infer success from idleness.
-Essential user-only validation keeps this plan open. Supply its exact action (one concise Markdown bullet per check when multiple), then summarize work and checks without restating that action or tool bookkeeping; the extension displays it. During step execution describe only the active step. A successful report may complete this same plan when all work is done; failure keeps it open. Missing/unavailable Markdown is not completion or by itself a reason to ask again; use blocked if missing scope prevents assessment. Explicit closure does not prove unperformed checks passed.`;
+export const COMPLETION_GUIDANCE = `Before the final summary, record the outcome. Use plan_complete after all work and required checks pass or on explicit user-directed whole-plan closure. It remains available during step execution; explicit closure removes execution but does not prove unfinished work or checks passed, so preserve factual partial progress. Use step completion only for an identified step; clarify unresolved bare completion wording. Otherwise use plan_finish for awaiting_validation, blocked, waiting_for_input, or still_working—never infer success from idleness.
+Essential user-only validation keeps the plan open unless the user explicitly closes it. Supply the exact action (one concise Markdown bullet per check when multiple); the extension displays it. Then summarize without restating that action or tool bookkeeping. A successful report may complete the plan; failure keeps it open. Missing/unavailable Markdown is not completion and needs no confirmation by itself; use plan_finish blocked if missing scope prevents assessment. Optional feedback never blocks completion.`;
 
 export const BUILD_TASK_GUIDANCE = `Build mode allows discussion and work within the current plan. Preserve its objective through tangents. Before implementing an independent deliverable, complete this plan or abandon it only on explicit user direction. Never edit tracked plan Markdown.
 ${TASK_SELECTION_GUIDANCE}
@@ -60,7 +60,7 @@ ${step}
 
 ${VERIFICATION_GUIDANCE}
 
-Verify only this step where possible. Defer checks dependent on later steps and report the deferral, never a pass. Do not edit approved Markdown or begin later steps. When this step and its applicable checks finish, call plan_step_complete with a concise summary; it completes immediately without user acceptance.
+Verify only this step where possible. Defer checks dependent on later steps and report the deferral, never a pass. Do not edit approved Markdown or begin later steps. When this step and its applicable checks finish, call plan_step_complete with a concise summary; it completes immediately without user acceptance. If the user explicitly directs completion or closure of the whole plan, call plan_complete instead; unresolved bare completion wording requires clarification.
 </system-reminder>`;
 }
 
@@ -70,10 +70,10 @@ ${paused ? "Step execution is paused; retained progress grants no mutation autho
 
 ${progress}
 
-Interpret clear intent contextually. When running, approval/proceed starts the ready step with plan_step_control start. A clear report that work is already finished may use complete; that records past work and authorizes no implementation. The same tool handles skip, revise, pause/resume, cancel, and panel visibility. Clarify ambiguity; ignore hypothetical or unrelated discussion. The sidebar is passive.
+Interpret clear intent contextually. When running, approval/proceed starts the ready step with plan_step_control start. A clear report that an explicitly identified step is already finished may use plan_step_control complete; that records past work and authorizes no implementation. An explicit request to complete, close, or finish the whole plan uses plan_complete, even while execution is running, paused, or awaiting validation. Clarify bare completion wording that identifies neither the plan nor a step and cannot be resolved from context. The same step-control tool handles skip, revise, pause/resume, cancel, and panel visibility. Ignore hypothetical or unrelated discussion. The sidebar is passive.
 </system-reminder>`;
 }
 
-export const PLAN_STEP_COMPLETE_DESCRIPTION = `Complete the active step only after its implementation and applicable checks. Summarize work, reuse valid results, and report later-step deferrals without claiming they passed. A paused active step may complete only when the user confirms its required validation. Never start the next step.`;
+export const PLAN_STEP_COMPLETE_DESCRIPTION = `Complete the active step only after its implementation and applicable checks. Never use this for a request to complete, close, or finish the whole plan; use plan_complete instead. Summarize work, reuse valid results, and report later-step deferrals without claiming they passed. A paused active step may complete only when the user confirms its required validation. Never start the next step.`;
 
 export const PLAN_EXIT_DESCRIPTION = `After saving the complete plan and resolving planning questions, display it for approval. Implement-here continues under Build guidance; fresh-session dispatches separately; step-by-step waits for step approval; stay/cancel stops in Plan. Do not call during discussion or before saving.`;

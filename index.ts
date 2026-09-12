@@ -21,6 +21,7 @@ import {
 	completePlanStep,
 	createPlanExecution,
 	formatPlanCompletionSummary,
+	formatPlanClosureSummary,
 	pausePlanExecution,
 	revisePlanStep,
 	skipPlanStep,
@@ -263,8 +264,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				...base,
 				"question",
 				"plan_task",
-				...(plans.collection.attached !== null && !plans.execution && plans.plan.status === "open" ? ["plan_complete", "plan_finish"] : []),
-				...(plans.collection.attached !== null && plans.execution ? ["plan_finish"] : []),
+				...(plans.collection.attached !== null && plans.plan.status === "open" ? ["plan_complete", "plan_finish"] : []),
 				...(plans.execution && plans.execution.status !== "completed" ? ["plan_step_control"] : []),
 				...(plans.collection.attached !== null && completablePlanStep() ? ["plan_step_complete"] : []),
 			]));
@@ -345,8 +345,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		plans.assertUsable();
 		if ((runMode ?? selectedMode) !== "build") throw new Error("Switch to Build mode before completing implementation");
 		if (plans.collection.attached === null) throw new Error("No current plan to complete");
-		if (plans.execution) throw new Error("Complete or cancel the step-by-step execution first");
-		closeCurrentPlan(summary);
+		const completionSummary = plans.execution ? formatPlanClosureSummary(plans.execution, summary) : summary;
+		closeCurrentPlan(completionSummary);
 	}
 
 	async function selectMode(mode: Mode, ctx: ExtensionContext, source: "manual" | "tool"): Promise<void> {
@@ -717,8 +717,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_complete",
 		label: "Complete Plan",
-		description: "Complete the attached Build plan only after all implementation and required verification finish, or explicit user confirmation/waiver resolves pending validation. Metadata-only plans are valid. Never use for partial work, errors, or approval alone.",
-		promptGuidelines: ["Call plan_complete before the final summary when work and checks passed; otherwise use plan_finish. Missing/unavailable Markdown is not evidence of completion and alone requires no confirmation; if missing scope prevents assessment, use plan_finish blocked. Explicit closure does not prove unperformed checks passed."],
+		description: "Complete the entire attached Build plan, including during step execution, after work/checks pass or explicit user-directed whole-plan closure. Closure removes execution and records partial progress without marking remaining steps or checks passed. Never use for one step, errors, or approval alone.",
+		promptGuidelines: ["Explicit whole-plan completion words use plan_complete; an identified step uses its step tool; clarify unresolved bare completion. During incomplete execution record factual progress without claiming remaining checks passed. Otherwise complete only after work/checks pass; use plan_finish for unfinished outcomes or plan_finish blocked when missing scope prevents assessment."],
 		parameters: Type.Object({ summary: Type.Optional(Type.String({ maxLength: 4000, description: "Optional factual summary of implementation and verification; omit rather than invent evidence." })) }),
 		executionMode: "sequential",
 		async execute(_id, params) {
@@ -742,7 +742,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_step_control",
 		label: "Control Plan Execution",
-		description: `Apply one clear natural-language step action: start or skip a ready step; record a finished ready step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical, ambiguous, or unrelated text.`,
+		description: `Apply one clear single-step or execution-control action: start or skip a ready step; record one explicitly identified finished step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. Never use complete when the user says to complete, close, or finish the whole plan; use plan_complete instead. Clarify unresolved bare completion wording. A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical, ambiguous, or unrelated text.`,
 		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("start"),

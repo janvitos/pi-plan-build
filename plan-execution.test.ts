@@ -7,6 +7,7 @@ import {
 	createPlanExecution,
 	decodePlanExecution,
 	formatPlanCompletionSummary,
+	formatPlanClosureSummary,
 	pausePlanExecution,
 	revisePlanStep,
 	parseImplementationSteps,
@@ -97,6 +98,24 @@ test("formats a completion summary for the main window", () => {
 	assert.match(summary, /1\. \*\*Completed:\*\* Add parser\n\n   Parser added and tested/);
 	assert.match(summary, /2\. \*\*Skipped:\*\* Build panel/);
 	assert.match(summary, /3\. \*\*Completed:\*\* Verify workflow\n\n   Workflow verified/);
+});
+
+test("formats bounded factual progress when a user closes an incomplete execution", () => {
+	let state = createPlanExecution(plan);
+	state = completePlanStep(state, "step-1", "Parser added and tested");
+	state = startPlanStep(state, "step-2");
+	const summary = formatPlanClosureSummary(state, "User ended the remaining work.");
+	assert.match(summary, /^Closed by explicit user instruction/);
+	assert.match(summary, /\n\nUser ended the remaining work\.$/);
+	assert.match(summary, /1 completed, 0 skipped, 1 active, 0 ready, 1 pending/);
+	assert.match(summary, /1\. \[completed\] Add parser — Parser added and tested/);
+	assert.match(summary, /2\. \[active\] Build panel/);
+	assert.doesNotMatch(summary, /3\. \[completed\]/);
+	const oversized = createPlanExecution(`## Implementation Steps\n1. ${"Long instruction ".repeat(400)}`);
+	const bounded = formatPlanClosureSummary(oversized, "User summary");
+	assert.ok(bounded.length <= 4000);
+	assert.match(bounded, /^Closed by explicit user instruction/);
+	assert.match(bounded, /0 completed, 0 skipped, 0 active, 1 ready, 0 pending/);
 });
 
 test("edits only unimplemented steps and updates the canonical numbered instruction safely", () => {

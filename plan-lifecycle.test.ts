@@ -329,9 +329,14 @@ test("completion safeguards separate file availability from evidence and retain 
 			} }]);
 			await h.event("session_start", { reason: "resume" });
 			if (kind === "execution") {
-				assert.ok(!h.active().includes("plan_complete"));
-				await assert.rejects(h.tool("plan_complete"), /Complete or cancel the step-by-step execution first/);
-				assert.equal(h.state().collection.attached, 1);
+				assert.ok(h.active().includes("plan_complete"), "whole-plan completion stays available during step execution");
+				await h.callTool("plan_complete", { summary: "User ended the remaining work." });
+				assert.equal(h.state().collection.attached, null);
+				assert.equal(h.record().plan.status, "completed");
+				assert.equal(h.record().execution, undefined);
+				assert.match(h.record().plan.completionSummary, /User ended the remaining work/);
+				assert.match(h.record().plan.completionSummary, /0 completed, 0 skipped, 0 active, 1 ready, 0 pending/);
+				assert.match(h.record().plan.completionSummary, /1\. \[ready\] Implement task/);
 				assert.equal(fs.readFileSync(file, "utf8"), markdown);
 			} else {
 				fs.unlinkSync(file);
@@ -347,11 +352,10 @@ test("completion safeguards separate file availability from evidence and retain 
 				else assert.equal(fs.existsSync(file), false);
 			}
 			for (const guidance of [COMPLETION_GUIDANCE, h.tools.get("plan_complete").promptGuidelines.join(" ")]) {
-				assert.match(guidance, /missing scope prevents assessment/i);
-				assert.match(guidance, /(?:plan_finish )?blocked/);
-				assert.match(guidance, /not (?:evidence|completion)/i);
-				assert.match(guidance, /unperformed checks passed/);
-				assert.match(guidance, /(?:alone|by itself).*(?:requires no confirmation|reason to ask again)/);
+				assert.match(guidance, /missing scope/i);
+				assert.match(guidance, /plan_finish blocked/);
+				assert.match(guidance, /explicit.*whole-plan|whole-plan.*explicit/i);
+				assert.match(guidance, /(?:does not prove|never claim|without claiming).*checks passed/i);
 			}
 			await h.event("session_shutdown");
 		}
@@ -1326,6 +1330,50 @@ test("legacy unnumbered plans and fork copies preserve the source file", async (
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("explicit whole-plan completion closes running, paused, and awaiting-validation step execution atomically", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-whole-completion-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const markdown = "# Task\n\n## Implementation Steps\n1. Implement task\n2. Verify task\n3. Ship task\n";
+		for (const scenario of ["running", "paused", "awaiting-validation"] as const) {
+			const folder = path.join(dir, scenario);
+			fs.mkdirSync(path.join(folder, "plans"), { recursive: true });
+			const file = makePlanPath(path.join(folder, "plans"), "session", 1);
+			fs.writeFileSync(file, markdown);
+			const entries = [{ type: "custom", customType: "pi-plan-build-state", data: {
+				version: STATE_VERSION, selectedMode: "build", collection: { attached: 1, counter: 1, records: [{
+					plan: { sequence: 1, status: "open", task: { title: "Task", scope: "Do task", decisions: [] } },
+					execution: createPlanExecution(markdown),
+				}] },
+			} }];
+			const h = harness(folder, entries);
+			await h.event("session_start", { reason: "resume" });
+			if (scenario !== "running") {
+				await h.callTool("plan_step_control", { action: "start" });
+				if (scenario === "paused") await h.callTool("plan_step_control", { action: "pause" });
+				else await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs confirmation", userAction: "Confirm behavior" });
+			}
+			assert.ok(h.active().includes("plan_complete"), `${scenario} execution exposes whole-plan completion`);
+			const transition = h.events.length;
+			await h.callTool("plan_complete", { summary: "User requested whole-plan closure." });
+			assert.equal(h.events.slice(transition).filter(e => e.kind === "entry" && e.customType === "pi-plan-build-state").length, 1);
+			assert.equal(h.state().collection.attached, null);
+			assert.equal(h.record().plan.status, "completed");
+			assert.equal(h.record().plan.outcome, undefined);
+			assert.equal(h.record().execution, undefined);
+			assert.match(h.record().plan.completionSummary, /Closed by explicit user instruction/);
+			assert.match(h.record().plan.completionSummary, scenario === "running"
+				? /0 completed, 0 skipped, 0 active, 1 ready, 2 pending/
+				: /0 completed, 0 skipped, 1 active, 0 ready, 2 pending/);
+			assert.doesNotMatch(h.record().plan.completionSummary, /\[completed\]/);
+			assert.equal(fs.readFileSync(file, "utf8"), markdown);
+		}
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
 });

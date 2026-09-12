@@ -125,6 +125,28 @@ export function formatPlanCompletionSummary(state: PlanExecutionState): string {
 	return lines.join("\n");
 }
 
+const MAX_CLOSURE_SUMMARY_LENGTH = 4000;
+
+/** Preserve truthful partial progress when the user explicitly closes a plan during step execution. */
+export function formatPlanClosureSummary(state: PlanExecutionState, summary?: string): string {
+	const labels: PlanStepStatus[] = ["completed", "skipped", "active", "ready", "pending"];
+	const counts = new Map(labels.map((status) => [status, state.steps.filter((step) => step.status === status).length]));
+	const lines = [
+		"Closed by explicit user instruction during step-by-step execution.",
+		`Progress at closure: ${labels.map((status) => `${counts.get(status)} ${status}`).join(", ")}.`,
+	];
+	for (const [index, step] of state.steps.entries()) {
+		if (step.status === "pending") continue;
+		const instruction = step.text.replace(/\s+/g, " ").trim();
+		const detail = step.summary?.replace(/\s+/g, " ").trim();
+		lines.push(`${index + 1}. [${step.status}] ${instruction}${detail ? ` — ${detail}` : ""}`);
+	}
+	if (summary?.trim()) lines.push("", summary.trim());
+	const result = lines.join("\n");
+	if (result.length <= MAX_CLOSURE_SUMMARY_LENGTH) return result;
+	return `${result.slice(0, MAX_CLOSURE_SUMMARY_LENGTH - 2).trimEnd()}…`;
+}
+
 export function startPlanStep(state: PlanExecutionState, id: string): PlanExecutionState {
 	const next = clone(state);
 	if (next.status === "completed") throw new Error("The plan is already complete");

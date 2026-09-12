@@ -403,17 +403,20 @@ test("model-facing tool metadata keeps schemas stable and prompt overhead bounde
 		plan: ["question", "plan_exit", "plan_task"],
 		buildWithoutPlan: ["question", "plan_task"],
 		buildWithPlan: ["question", "plan_task", "plan_complete", "plan_finish"],
-		activeStep: ["question", "plan_task", "plan_finish", "plan_step_control", "plan_step_complete"],
+		activeStep: ["question", "plan_task", "plan_complete", "plan_finish", "plan_step_control", "plan_step_complete"],
 	};
 	assert.ok(metadataSize(sets.plan) <= 3500);
 	assert.ok(metadataSize(sets.buildWithoutPlan) <= 2900);
-	assert.ok(metadataSize(sets.buildWithPlan) <= 4900);
-	assert.ok(metadataSize(sets.activeStep) <= 5600);
+	assert.ok(metadataSize(sets.buildWithPlan) <= 5300);
+	assert.ok(metadataSize(sets.activeStep) <= 7000);
 
 	const task = harness.registeredTools.get("plan_task");
 	assert.deepEqual(Object.keys(task.parameters.properties), ["action", "sequence", "expectedAttached", "targetSequence", "title", "scope", "topic", "reason"]);
 	assert.deepEqual(task.parameters.properties.action.enum, ["list", "pause", "resume", "update", "include", "discussion", "new", "abandon"]);
 	assert.deepEqual(harness.registeredTools.get("plan_finish").parameters.properties.outcome.enum, ["awaiting_validation", "blocked", "waiting_for_input", "still_working"]);
+	assert.match(harness.registeredTools.get("plan_complete").description, /entire attached Build plan, including during step execution/);
+	assert.match(harness.registeredTools.get("plan_complete").description, /without marking remaining steps or checks passed/);
+	assert.match(harness.registeredTools.get("plan_step_control").description, /Never use complete when the user says to complete, close, or finish the whole plan/);
 	assert.deepEqual(harness.registeredTools.get("plan_step_control").parameters.properties.action.anyOf.map((item: any) => item.const), ["start", "complete", "skip", "revise", "pause", "resume", "cancel", "hide", "show"]);
 });
 

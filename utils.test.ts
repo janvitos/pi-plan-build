@@ -469,7 +469,7 @@ test("phase-specific verification policy remains complete and bounded", () => {
 	assert.match(VERIFICATION_GUIDANCE, /Never weaken checks, claim an unperformed check passed, or fix unrelated failures/);
 
 	assert.ok(planning.length <= 3500, `planning context grew to ${planning.length} characters`);
-	assert.ok(build.length <= 3700, `Build context grew to ${build.length} characters`);
+	assert.ok(build.length <= 3900, `Build context grew to ${build.length} characters`);
 	assert.ok(step.length <= 1900, `step context grew to ${step.length} characters`);
 	assert.ok(handoff.length - "Approved plan".length <= 1200, `fresh handoff overhead grew to ${handoff.length} characters`);
 });
@@ -480,6 +480,8 @@ test("step execution prompts constrain work to an approved active step", () => {
 	assert.match(reminder, /Build the parser/);
 	assert.match(reminder, /Do not edit approved Markdown or begin later steps/);
 	assert.match(reminder, /plan_step_complete/);
+	assert.match(reminder, /whole plan, call plan_complete instead/);
+	assert.match(reminder, /bare completion wording requires clarification/);
 	assert.match(reminder, /Verify only this step where possible/);
 	assert.match(reminder, /Defer checks dependent on later steps/);
 	assert.match(reminder, /report the deferral, never a pass/);
@@ -488,7 +490,10 @@ test("step execution prompts constrain work to an approved active step", () => {
 	const waiting = buildPlanStepWaitingReminder("1. [ready] Build parser");
 	assert.match(waiting, /No step is approved for project mutation/);
 	assert.match(waiting, /Interpret clear intent contextually/);
-	assert.match(waiting, /work is already finished may use complete/);
+	assert.match(waiting, /explicitly identified step is already finished may use plan_step_control complete/);
+	assert.match(waiting, /whole plan uses plan_complete/);
+	assert.match(waiting, /running, paused, or awaiting validation/);
+	assert.match(waiting, /identifies neither the plan nor a step/);
 	assert.match(waiting, /approval\/proceed starts the ready step with plan_step_control start/);
 	assert.match(waiting, /records past work and authorizes no implementation/);
 	assert.match(waiting, /handles skip, revise, pause\/resume, cancel/);
