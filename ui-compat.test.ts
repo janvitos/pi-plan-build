@@ -398,16 +398,17 @@ test("model-facing tool metadata keeps schemas stable and prompt overhead bounde
 			parameters: tool.parameters,
 		}).length;
 	}, 0);
+	assert.equal(harness.registeredTools.has("plan_enter"), false);
 	const sets = {
 		plan: ["question", "plan_exit", "plan_task"],
-		buildWithoutPlan: ["question", "plan_enter", "plan_task"],
-		buildWithPlan: ["question", "plan_enter", "plan_task", "plan_complete", "plan_finish"],
-		activeStep: ["question", "plan_enter", "plan_task", "plan_finish", "plan_step_control", "plan_step_complete"],
+		buildWithoutPlan: ["question", "plan_task"],
+		buildWithPlan: ["question", "plan_task", "plan_complete", "plan_finish"],
+		activeStep: ["question", "plan_task", "plan_finish", "plan_step_control", "plan_step_complete"],
 	};
 	assert.ok(metadataSize(sets.plan) <= 3500);
-	assert.ok(metadataSize(sets.buildWithoutPlan) <= 3200);
-	assert.ok(metadataSize(sets.buildWithPlan) <= 5200);
-	assert.ok(metadataSize(sets.activeStep) <= 5900);
+	assert.ok(metadataSize(sets.buildWithoutPlan) <= 2900);
+	assert.ok(metadataSize(sets.buildWithPlan) <= 4900);
+	assert.ok(metadataSize(sets.activeStep) <= 5600);
 
 	const task = harness.registeredTools.get("plan_task");
 	assert.deepEqual(Object.keys(task.parameters.properties), ["action", "sequence", "expectedAttached", "targetSequence", "title", "scope", "topic", "reason"]);

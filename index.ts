@@ -12,7 +12,6 @@ import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STA
 import { registerQuestionTool } from "./question-ui.ts";
 import { loadShortcutConfig, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
-	PLAN_ENTER_DESCRIPTION,
 	PLAN_EXIT_DESCRIPTION,
 	PLAN_STEP_COMPLETE_DESCRIPTION,
 } from "./prompts.ts";
@@ -76,7 +75,7 @@ const PLAN_STEP_GUIDANCE_ENTRY_TYPE = "pi-plan-build-step-guidance";
 const VALIDATION_NOTICE_ENTRY_TYPE = "pi-plan-build-validation-notice";
 const FRESH_ANNOUNCEMENT_MESSAGE_TYPE = "pi-plan-build-fresh-announcement";
 const PLAN_STEP_CHOICE = "Implement step by step";
-const MANAGED_TOOLS = new Set(["question", "plan_task", "plan_enter", "plan_exit", "plan_step_control", "plan_step_complete", "plan_complete", "plan_finish"]);
+const MANAGED_TOOLS = new Set(["question", "plan_task", "plan_exit", "plan_step_control", "plan_step_complete", "plan_complete", "plan_finish"]);
 const MODE_ADDED_TOOLS = new Set([...MANAGED_TOOLS, "edit", "write"]);
 const EMPTY_PARAMETERS = Type.Object({});
 
@@ -256,7 +255,6 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			pi.setActiveTools(unique([
 				...base,
 				"question",
-				"plan_enter",
 				"plan_task",
 				...(plans.collection.attached !== null && !plans.execution && plans.plan.status === "open" ? ["plan_complete", "plan_finish"] : []),
 				...(plans.collection.attached !== null && plans.execution ? ["plan_finish"] : []),
@@ -721,30 +719,6 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	pi.registerTool({
-		name: "plan_enter",
-		label: "Enter Plan Mode",
-		description: PLAN_ENTER_DESCRIPTION,
-		parameters: EMPTY_PARAMETERS,
-		executionMode: "sequential",
-		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
-			try { await selectMode("plan", ctx, "tool"); }
-			catch (error) { return { content: [{ type: "text", text: String(error) }], details: { mode: runMode ?? selectedMode }, terminate: true }; }
-			return {
-				content: [{ type: "text", text: "Switched to Plan mode." }],
-				details: { mode: "plan", planPath: currentPlanPath() },
-			};
-		},
-		renderCall: statusCall("Switching to Plan mode…"),
-		renderResult(result, options, theme, context) {
-			const status = pendingOrError(result, options, theme, context, "Switching to Plan mode…", "Plan mode transition failed");
-			if (status) return status;
-			const details = result.details as { mode?: string; planPath?: string } | undefined;
-			if (details?.mode !== "plan") return new Text(theme.fg("muted", "Mode transition status unavailable"), 0, 0);
-			return new Text([theme.fg("success", "Switched to Plan mode"), ...(options.expanded && details.planPath ? [theme.fg("muted", details.planPath)] : [])].join("\n"), 0, 0);
-		},
-	});
-
-	pi.registerTool({
 		name: "plan_step_control",
 		label: "Control Plan Execution",
 		description: `Apply one clear natural-language step action: start or skip a ready step; record a finished ready step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical, ambiguous, or unrelated text.`,
@@ -1055,7 +1029,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 
 	pi.on("tool_call", async (event, ctx) => {
 		const effectiveMode = runMode ?? selectedMode;
-		if (plans.error && (MANAGED_TOOLS.has(event.toolName) && event.toolName !== "question" && event.toolName !== "plan_enter" || ["edit", "write", "bash", "powershell"].includes(event.toolName))) return { block: true, reason: `Plan state unavailable: ${plans.error}. Restore usable state before mutations.` };
+		if (plans.error && (MANAGED_TOOLS.has(event.toolName) && event.toolName !== "question" || ["edit", "write", "bash", "powershell"].includes(event.toolName))) return { block: true, reason: `Plan state unavailable: ${plans.error}. Restore usable state before mutations.` };
 		if (["edit", "write", "bash", "powershell", "plan_complete", "plan_finish", "plan_step_control", "plan_step_complete", "plan_exit"].includes(event.toolName)) {
 			const latestAssistant = [...ctx.sessionManager.getBranch()].reverse().find((entry) => entry.type === "message" && entry.message.role === "assistant");
 			if (latestAssistant?.type === "message" && latestAssistant.message.role === "assistant" && latestAssistant.message.content.some((part) => part.type === "toolCall" && part.name === "plan_task" && !["list", "pause", "resume"].includes((part.arguments as { action?: string })?.action ?? ""))) {

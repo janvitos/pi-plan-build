@@ -27,7 +27,7 @@ Restart Pi or run `/reload`. Do not load multiple npm/Git/local copies simultane
 ## Quick start
 
 1. Start in **Build** for ordinary coding and discussion. Small fixes need no plan.
-2. Select **Plan** with `/plan`, `Alt+M`, or editor `Tab`. Explore and discuss; entering Plan does not create a task or write a file.
+2. Select **Plan** with `/plan`, `Alt+M`, or editor `Tab`. Explore and discuss; entering Plan does not create a task or write a file. Plan entry is user-controlled—the agent cannot route a Build request into Plan.
 3. Ask for a plan or accept a concrete proposed change. The agent investigates, saves the plan, and presents it for review. Accepting scope does **not** authorize implementation.
 4. Choose **implement here**, **start fresh and implement**, or **step by step**. Choose **stay in Plan** or press Escape to stop and wait.
 5. After implementation and required checks, the agent records completion. Essential user-only validation keeps the plan open with clear instructions; optional feedback does not block completion.

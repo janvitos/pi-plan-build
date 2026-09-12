@@ -427,14 +427,9 @@ test("tool results consistently separate confirmations, instructions, warnings, 
 			assert.ok(rendered.colors.some((call) => call.color === "text" && call.text === "Reason"), kind);
 		}
 
-		for (const [name, result, confirmation] of [
-			["plan_complete", { content: [{ type: "text", text: "Plan complete." }], details: { completed: true, planPath: "/tmp/plan.md" } }, "Plan complete."],
-			["plan_enter", { content: [{ type: "text", text: "Switched to Plan mode." }], details: { mode: "plan", planPath: "/tmp/plan.md" } }, "Switched to Plan mode"],
-		] as const) {
-			const rendered = render(name, result, true);
-			assert.ok(rendered.colors.some((call) => call.color === "success" && call.text === confirmation), name);
-			assert.ok(rendered.colors.some((call) => call.color === "muted" && call.text === "/tmp/plan.md"), name);
-		}
+		const completed = render("plan_complete", { content: [{ type: "text", text: "Plan complete." }], details: { completed: true, planPath: "/tmp/plan.md" } }, true);
+		assert.ok(completed.colors.some((call) => call.color === "success" && call.text === "Plan complete."));
+		assert.ok(completed.colors.some((call) => call.color === "muted" && call.text === "/tmp/plan.md"));
 		assert.ok(render("plan_exit", { content: [], details: {} }).colors.some((call) => call.color === "muted" && call.text === "Plan approval status unavailable"));
 
 		const noOp = render("plan_step_control", { content: [{ type: "text", text: "Plan execution is already paused." }], details: { action: "pause", changed: false } });
@@ -478,6 +473,33 @@ test("metadata-only plans expose outcomes in Build and complete without creating
 		assert.ok(!h.active().includes("plan_finish"));
 		assert.ok(!h.events.filter((event) => event.kind === "status").at(-1)?.text?.includes("Metadata-only task"));
 		await h.event("session_shutdown");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("Build requests cannot enter Plan until the user explicitly selects it", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-user-controlled-entry-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		assert.equal(h.state().selectedMode, "build");
+		assert.equal(h.tools.has("plan_enter"), false);
+		assert.equal(h.active().includes("plan_enter"), false);
+		await assert.rejects(h.tool("plan_task", { action: "new", expectedAttached: null, title: "Raise ability damage", scope: "Make Gale Burst deal eight hearts per hit" }), /Plan mode/);
+		assert.deepEqual(await h.prompt("Make Gale Burst deal eight hearts per hit"), [{ role: "user", content: "Make Gale Burst deal eight hearts per hit" }]);
+		assert.equal(h.state().selectedMode, "build");
+		assert.equal(h.state().collection.attached, null);
+		assert.equal(h.active().includes("plan_exit"), false);
+
+		await h.command("");
+		assert.equal(h.state().selectedMode, "plan");
+		assert.ok(h.active().includes("plan_exit"));
+		assert.equal(h.active().includes("plan_enter"), false);
+		const context = await h.event("context", { messages: [] });
+		assert.match(context.messages.at(-1).content, /Plan mode is active/);
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
@@ -535,8 +557,7 @@ test("planning tool renderers preserve errors and never report success for parti
 	try {
 		const h = harness(dir);
 		await h.event("session_start", { reason: "startup" });
-		const entered = await h.tool("plan_enter");
-		assert.equal(entered.content[0].text, "Switched to Plan mode.");
+		await h.command("");
 		const hidden = await h.event("context", { messages: [] });
 		assert.match(hidden.messages.at(-1).content, /Plan mode is active/);
 		await h.command("new");
@@ -552,8 +573,8 @@ test("planning tool renderers preserve errors and never report success for parti
 		assert.match(buildContext.messages.at(-1).content, /Build mode allows/);
 		const completed = await h.tool("plan_complete");
 		assert.equal(completed.content[0].text, "Plan complete.");
-		const samples: Record<string, any> = { plan_enter: entered, plan_exit: approved, plan_complete: completed };
-		for (const name of ["plan_enter", "plan_exit", "plan_complete", "plan_finish", "plan_task", "plan_step_control", "plan_step_complete"]) {
+		const samples: Record<string, any> = { plan_exit: approved, plan_complete: completed };
+		for (const name of ["plan_exit", "plan_complete", "plan_finish", "plan_task", "plan_step_control", "plan_step_complete"]) {
 			const tool = h.tools.get(name);
 			for (const expanded of [false, true]) {
 				const render = (result: any, isPartial: boolean, isError: boolean) => tool.renderResult(result, { expanded, isPartial }, h.ctx.ui.theme, { isError }).render(140).join("\n");
@@ -583,7 +604,7 @@ test("composed tool rows have one pending indicator and result-only settled outp
 		const h = harness(dir);
 		await h.event("session_start", { reason: "startup" });
 		const samples: Record<string, any> = {
-			plan_complete: { completed: true }, plan_enter: { mode: "plan" },
+			plan_complete: { completed: true },
 			plan_task: { attached: 1 }, plan_finish: { outcome: { kind: "blocked", reason: "Missing input" } },
 			plan_step_control: { stepId: "step-2" }, plan_step_complete: { stepId: "step-2", completed: true },
 			plan_exit: { approved: true }, question: { answers: [{ header: "Backend", answers: ["SQLite"] }] },
@@ -1480,7 +1501,7 @@ test("accumulated context is current, bounded, and read-only with one snapshot p
 		const snapshots = () => h.events.filter((e) => e.kind === "entry" && e.customType === "pi-plan-build-state").length;
 		assert.equal(snapshots(), 0);
 		assert.deepEqual(await h.prompt("Explain this code"), [{ role: "user", content: "Explain this code" }]);
-		await h.callTool("plan_enter");
+		await h.command("");
 		let count = snapshots();
 		await h.callTool("plan_task", { action: "new", expectedAttached: null, title: "Stable task", scope: "Stable scope" });
 		assert.equal(snapshots(), count + 1, "new plus metadata commits once");
@@ -1524,7 +1545,7 @@ test("accumulated context is current, bounded, and read-only with one snapshot p
 		await h.callTool("plan_complete");
 		assert.deepEqual((await h.event("context", { messages: [] })).messages, []);
 		assert.equal(h.state().collection.attached, null);
-		await h.callTool("plan_enter");
+		await h.command("");
 		const context = await h.event("context", { messages: [] });
 		assert.doesNotMatch(context.messages[0].content, /Stable task|session-001/);
 		assert.match(context.messages[0].content, /No canonical writable plan path/);

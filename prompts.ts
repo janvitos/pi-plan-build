@@ -51,8 +51,6 @@ ${planInfo}
 </system-reminder>`;
 }
 
-export const PLAN_ENTER_DESCRIPTION = `Enter Plan mode when the request needs planning or read-only investigation before implementation.`;
-
 export function buildPlanStepReminder(planPath: string, stepNumber: number, totalSteps: number, step: string): string {
 	return `<system-reminder>
 # Step-by-Step Plan Execution
