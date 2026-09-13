@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { matchesKey } from "@earendil-works/pi-tui";
-import { DEFAULT_MODE, isKeyId, loadShortcutConfig, parseShortcutConfig, saveDefaultMode, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_CONFIG_FILE, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { DEFAULT_MODE, isKeyId, loadShortcutConfig, parseShortcutConfig, saveDefaultMode, saveQuestionTool, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_CONFIG_FILE, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 
 test("plan title visibility defaults off and saves safely", () => {
 	assert.equal(parseShortcutConfig(undefined).showPlanTitle, false);
@@ -32,10 +32,43 @@ test("plan title visibility defaults off and saves safely", () => {
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("the question tool defaults on, disables explicitly, and saves without clobbering other settings", () => {
+	assert.equal(parseShortcutConfig(undefined).questionTool, true);
+	assert.equal(parseShortcutConfig({ questionTool: true }).questionTool, true);
+	assert.equal(parseShortcutConfig({ questionTool: false }).questionTool, false);
+	assert.equal(parseShortcutConfig({ questionTool: false }).warning, undefined);
+	for (const invalid of ["false", 0, 1, null, [], {}]) {
+		const parsed = parseShortcutConfig({ questionTool: invalid });
+		assert.equal(parsed.questionTool, true, `${JSON.stringify(invalid)} must fall back to enabled`);
+		assert.match(parsed.warning ?? "", /questionTool must be a boolean/);
+	}
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-question-tool-"));
+	try {
+		const file = path.join(dir, SHORTCUT_CONFIG_FILE);
+		fs.writeFileSync(file, JSON.stringify({ unrelated: 42, showPlanTitle: true, defaultMode: "plan", shortcuts: { toggleMode: ["alt+m"], future: "value" } }));
+		assert.equal(saveQuestionTool(dir, false), file);
+		assert.equal(loadShortcutConfig(dir).questionTool, false);
+		const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+		assert.equal(saved.unrelated, 42);
+		assert.equal(saved.showPlanTitle, true);
+		assert.equal(saved.defaultMode, "plan");
+		assert.deepEqual(saved.shortcuts, { toggleMode: ["alt+m"], future: "value" });
+		assert.deepEqual(fs.readdirSync(dir), [SHORTCUT_CONFIG_FILE], "atomic save leaves no temporary file");
+		saveQuestionTool(dir, true);
+		assert.equal(loadShortcutConfig(dir).questionTool, true);
+		for (const malformed of ["{", "null", "[]", '{"shortcuts":[]}']) {
+			fs.writeFileSync(file, malformed);
+			assert.throws(() => saveQuestionTool(dir, false));
+			assert.equal(fs.readFileSync(file, "utf8"), malformed);
+		}
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("obsolete small-caps settings are ignored", () => {
 	for (const smallCapsPlanTitle of [true, false, "false"]) {
 		assert.deepEqual(parseShortcutConfig({ smallCapsPlanTitle, shortcuts: { toggleMode: [] } }), {
 			showPlanTitle: false,
+			questionTool: true,
 			defaultMode: "build",
 			config: { toggleMode: [], toggleModeInEditor: ["tab"] },
 		});
@@ -77,6 +110,7 @@ test("default startup mode parses, warns on invalid values, and saves without cl
 test("shortcut defaults preserve Tab and Alt+M", () => {
 	assert.deepEqual(parseShortcutConfig(undefined), {
 		showPlanTitle: false,
+		questionTool: true,
 		defaultMode: "build",
 		config: {
 			toggleMode: ["alt+m"],
@@ -95,6 +129,7 @@ test("shortcut configuration accepts remapping and explicit disabling", () => {
 
 	assert.deepEqual(result, {
 		showPlanTitle: false,
+		questionTool: true,
 		defaultMode: "build",
 		config: {
 			toggleMode: ["ctrl+alt+m"],
@@ -180,6 +215,7 @@ test("shortcut configuration reads the Pi agent directory and fails safely", () 
 	try {
 		assert.deepEqual(loadShortcutConfig(dir), {
 			showPlanTitle: false,
+			questionTool: true,
 			defaultMode: "build",
 			config: { toggleMode: ["alt+m"], toggleModeInEditor: ["tab"] },
 			path: path.join(dir, SHORTCUT_CONFIG_FILE),
