@@ -12,6 +12,7 @@ import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STA
 import { registerQuestionTool } from "./question-ui.ts";
 import { loadShortcutConfig, saveDefaultMode, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
+	COMPLETION_ROUTING_GUIDANCE,
 	PLAN_EXIT_DESCRIPTION,
 	PLAN_STEP_COMPLETE_DESCRIPTION,
 } from "./prompts.ts";
@@ -718,7 +719,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		name: "plan_complete",
 		label: "Complete Plan",
 		description: "Complete the entire attached Build plan, including during step execution, after work/checks pass or explicit user-directed whole-plan closure. Closure removes execution and records partial progress without marking remaining steps or checks passed. Never use for one step, errors, or approval alone.",
-		promptGuidelines: ["Explicit whole-plan completion words use plan_complete; an identified step uses its step tool; clarify unresolved bare completion. During incomplete execution record factual progress without claiming remaining checks passed. Otherwise complete only after work/checks pass; use plan_finish for unfinished outcomes or plan_finish blocked when missing scope prevents assessment."],
+		promptGuidelines: [`${COMPLETION_ROUTING_GUIDANCE} During incomplete execution record factual progress without claiming remaining checks passed. Otherwise complete only after work/checks pass; use plan_finish for unfinished outcomes or plan_finish blocked when missing scope prevents assessment.`],
 		parameters: Type.Object({ summary: Type.Optional(Type.String({ maxLength: 4000, description: "Optional factual summary of implementation and verification; omit rather than invent evidence." })) }),
 		executionMode: "sequential",
 		async execute(_id, params) {
@@ -742,7 +743,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_step_control",
 		label: "Control Plan Execution",
-		description: `Apply one clear single-step or execution-control action: start or skip a ready step; record one explicitly identified finished step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. Never use complete when the user says to complete, close, or finish the whole plan; use plan_complete instead. Clarify unresolved bare completion wording. A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical, ambiguous, or unrelated text.`,
+		description: `Apply one clear single-step or execution-control action: start or skip a ready step; record one explicitly identified finished step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. ${COMPLETION_ROUTING_GUIDANCE} A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical, ambiguous, or unrelated text.`,
 		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("start"),

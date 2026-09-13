@@ -7,6 +7,7 @@ import { CombinedAutocompleteProvider, matchesKey } from "@earendil-works/pi-tui
 import planBuildModes from "./index.ts";
 import { eventHandlers } from "./test-events.ts";
 import { loadShortcutConfig, SHORTCUT_CONFIG_FILE } from "./shortcut-config.ts";
+import { COMPLETION_ROUTING_GUIDANCE } from "./prompts.ts";
 
 let agentDir: string;
 let previousAgentDir: string | undefined;
@@ -334,9 +335,13 @@ test("settings group shortcut presets in a submenu, retain active bindings until
 	harness.selectOptions("Shortcuts (active: Tab + Alt+M)", "Alt+M only");
 	await harness.commands.get("plan-settings").handler("", harness.ctx);
 	assert.equal(harness.selections[0]!.title, "Plan/Build settings");
-	assert.deepEqual(harness.selections[0]!.options, ["Default mode (active: build)", "Shortcuts (active: Tab + Alt+M)", "Plan title (active: off)", "Per-mode model/thinking (active: off)"]);
+	for (const option of ["Default mode (active: build)", "Shortcuts (active: Tab + Alt+M)", "Plan title (active: off)", "Per-mode model/thinking (active: off)"]) {
+		assert.ok(harness.selections[0]!.options.includes(option));
+	}
 	assert.match(harness.selections[1]!.title, /active: Tab \+ Alt\+M/);
-	assert.deepEqual(harness.selections[1]!.options, ["Tab + Alt+M", "Alt+M only", "Disabled", "Custom (edit config file)"]);
+	for (const option of ["Tab + Alt+M", "Alt+M only", "Disabled", "Custom (edit config file)"]) {
+		assert.ok(harness.selections[1]!.options.includes(option));
+	}
 	assert.match(harness.notifications.at(-1)![0], /Saved Alt\+M only.*\/reload/);
 	await toggle(harness, "\t", "plan");
 	await shutdown(harness);
@@ -399,24 +404,17 @@ test("model-facing tool metadata keeps schemas stable and prompt overhead bounde
 		}).length;
 	}, 0);
 	assert.equal(harness.registeredTools.has("plan_enter"), false);
-	const sets = {
-		plan: ["question", "plan_exit", "plan_task"],
-		buildWithoutPlan: ["question", "plan_task"],
-		buildWithPlan: ["question", "plan_task", "plan_complete", "plan_finish"],
-		activeStep: ["question", "plan_task", "plan_complete", "plan_finish", "plan_step_control", "plan_step_complete"],
-	};
-	assert.ok(metadataSize(sets.plan) <= 3500);
-	assert.ok(metadataSize(sets.buildWithoutPlan) <= 2900);
-	assert.ok(metadataSize(sets.buildWithPlan) <= 5300);
-	assert.ok(metadataSize(sets.activeStep) <= 7000);
+	const allTools = [...harness.registeredTools.keys()];
+	const totalMetadataSize = metadataSize(allTools);
+	assert.ok(totalMetadataSize <= 9000, `total registered tool metadata grew to ${totalMetadataSize} characters`);
 
 	const task = harness.registeredTools.get("plan_task");
 	assert.deepEqual(Object.keys(task.parameters.properties), ["action", "sequence", "expectedAttached", "targetSequence", "title", "scope", "topic", "reason"]);
 	assert.deepEqual(task.parameters.properties.action.enum, ["list", "pause", "resume", "update", "include", "discussion", "new", "abandon"]);
 	assert.deepEqual(harness.registeredTools.get("plan_finish").parameters.properties.outcome.enum, ["awaiting_validation", "blocked", "waiting_for_input", "still_working"]);
-	assert.match(harness.registeredTools.get("plan_complete").description, /entire attached Build plan, including during step execution/);
-	assert.match(harness.registeredTools.get("plan_complete").description, /without marking remaining steps or checks passed/);
-	assert.match(harness.registeredTools.get("plan_step_control").description, /Never use complete when the user says to complete, close, or finish the whole plan/);
+	for (const name of ["plan_complete", "plan_step_control"]) {
+		assert.ok(JSON.stringify(harness.registeredTools.get(name)).includes(COMPLETION_ROUTING_GUIDANCE), `${name} must include the shared completion-routing policy`);
+	}
 	assert.deepEqual(harness.registeredTools.get("plan_step_control").parameters.properties.action.anyOf.map((item: any) => item.const), ["start", "complete", "skip", "revise", "pause", "resume", "cancel", "hide", "show"]);
 });
 

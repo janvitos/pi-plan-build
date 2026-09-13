@@ -8,6 +8,7 @@ import { buildPlanContext } from "./plan-context.ts";
 import { visibleWidth, truncateToWidth } from "@earendil-works/pi-tui";
 import {
 	buildPlanReminder,
+	COMPLETION_ROUTING_GUIDANCE,
 	buildPlanStepReminder,
 	buildPlanStepWaitingReminder,
 	PLAN_EXIT_DESCRIPTION,
@@ -454,6 +455,7 @@ test("phase-specific verification policy remains complete and bounded", () => {
 	const step = buildPlanStepReminder("/tmp/plan.md", 1, 2, "Update behavior");
 	assert.equal(planning.split(PLAN_VERIFICATION_GUIDANCE).length, 2);
 	for (const prompt of [build, handoff, step]) assert.equal(prompt.split(VERIFICATION_GUIDANCE).length, 2);
+	assert.equal(build.split(COMPLETION_ROUTING_GUIDANCE).length, 2);
 
 	assert.match(PLAN_VERIFICATION_GUIDANCE, /smallest credible proof of changed behavior/);
 	assert.match(PLAN_VERIFICATION_GUIDANCE, /repository-supported commands and expected observable results/);
@@ -480,8 +482,6 @@ test("step execution prompts constrain work to an approved active step", () => {
 	assert.match(reminder, /Build the parser/);
 	assert.match(reminder, /Do not edit approved Markdown or begin later steps/);
 	assert.match(reminder, /plan_step_complete/);
-	assert.match(reminder, /whole plan, call plan_complete instead/);
-	assert.match(reminder, /bare completion wording requires clarification/);
 	assert.match(reminder, /Verify only this step where possible/);
 	assert.match(reminder, /Defer checks dependent on later steps/);
 	assert.match(reminder, /report the deferral, never a pass/);
@@ -490,14 +490,17 @@ test("step execution prompts constrain work to an approved active step", () => {
 	const waiting = buildPlanStepWaitingReminder("1. [ready] Build parser");
 	assert.match(waiting, /No step is approved for project mutation/);
 	assert.match(waiting, /Interpret clear intent contextually/);
-	assert.match(waiting, /explicitly identified step is already finished may use plan_step_control complete/);
-	assert.match(waiting, /whole plan uses plan_complete/);
 	assert.match(waiting, /running, paused, or awaiting validation/);
-	assert.match(waiting, /identifies neither the plan nor a step/);
 	assert.match(waiting, /approval\/proceed starts the ready step with plan_step_control start/);
 	assert.match(waiting, /records past work and authorizes no implementation/);
 	assert.match(waiting, /handles skip, revise, pause\/resume, cancel/);
 	assert.match(waiting, /sidebar is passive/i);
+	assert.match(COMPLETION_ROUTING_GUIDANCE, /whole-plan completion.*plan_complete/i);
+	assert.match(COMPLETION_ROUTING_GUIDANCE, /identified step.*step tool/i);
+	assert.match(COMPLETION_ROUTING_GUIDANCE, /clarify.*bare completion/i);
+	for (const prompt of [reminder, waiting, PLAN_STEP_COMPLETE_DESCRIPTION]) {
+		assert.equal(prompt.split(COMPLETION_ROUTING_GUIDANCE).length, 2);
+	}
 });
 
 test("prompt history restores normalized user text in chronological order", () => {

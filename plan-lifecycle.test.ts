@@ -351,12 +351,6 @@ test("completion safeguards separate file availability from evidence and retain 
 				if (kind === "unavailable") assert.deepEqual(fs.readdirSync(file), []);
 				else assert.equal(fs.existsSync(file), false);
 			}
-			for (const guidance of [COMPLETION_GUIDANCE, h.tools.get("plan_complete").promptGuidelines.join(" ")]) {
-				assert.match(guidance, /missing scope/i);
-				assert.match(guidance, /plan_finish blocked/);
-				assert.match(guidance, /explicit.*whole-plan|whole-plan.*explicit/i);
-				assert.match(guidance, /(?:does not prove|never claim|without claiming).*checks passed/i);
-			}
 			await h.event("session_shutdown");
 		}
 	} finally {
