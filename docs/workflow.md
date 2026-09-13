@@ -70,7 +70,7 @@ Step execution works in regular/narrow TUI and RPC without a sidebar. For the op
 { "tuiMode": "fullscreen" }
 ```
 
-The passive **64-column** right panel reserves space rather than covering the transcript/editor. It wraps long instructions, collapses below 132 columns, never captures input, and shows persistent **How to use** guidance. Startup asks you to say “Proceed” and points to `/plan show` for progress and instructions. The same workflow works without a sidebar; compact tool results describe each transition and RPC receives startup guidance.
+The passive **64-column** right panel reserves space rather than covering the transcript/editor. It wraps long step text, collapses below 132 columns, and never captures input. Plan progress and concise natural-language guidance stay fixed while only the step list scrolls. Startup asks you to say “Proceed” and points to `/plan show` for full progress and instructions. The same workflow works without a sidebar; compact tool results describe each transition and RPC receives startup guidance.
 
 Plans end with discrete top-level instructions:
 

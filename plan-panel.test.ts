@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ScrollView, visibleWidth, type Component } from "@earendil-works/pi-tui";
+import { getScrollViewsAt, renderLayoutFrame } from "@earendil-works/pi-tui/dist/layout.js";
 import { completePlanStep, createPlanExecution, startPlanStep } from "./plan-execution.ts";
 import { ContainedScrollView, PlanPanel } from "./plan-panel.ts";
 
@@ -30,7 +31,26 @@ test("contained scroller swallows leftover wheel lines so the chat never chains"
 	assert.equal(contained.scrollBy(-5), 0);
 });
 
-test("passive panel renders steps within its reserved width with fixed instructions", () => {
+test("only steps scroll while status and guidance remain fixed", () => {
+	const markdown = `## Implementation Steps\n${Array.from({ length: 8 }, (_, index) => `${index + 1}. Implementation step ${index + 1}`).join("\n")}`;
+	const panel = new PlanPanel(createPlanExecution(markdown), theme);
+	const before = renderLayoutFrame(panel, 64, 14, () => {});
+	const scrollers = getScrollViewsAt(before, 10, 5);
+	assert.equal(scrollers.length, 1, "the step viewport is the only scroller under its rows");
+	assert.equal(getScrollViewsAt(before, 10, 1).length, 0, "the fixed header does not scroll");
+	assert.equal(getScrollViewsAt(before, 10, 13).length, 0, "the fixed guidance does not scroll");
+	assert.match(before.lines.join("\n"), /1\. Implementation step 1/);
+	assert.doesNotMatch(before.lines.join("\n"), /8\. Implementation step 8/);
+
+	scrollers[0]!.scrollBy(100);
+	const after = renderLayoutFrame(panel, 64, 14, () => {});
+	assert.deepEqual(after.lines.slice(0, 4), before.lines.slice(0, 4), "plan progress and status stay pinned");
+	assert.deepEqual(after.lines.slice(-6), before.lines.slice(-6), "both guidance entries stay pinned");
+	assert.doesNotMatch(after.lines.join("\n"), /1\. Implementation step 1/);
+	assert.match(after.lines.join("\n"), /8\. Implementation step 8/);
+});
+
+test("passive panel renders steps within its reserved width with concise guidance", () => {
 	const panel = new PlanPanel(makeState(), theme);
 	assert.equal("handleInput" in panel, false);
 	assert.equal("focused" in panel, false);
@@ -50,15 +70,10 @@ test("passive panel renders steps within its reserved width with fixed instructi
 	}
 });
 
-test("keeps complete instructions in the last cell across states and step transitions", () => {
+test("keeps complete guidance in the last cell across states and step transitions", () => {
 	const expected = [
-		"How to use",
-		"Write your instructions in the chat.",
-		"- Write “Proceed” to start the next step.",
-		"- Ask to edit, skip, or mark a step complete.",
-		"- Ask to pause, resume, or cancel execution.",
-		"- Ask to hide or show this panel.",
-		"You can use your own words.",
+		"Say “Proceed” to start the next step. You can complete the whole plan at any time.",
+		"Use your own words to revise or skip a step, pause, or stop execution.",
 	].join(" ");
 	const ready = makeState();
 	const active = startPlanStep(ready, "step-1");
