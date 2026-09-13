@@ -152,11 +152,12 @@ test("saved plan headings supply only a safe display fallback for unfinished tas
 	assert.equal(displayedPlanTitle({ ...open, task: { title: "Metadata", scope: "Scope", decisions: [] } }, true, "Saved title"), "Metadata");
 	assert.equal(displayedPlanTitle({ ...open, status: "completed" }, true, "Saved title"), undefined);
 	assert.equal(displayedPlanTitle({ ...open, status: "abandoned", abandonReason: "No longer needed" }, true, "Saved title"), undefined);
+	assert.equal(displayedPlanTitle({ ...open, status: "transferred" }, true, "Saved title"), undefined);
 });
 
 test("plan collection decoder rejects dangling attachments and preserves inert detached records", () => {
-	const records = [{ plan: { sequence: 1, status: "open" } }, { plan: { sequence: 2, status: "completed" } }, { plan: { sequence: 3, status: "abandoned", abandonReason: "Superseded" } }];
-	assert.deepEqual(decodePlanCollection({ records, attached: null, counter: 0 }), { records, attached: null, counter: 3 });
+	const records = [{ plan: { sequence: 1, status: "open" } }, { plan: { sequence: 2, status: "completed" } }, { plan: { sequence: 3, status: "abandoned", abandonReason: "Superseded" } }, { plan: { sequence: 4, status: "transferred" } }];
+	assert.deepEqual(decodePlanCollection({ records, attached: null, counter: 0 }), { records, attached: null, counter: 4 });
 	assert.deepEqual(decodePlanLifecycle({ sequence: 3, status: "abandoned", abandonReason: " Superseded ", outcome: { kind: "blocked", reason: "old" } }), { sequence: 3, status: "abandoned", abandonReason: "Superseded" });
 	assert.equal(decodePlanLifecycle({ sequence: 3, status: "abandoned" }), undefined);
 	assert.equal(decodePlanCollection({ records, attached: 99, counter: 2 }), undefined);

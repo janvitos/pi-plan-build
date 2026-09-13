@@ -4,10 +4,10 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { Check } from "typebox/value";
-import { convertToLlm, getMarkdownTheme, ToolExecutionComponent, initTheme } from "@earendil-works/pi-coding-agent";
+import { convertToLlm, getMarkdownTheme, SessionManager, ToolExecutionComponent, initTheme } from "@earendil-works/pi-coding-agent";
 import { Markdown } from "@earendil-works/pi-tui";
 import { eventHandlers } from "./test-events.ts";
-import { STATE_VERSION, restoreCollection, allocationHighWater } from "./plan-state.ts";
+import { STATE_VERSION, restoreCollection, allocationHighWater, latestPlanState, transferredState } from "./plan-state.ts";
 import planBuildModes from "./index.ts";
 import { COMPLETION_GUIDANCE } from "./prompts.ts";
 import { createPlanExecution } from "./plan-execution.ts";
@@ -69,7 +69,7 @@ function harness(dir: string, entries: any[] = [], sessionId = "session", initia
 	}
 	function state() {
 		const raw = entries.filter((entry) => entry.customType === "pi-plan-build-state").at(-1)?.data;
-		return raw ?? { version: 3, selectedMode: "build", collection: { records: [], attached: null, counter: 0 } };
+		return raw ?? { version: STATE_VERSION, selectedMode: "build", collection: { records: [], attached: null, counter: 0 } };
 	}
 	function record() {
 		const collection = state().collection;
@@ -248,6 +248,7 @@ test("enabled per-mode selection defers manual routing until the active run sett
 		assert.deepEqual(selected.slice(-2), ["test", "planner"]);
 		assert.equal(h.ctx.model.id, "planner", "cancelled handoff restores the planning selection");
 		assert.equal(level, "high");
+		assert.equal(h.state().collection.attached, 1, "cancelled handoff must leave the source plan open");
 		await h.event("session_shutdown");
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
 });
@@ -310,6 +311,26 @@ test("optional completion summary survives restoration and history is read-only"
 		assert.ok(restored.events.some(e => e.kind === "notify" && e.text.includes("focused tests passed")));
 		assert.equal(decodePlanLifecycle({ sequence: 1, status: "completed", completionSummary: 42 }), undefined);
 		assert.ok(decodePlanLifecycle({ sequence: 1, status: "completed" }));
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
+});
+
+test("transferred source plans restore as history and allow a new task", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-transferred-source-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const data = { version: STATE_VERSION, selectedMode: "plan", toolsBeforeModes: ["read", "write", "edit", "bash"], planSessionId: "session", collection: { records: [{ plan: { sequence: 1, status: "transferred", task: { title: "Transferred task", scope: "Implement elsewhere", decisions: [] } } }], attached: null, counter: 1 } };
+		const h = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data }]);
+		await h.event("session_start", { reason: "resume" });
+		assert.equal(h.state().collection.attached, null);
+		assert.ok(!h.active().includes("plan_complete"));
+		const context = await h.event("context", { messages: [] });
+		assert.doesNotMatch(context.messages[0].content, /Transferred task|Implement elsewhere/);
+		assert.match(context.messages[0].content, /No canonical writable plan path/);
+		await h.command("history");
+		assert.ok(h.events.some((event) => event.kind === "notify" && /transferred[\s\S]*Implementation transferred to a linked session/i.test(event.text)));
+		await h.tool("plan_task", { action: "new", expectedAttached: null, title: "Next task", scope: "Continue in this source session" });
+		assert.equal(h.state().collection.attached, 2);
+		assert.equal(h.record().plan.task.title, "Next task");
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
 });
 
@@ -1450,7 +1471,13 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 					const child = harness(dir, [], "destination");
 					child.ctx.mode = mode;
 					const destination = child.events;
+					const sourceManager = SessionManager.create(dir, fs.mkdtempSync(path.join(dir, "source-session-")));
+					sourceManager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Planning complete" }], provider: "test", model: "test", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() } as any);
+					const sourceFile = sourceManager.getSessionFile()!;
+					h.ctx.sessionManager.getSessionFile = () => sourceFile;
 					(h.ctx as any).newSession = async ({ setup, withSession }: any) => {
+						await h.event("session_shutdown");
+						await child.event("session_start", { reason: "new" });
 						await setup({
 							getSessionId: () => "destination",
 							appendModelChange() {}, appendThinkingLevelChange() {},
@@ -1460,10 +1487,6 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 						assert.equal(child.state().pendingFreshAnnouncement, true);
 						assert.equal(child.state().version, STATE_VERSION);
 						assert.equal(child.record().plan.task.title, "Approved task title");
-						assert.equal(destination.length, 0);
-						await h.event("session_shutdown");
-						await child.event("session_start", { reason: "new" });
-						assert.equal(child.state().pendingFreshAnnouncement, true);
 						assert.equal(child.state().collection.records.length, 1);
 						assert.equal(destination.some(e => e.kind === "render" || e.text === PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"]), false);
 						await withSession({
@@ -1479,6 +1502,10 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 						return { cancelled: false };
 					};
 					await h.commands.get("build-fresh").handler("", h.ctx);
+					const sourceState = latestPlanState(SessionManager.open(sourceFile).getBranch())!;
+					assert.equal(sourceState.collection!.attached, null);
+					assert.equal((sourceState.collection as any).records[0].plan.status, "transferred");
+					assert.ok(child.active().includes("plan_complete"), "the destination must adopt setup state before kickoff");
 					const noticeType = "pi-plan-build-fresh-announcement";
 					const user = destination.findIndex(e => e.kind === "user");
 					const assistant = destination.findIndex(e => e.kind === "assistant");
@@ -1586,13 +1613,13 @@ test("failed fresh-session setup does not announce success or start implementati
 		await h.tool("plan_exit");
 		const child = harness(dir, [], "failed-destination");
 		(h.ctx as any).newSession = async ({ setup, withSession }: any) => {
+			await h.event("session_shutdown");
+			await child.event("session_start", { reason: "new" });
 			await setup({
 				getSessionId: () => "failed-destination",
 				appendModelChange() { throw new Error("setup failure"); },
 				appendCustomEntry: (customType: string, data: any) => child.entries.push({ type: "custom", customType, data }),
 			});
-			await h.event("session_shutdown");
-			await child.event("session_start", { reason: "new" });
 			await withSession({
 				...child.ctx,
 				ui: { ...child.ctx.ui, setEditorText: (text: string) => child.events.push({ kind: "editor", text }) },
@@ -1605,12 +1632,55 @@ test("failed fresh-session setup does not announce success or start implementati
 		assert.equal(child.events.some(e => e.kind === "notify" && e.text.includes("setup failed: setup failure")), true);
 		assert.equal(child.events.some(e => e.kind === "editor" && e.text.includes("# Approved plan")), true);
 		assert.equal(child.state().pendingFreshAnnouncement, undefined);
+		assert.equal(h.state().collection.attached, 1, "setup failure must leave the source plan open");
 		await child.event("session_shutdown");
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
 		else process.env.PI_CODING_AGENT_DIR = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
+});
+
+test("kickoff failure keeps the transferred source and open destination fallback", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-fresh-kickoff-failure-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		await h.command("new");
+		fs.writeFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), "# Approved plan\n");
+		h.ctx.ui.select = async () => PLAN_EXIT_FRESH_CHOICE;
+		await h.tool("plan_exit");
+		const sourceManager = SessionManager.create(dir, fs.mkdtempSync(path.join(dir, "source-session-")));
+		sourceManager.appendMessage({ role: "assistant", content: [{ type: "text", text: "Planning complete" }], provider: "test", model: "test", usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } }, stopReason: "stop", timestamp: Date.now() } as any);
+		const sourceFile = sourceManager.getSessionFile()!;
+		h.ctx.sessionManager.getSessionFile = () => sourceFile;
+		const child = harness(dir, [], "kickoff-destination");
+		(h.ctx as any).newSession = async ({ setup, withSession }: any) => {
+			await h.event("session_shutdown");
+			await child.event("session_start", { reason: "new" });
+			await setup({
+				getSessionId: () => "kickoff-destination",
+				appendModelChange() {}, appendThinkingLevelChange() {},
+				appendCustomEntry: (customType: string, data: any) => child.entries.push({ type: "custom", customType, data }),
+			});
+			await withSession({
+				...child.ctx,
+				ui: { ...child.ctx.ui, setEditorText: (text: string) => child.events.push({ kind: "editor", text }) },
+				sendUserMessage: async () => { throw new Error("kickoff failure"); },
+			});
+			return { cancelled: false };
+		};
+		await h.commands.get("build-fresh").handler("", h.ctx);
+		const sourceState = latestPlanState(SessionManager.open(sourceFile).getBranch())!;
+		assert.equal((sourceState.collection as any).records[0].plan.status, "transferred");
+		assert.equal(sourceState.collection!.attached, null);
+		assert.equal(child.state().collection.attached, 1);
+		assert.equal(child.record().plan.status, "open");
+		assert.ok(child.events.some((event) => event.kind === "editor" && event.text.includes("# Approved plan")));
+		assert.ok(child.events.some((event) => event.kind === "notify" && event.text.includes("implementation did not start: kickoff failure")));
+		await child.event("session_shutdown");
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
 });
 
 test("accumulated context is current, bounded, and read-only with one snapshot per transition", async () => {
@@ -1626,7 +1696,7 @@ test("accumulated context is current, bounded, and read-only with one snapshot p
 		let count = snapshots();
 		await h.callTool("plan_task", { action: "new", expectedAttached: null, title: "Stable task", scope: "Stable scope" });
 		assert.equal(snapshots(), count + 1, "new plus metadata commits once");
-		assert.equal(h.state().version, 3);
+		assert.equal(h.state().version, STATE_VERSION);
 		assert.equal("plan" in h.state(), false);
 		assert.equal("execution" in h.state(), false);
 		const obsolete = { role: "custom", customType: "pi-plan-build-reminder", content: "Obsolete implementation" };
@@ -2038,6 +2108,14 @@ test("malformed modern state fails closed and branch allocation reads numeric hi
 
 test("lifecycle decoding and sequence paths reject invalid state", () => {
 	assert.deepEqual(decodePlanLifecycle({ sequence: 2, status: "completed" }), { sequence: 2, status: "completed" });
+	assert.deepEqual(decodePlanLifecycle({ sequence: 3, status: "transferred", outcome: { kind: "blocked", reason: "old" }, completionSummary: "not complete" }), { sequence: 3, status: "transferred" });
+	const source = { version: STATE_VERSION, selectedMode: "plan" as const, toolsBeforeModes: ["read"], collection: { records: [{ plan: { sequence: 3, status: "open" as const, outcome: { kind: "blocked" as const, reason: "old" } }, execution: createPlanExecution("## Implementation Steps\n1. Work\n") }], attached: 3, counter: 3 } };
+	const transferred = transferredState(source);
+	assert.equal(source.collection.attached, 3, "building the handoff snapshot must not mutate live source state");
+	assert.equal(transferred.collection.attached, null);
+	assert.deepEqual(transferred.collection.records[0], { plan: { sequence: 3, status: "transferred" } });
+	assert.throws(() => transferredState(transferred), /No open source plan/);
+	assert.equal(restoreCollection({ version: 3, collection: structuredClone(source.collection) }, () => "absent").attached, 3, "version 3 collections remain supported");
 	for (const sequence of [-1, NaN, 1.5, "2", Number.MAX_SAFE_INTEGER + 1]) {
 		assert.equal(decodePlanLifecycle({ sequence, status: "open" }), undefined);
 	}

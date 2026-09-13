@@ -1,15 +1,16 @@
 import fs from "node:fs";
 import path from "node:path";
-import { getAgentDir, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import { getAgentDir, SessionManager, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
 import { buildFreshImplementationHandoff, makePlanPath, type FreshImplementationRequest, type PlanTask } from "./utils.ts";
-import { STATE_VERSION, STATE_TYPE, type StoredState } from "./plan-state.ts";
+import { STATE_VERSION, STATE_TYPE, transferredState, type StoredState } from "./plan-state.ts";
 
 export interface ApprovedHandoff extends FreshImplementationRequest {
 	readonly task?: PlanTask;
 	readonly tools: string[];
+	readonly transferredSourceState: StoredState;
 }
-export function handoffSnapshot(request: FreshImplementationRequest, task: PlanTask | undefined, tools: string[]): ApprovedHandoff {
-	const snapshot = structuredClone({ ...request, ...(task ? { task } : {}), tools });
+export function handoffSnapshot(request: FreshImplementationRequest, task: PlanTask | undefined, tools: string[], sourceState: StoredState): ApprovedHandoff {
+	const snapshot = structuredClone({ ...request, ...(task ? { task } : {}), tools, transferredSourceState: transferredState(sourceState) });
 	if (snapshot.model) Object.freeze(snapshot.model);
 	if (snapshot.task) {
 		for (const decision of snapshot.task.decisions) Object.freeze(decision);
@@ -17,6 +18,7 @@ export function handoffSnapshot(request: FreshImplementationRequest, task: PlanT
 		Object.freeze(snapshot.task);
 	}
 	Object.freeze(snapshot.tools);
+	Object.freeze(snapshot.transferredSourceState);
 	return Object.freeze(snapshot);
 }
 
@@ -78,6 +80,11 @@ export async function startFreshHandoff(pi: ExtensionAPI, ctx: ExtensionCommandC
 						collection: { records: [{ plan: { sequence: 1, status: "open", ...(sourceTask ? { task: sourceTask } : {}) } }], attached: 1, counter: 1 },
 						planSessionId: sessionManager.getSessionId(),
 					} satisfies StoredState);
+					if (parentSession) {
+						const size = (await fs.promises.stat(parentSession)).size;
+						SessionManager.open(parentSession).appendCustomEntry(STATE_TYPE, request.transferredSourceState);
+						if ((await fs.promises.stat(parentSession)).size <= size) throw new Error("Source plan transfer was not persisted");
+					}
 				} catch (error: unknown) {
 					setupError = error instanceof Error ? error.message : String(error);
 				}

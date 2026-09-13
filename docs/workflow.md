@@ -10,7 +10,7 @@
 4. Approve implementation **here**, in a **clean linked session**, or **step by step** (experimental; sidebar optional). Staying in Plan—or Escape—stops the run and waits for your next message.
 5. After implementation and required verification, the agent records completion. Essential user-only validation keeps the same plan attached, with a bold accent **Awaiting your validation** heading at the end of the turn and precise regular-color instructions beneath it. Optional feedback does not hold completion open.
 
-One task retains its file, identity, decisions, and progress through mode changes and revisions. Approval and idleness never imply completion. Before starting another plan, complete the current plan or explicitly abandon it. Abandonment preserves the file but never implies success and cannot be resumed. **Pausing step execution** is separate: it retains the current plan and progress but permits no implementation until execution is resumed.
+One task retains its file, identity, decisions, and progress through mode changes and revisions. Approval and idleness never imply completion. Before starting another plan, complete the current plan or explicitly abandon it. Abandonment preserves the file but never implies success and cannot be resumed. A successful clean-session handoff is different: it transfers ownership, detaches the source record into history, and keeps only the destination copy open. **Pausing step execution** is separate: it retains the current plan and progress but permits no implementation until execution is resumed.
 
 ## Task identity, files, and boundaries
 
@@ -39,7 +39,7 @@ Before applying an implementation choice, `plan_exit` checks that the attachment
 
 Each choice displays one next-action announcement. Fresh implementation announces in the destination **below the transferred plan and above the first assistant response**; other choices announce in the source. TUI announcements are durable; RPC receives notifications. Reload does not replay them.
 
-Fresh selection stops the source run and dispatches `/build-fresh`, which creates a linked session with an immutable approved-plan/model/thinking/task snapshot. It uses the destination context after replacement. Cancellation leaves the source request retryable; setup/kickoff failures put the request in the destination editor rather than falsely announcing success.
+Fresh selection stops the source run and dispatches `/build-fresh`, which creates a linked session with an immutable approved-plan/model/thinking/task snapshot. It uses the destination context after replacement. After destination setup stores the open plan, the source record is marked `transferred`, detached, and retained in history; returning to the source therefore shows no plan title or active-plan context and permits a new task. Cancellation and failures before ownership transfer leave the source plan open and retryable. A kickoff failure after transfer keeps the destination plan open and puts the request in its editor rather than falsely announcing success.
 
 Staying or Escape says “I’ll stay in Plan mode and wait for your next instruction,” terminates the run, and waits.
 
@@ -58,7 +58,7 @@ For hidden outcome reconciliation and compact tool rendering, see [Internals](in
 
 ## Inspect plans without a model turn
 
-Use `/plan show` to read the current plan, progress, and outstanding validation. Use `/plan history` for completed or abandoned plans tracked on the active session branch, including recorded summaries. These idle commands do not approve implementation or reopen plans.
+Use `/plan show` to read the current plan, progress, and outstanding validation. Use `/plan history` for completed, abandoned, or transferred plans tracked on the active session branch, including recorded summaries and transfer notices. These idle commands do not approve implementation or reopen plans.
 
 ## Step-by-step execution (experimental)
 

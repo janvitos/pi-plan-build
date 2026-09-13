@@ -32,7 +32,7 @@ Restart Pi or run `/reload`. Do not load multiple npm/Git/local copies simultane
 4. Choose **implement here**, **start fresh and implement**, or **step by step**. Choose **stay in Plan** or press Escape to stop and wait.
 5. After implementation and required checks, the agent records completion. Essential user-only validation keeps the plan open with clear instructions; optional feedback does not block completion.
 
-One plan stays current through discussion, mode changes, and revisions. Complete it or explicitly abandon it before starting another. Abandonment preserves the file but does not imply success or allow resumption.
+One plan stays current through discussion, mode changes, and revisions. Complete it or explicitly abandon it before starting another. Abandonment preserves the file but does not imply success or allow resumption. A successful clean-session handoff instead marks the source record transferred and moves it to history; only the destination copy remains open.
 
 [Workflow, approval, and validation →](docs/workflow.md)
 
@@ -48,7 +48,7 @@ One plan stays current through discussion, mode changes, and revisions. Complete
 | `/plan new` | Start a plan when none is unfinished |
 | `/plan list` | Show the current plan's brief status |
 | `/plan show` | Read the current plan, progress, and outstanding validation |
-| `/plan history` | Read completed/abandoned plans tracked on this session branch |
+| `/plan history` | Read completed, abandoned, and transferred plans tracked on this session branch |
 | `/plan done` | Explicitly mark work complete in Build |
 | `/plan abandon` | Confirm abandonment without deleting the plan file |
 | `/build-fresh` | Retry a pending approved clean-session handoff |

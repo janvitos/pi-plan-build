@@ -2,7 +2,7 @@ import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import { decodePlanExecution, type PlanExecutionState } from "./plan-execution.ts";
 import { decodePlanCollection, decodePlanLifecycle, type PlanCollection, type PlanFileState, type PlanLifecycle, type PlanOutcome, type PlanTask, type Mode } from "./utils.ts";
 
-export const STATE_VERSION = 3;
+export const STATE_VERSION = 4;
 export const STATE_TYPE = "pi-plan-build-state";
 export const LEGACY_STATE_TYPE = "opencode-modes-state";
 export interface StoredState {
@@ -36,9 +36,9 @@ export function latestPlanState(entries: readonly SessionEntry[]): LegacyState |
 
 /** One compatibility boundary. A present but unusable collection never falls back to its legacy mirror. */
 export function restoreCollection(raw: LegacyState | undefined, inspect: (sequence: number) => PlanFileState, inspectSource?: (sequence: number) => PlanFileState): PlanCollection {
-	if (raw?.version !== undefined && ![1, 2, STATE_VERSION].includes(raw.version)) throw new Error("Unsupported plan state version");
+	if (raw?.version !== undefined && ![1, 2, 3, STATE_VERSION].includes(raw.version)) throw new Error("Unsupported plan state version");
 	let collection: PlanCollection;
-	const hasCollection = !!raw && ("collection" in raw || raw.version === 2 || raw.version === STATE_VERSION);
+	const hasCollection = !!raw && ("collection" in raw || raw.version === 2 || raw.version === 3 || raw.version === STATE_VERSION);
 	if (hasCollection) {
 		const decoded = decodePlanCollection(raw!.collection);
 		if (!decoded) throw new Error("Malformed plan collection; refusing to discard tracked plans");
@@ -58,6 +58,20 @@ export function restoreCollection(raw: LegacyState | undefined, inspect: (sequen
 		return false;
 	});
 	return collection;
+}
+
+/** Build the source session's terminal snapshot without mutating its live state. */
+export function transferredState(state: StoredState): StoredState {
+	const snapshot = structuredClone(state);
+	const attached = snapshot.collection.records.find((record) => record.plan.sequence === snapshot.collection.attached);
+	if (!attached || attached.plan.status !== "open") throw new Error("No open source plan to transfer");
+	const { outcome: _outcome, abandonReason: _reason, completionSummary: _summary, ...plan } = attached.plan;
+	attached.plan = { ...plan, status: "transferred" };
+	delete attached.execution;
+	snapshot.collection.attached = null;
+	delete snapshot.pendingFreshAnnouncement;
+	delete snapshot.reconciliation;
+	return snapshot;
 }
 
 /** Recover allocation only, without decoding historical task/execution payloads. */

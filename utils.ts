@@ -287,7 +287,7 @@ export interface PlanOutcome {
 
 export interface PlanLifecycle {
 	sequence: number;
-	status: "open" | "completed" | "abandoned";
+	status: "open" | "completed" | "abandoned" | "transferred";
 	task?: PlanTask;
 	outcome?: PlanOutcome;
 	abandonReason?: string;
@@ -312,7 +312,7 @@ export function decodePlanLifecycle(value: unknown): PlanLifecycle | undefined {
 	if (!value || typeof value !== "object") return undefined;
 	const candidate = value as Partial<PlanLifecycle>;
 	if (!Number.isSafeInteger(candidate.sequence) || candidate.sequence! < 0 ||
-		(candidate.status !== "open" && candidate.status !== "completed" && candidate.status !== "abandoned")) return undefined;
+		(candidate.status !== "open" && candidate.status !== "completed" && candidate.status !== "abandoned" && candidate.status !== "transferred")) return undefined;
 	const task = candidate.task;
 	const validTask = task && typeof task.title === "string" && typeof task.scope === "string" &&
 		Array.isArray(task.decisions) && task.decisions.every((d) => d && typeof d.topic === "string" && (d.outcome === "include" || d.outcome === "discussion"));

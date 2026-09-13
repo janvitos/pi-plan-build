@@ -423,8 +423,11 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				try {
 					plans.assertUsable();
 					if (action === "history") {
-						const records = plans.collection.records.filter(({ plan }) => plan.status === "completed" || plan.status === "abandoned");
-						displayInspection(ctx, records.length ? records.map(({ plan }) => `## ${plan.sequence}: ${plan.task?.title ?? "Untitled task"}\n\n${plan.status}\n\n${planPathFor(plan.sequence, ctx)}\n\n${plan.abandonReason ?? plan.completionSummary ?? "No completion summary recorded."}`).join("\n\n") : "No completed or abandoned plans on this session branch.");
+						const records = plans.collection.records.filter(({ plan }) => plan.status !== "open");
+						displayInspection(ctx, records.length ? records.map(({ plan }) => {
+							const detail = plan.status === "transferred" ? "Implementation transferred to a linked session." : plan.abandonReason ?? plan.completionSummary ?? "No completion summary recorded.";
+							return `## ${plan.sequence}: ${plan.task?.title ?? "Untitled task"}\n\n${plan.status}\n\n${planPathFor(plan.sequence, ctx)}\n\n${detail}`;
+						}).join("\n\n") : "No completed, abandoned, or transferred plans on this session branch.");
 					} else if (!plans.attached) displayInspection(ctx, "Current plan: none.");
 					else {
 						const file = currentPlanPath();
@@ -968,7 +971,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					plan,
 					buildPair ? { provider: buildPair.provider, id: buildPair.modelId } : ctx.model ? { provider: ctx.model.provider, id: ctx.model.id } : undefined,
 					buildPair?.thinkingLevel ?? pi.getThinkingLevel(),
-				), plans.plan.task, toolsBeforeModes);
+				), plans.plan.task, toolsBeforeModes, stateData());
 				pi.sendUserMessage("/build-fresh", {
 					deliverAs: "followUp",
 					expandPromptTemplates: true,
@@ -1122,6 +1125,15 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	pi.on("before_agent_start", async (_event, ctx) => {
+		// Pi starts the replacement extension before newSession.setup appends the
+		// handoff state. Adopt that one late snapshot before the kickoff request.
+		const setupState = latestPlanState(ctx.sessionManager.getBranch());
+		if (plans.collection.attached === null && setupState?.pendingFreshAnnouncement === true) {
+			selectedMode = decodeModeState(setupState)?.selectedMode ?? "build";
+			pendingFreshAnnouncement = true;
+			restorePlanState(setupState, ctx);
+			composer.update(ctx);
+		}
 		try { await modeSelections.apply(pendingMode ?? selectedMode, ctx); }
 		catch (error) { ctx.ui.notify(`Keeping the current model: ${String(error)}`, "warning"); }
 		const announceFresh = pendingFreshAnnouncement;
