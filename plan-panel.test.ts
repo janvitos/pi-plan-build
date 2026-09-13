@@ -45,7 +45,8 @@ test("only steps scroll while status and guidance remain fixed", () => {
 	scrollers[0]!.scrollBy(100);
 	const after = renderLayoutFrame(panel, 64, 14, () => {});
 	assert.deepEqual(after.lines.slice(0, 4), before.lines.slice(0, 4), "plan progress and status stay pinned");
-	assert.deepEqual(after.lines.slice(-6), before.lines.slice(-6), "both guidance entries stay pinned");
+	const guidanceStart = before.lines.findLastIndex((line) => line.startsWith("├"));
+	assert.deepEqual(after.lines.slice(guidanceStart), before.lines.slice(guidanceStart), "the guidance stays pinned");
 	assert.doesNotMatch(after.lines.join("\n"), /1\. Implementation step 1/);
 	assert.match(after.lines.join("\n"), /8\. Implementation step 8/);
 });
@@ -70,10 +71,23 @@ test("passive panel renders steps within its reserved width with concise guidanc
 	}
 });
 
+test("guidance highlights its heading and action words", () => {
+	const bolded: string[] = [];
+	const capture = { ...theme, bold(text: string) { bolded.push(text); return text; } };
+	new PlanPanel(makeState(), capture).render(64);
+	for (const text of ["You can:", "Proceed", "Revise", "skip", "Pause", "stop", "Complete"]) {
+		assert.ok(bolded.includes(text), `${text} should be bold`);
+	}
+	assert.equal(bolded.some((text) => text.includes("next step")), false, "supporting copy remains regular weight");
+});
+
 test("keeps complete guidance in the last cell across states and step transitions", () => {
 	const expected = [
-		"Say “Proceed” to start the next step. You can complete the whole plan at any time.",
-		"Use your own words to revise or skip a step, pause, or stop execution.",
+		"You can:",
+		"- Proceed with the next step.",
+		"- Revise or skip a step.",
+		"- Pause or stop execution.",
+		"- Complete the plan at any time.",
 	].join(" ");
 	const ready = makeState();
 	const active = startPlanStep(ready, "step-1");

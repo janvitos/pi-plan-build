@@ -110,9 +110,13 @@ class PlanPanelGuidance implements Component {
 	render(width: number): string[] {
 		const { inner, contentWidth, border, pad, fit } = panelFrame(width, this.theme);
 		const lines = [border(`├${"─".repeat(inner)}┤`)];
+		const bold = (text: string) => this.theme.bold(text);
 		for (const entry of [
-			"Say “Proceed” to start the next step. You can complete the whole plan at any time.",
-			"Use your own words to revise or skip a step, pause, or stop execution.",
+			bold("You can:"),
+			`- ${bold("Proceed")} with the next step.`,
+			`- ${bold("Revise")} or ${bold("skip")} a step.`,
+			`- ${bold("Pause")} or ${bold("stop")} execution.`,
+			`- ${bold("Complete")} the plan at any time.`,
 		]) {
 			for (const line of wrapTextWithAnsi(entry, contentWidth)) lines.push(pad(line));
 		}
