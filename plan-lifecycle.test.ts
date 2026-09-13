@@ -79,7 +79,7 @@ function harness(dir: string, entries: any[] = [], sessionId = "session", initia
 	return {
 		ctx, pi, events, commands, tools, entryRenderers, messageRenderers, flags,
 		setFlag: (name: string, value: boolean) => { flagValues.set(name, value); },
-		entries, active: () => active, setActive: (next: string[]) => { active = [...next]; }, setIdle: (value: boolean) => { idle = value; },
+		entries, active: () => active, setActive: (next: string[]) => { active = [...next]; }, setIdle: (value: boolean) => { idle = value; }, seedActiveTool: (name: string) => { active = [...active, name]; },
 		event: emit,
 		prompt: async (text: string) => {
 			await emit("input", { source: "interactive", text });
@@ -210,6 +210,76 @@ test("/plan-settings saves the default startup mode and preserves unrelated sett
 		assert.ok(h.events.some((event) => event.kind === "notify" && event.text.includes("New sessions start in Plan mode")));
 		const before = fs.readFileSync(file, "utf8");
 		answers = ["Default mode (active: plan)", undefined];
+		await h.commands.get("plan-settings").handler("", h.ctx);
+		assert.equal(fs.readFileSync(file, "utf8"), before);
+		await h.event("session_shutdown");
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
+});
+
+test("the question tool is optional and an unmanaged host question tool survives when it is disabled", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-question-tool-off-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		fs.writeFileSync(path.join(dir, "pi-plan-build.json"), JSON.stringify({ questionTool: false }));
+
+		const disabled = harness(dir);
+		await disabled.event("session_start", { reason: "startup" });
+		assert.equal(disabled.tools.has("question"), false, "the plugin must not register the question tool when it is disabled");
+		assert.ok(!disabled.active().includes("question"), "a disabled question tool must stay out of the active set");
+		await disabled.event("session_shutdown");
+
+		const host = harness(dir);
+		host.seedActiveTool("question");
+		await host.event("session_start", { reason: "startup" });
+		assert.equal(host.tools.has("question"), false);
+		assert.ok(host.active().includes("question"), "an unmanaged host question tool must stay active when the plugin does not manage it");
+		await host.event("session_shutdown");
+
+		// A persisted snapshot describes the previous runtime, so only a live host question tool keeps it active.
+		const stale = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data: { version: STATE_VERSION, selectedMode: "build", collection: { records: [], attached: null, counter: 0 }, toolsBeforeModes: ["read", "question"] } }], "session", ["read", "write", "edit", "bash"]);
+		await stale.event("session_start", { reason: "resume" });
+		assert.ok(!stale.active().includes("question"), "a stale persisted question tool must not resurrect a tool the host no longer provides");
+		await stale.event("session_shutdown");
+
+		const restored = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data: { version: STATE_VERSION, selectedMode: "build", collection: { records: [], attached: null, counter: 0 }, toolsBeforeModes: ["read", "question"] } }], "session", ["read", "write", "edit", "bash", "question"]);
+		await restored.event("session_start", { reason: "resume" });
+		assert.ok(restored.active().includes("question"), "an unmanaged live host question tool must survive restoration when the plugin's tool is disabled");
+		assert.ok(restored.entryRenderers.has("pi-plan-build-question-notice"), "restored cancelled-question notices must keep an entry renderer");
+		const renderNotice = restored.entryRenderers.get("pi-plan-build-question-notice");
+		const notice = renderNotice({ type: "custom", customType: "pi-plan-build-question-notice", data: { message: "You chose not to answer the question(s). Awaiting your instructions." } }, { expanded: false }, restored.ctx.ui.theme);
+		assert.match(notice.render(120).join("\n"), /Awaiting your instructions/);
+		await restored.event("session_shutdown");
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
+});
+
+test("/plan-settings toggles the question tool immediately without reloading", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-question-tool-toggle-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const file = path.join(dir, "pi-plan-build.json");
+		fs.writeFileSync(file, JSON.stringify({ questionTool: true, showPlanTitle: true, shortcuts: { toggleMode: ["alt+m"], future: "value" } }));
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		assert.ok(h.active().includes("question"), "the default keeps the question tool active");
+		let answers: any[] = ["Question tool (active: on)", "Off"];
+		h.ctx.ui.select = async () => answers.shift();
+		await h.commands.get("plan-settings").handler("", h.ctx);
+		const saved = JSON.parse(fs.readFileSync(file, "utf8"));
+		assert.equal(saved.questionTool, false);
+		assert.equal(saved.showPlanTitle, true);
+		assert.deepEqual(saved.shortcuts, { toggleMode: ["alt+m"], future: "value" });
+		assert.ok(!h.active().includes("question"), "disabling must drop the question tool from the active set without a reload");
+		assert.ok(h.events.some((event) => event.kind === "notify" && event.text === "Question tool off."));
+
+		answers = ["Question tool (active: off)", "On (default)"];
+		await h.commands.get("plan-settings").handler("", h.ctx);
+		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).questionTool, true);
+		assert.ok(h.tools.has("question"), "re-enabling must register the question tool again");
+		assert.ok(h.active().includes("question"), "re-enabling must activate the question tool again");
+		assert.ok(h.events.some((event) => event.kind === "notify" && event.text === "Question tool on."));
+
+		const before = fs.readFileSync(file, "utf8");
+		answers = ["Question tool (active: on)", undefined];
 		await h.commands.get("plan-settings").handler("", h.ctx);
 		assert.equal(fs.readFileSync(file, "utf8"), before);
 		await h.event("session_shutdown");

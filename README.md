@@ -66,6 +66,7 @@ Open `/plan-settings`:
 | Shortcuts | Tab + Alt+M | Open its submenu to choose Alt+M only, disable shortcuts, or configure custom keys; reload to apply |
 | Plan title | Off | Show the current task's title in the composer; applies immediately |
 | Per-mode model/thinking | Off | Remember separate Plan and Build selections; applies immediately |
+| Question tool | On | Provide this extension's structured `question` tool; off leaves a `question` tool from another extension alone |
 
 When per-mode memory is enabled, use Pi's normal model picker and thinking controls in each mode. Switching modes restores that mode's last pair. Disabling leaves the current selection unchanged.
 
