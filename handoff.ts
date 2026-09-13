@@ -4,6 +4,8 @@ import { getAgentDir, SessionManager, type ExtensionAPI, type ExtensionCommandCo
 import { buildFreshImplementationHandoff, makePlanPath, type FreshImplementationRequest, type PlanTask } from "./utils.ts";
 import { STATE_VERSION, STATE_TYPE, transferredState, type StoredState } from "./plan-state.ts";
 
+export const SOURCE_TRANSFER_NOTICE = "Plan transferred to the new implementation session. You can start a new plan here.";
+
 export interface ApprovedHandoff extends FreshImplementationRequest {
 	readonly task?: PlanTask;
 	readonly tools: string[];

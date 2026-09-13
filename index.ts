@@ -30,7 +30,7 @@ import {
 	updatePlanStepInstruction,
 	type PlanExecutionState,
 } from "./plan-execution.ts";
-import { handoffSnapshot, startFreshHandoff, type ApprovedHandoff } from "./handoff.ts";
+import { handoffSnapshot, SOURCE_TRANSFER_NOTICE, startFreshHandoff, type ApprovedHandoff } from "./handoff.ts";
 import { createComposer } from "./composer.ts";
 import { collectTranscriptModeRecords, installUserMessageRail } from "./user-message-rail.ts";
 import {
@@ -188,6 +188,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		notice.addChild(new Markdown(userAction, 1, 0, getMarkdownTheme()));
 		return notice;
 	};
+	pi.registerEntryRenderer<StoredState>(STATE_TYPE, (entry, _options, theme) =>
+		entry.data?.sourceTransferNotice === true ? new Text(theme.fg("success", SOURCE_TRANSFER_NOTICE), 0, 0) : new Container());
 	pi.registerEntryRenderer<{ markdown: string }>("pi-plan-build-inspection", (entry) =>
 		new Markdown(entry.data?.markdown ?? "Plan inspection unavailable", 0, 0, getMarkdownTheme()));
 	pi.registerEntryRenderer<{ plan: string }>(PLAN_REVIEW_ENTRY_TYPE, renderPlanReview);

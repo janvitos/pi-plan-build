@@ -11,6 +11,7 @@ import { STATE_VERSION, restoreCollection, allocationHighWater, latestPlanState,
 import planBuildModes from "./index.ts";
 import { COMPLETION_GUIDANCE } from "./prompts.ts";
 import { createPlanExecution } from "./plan-execution.ts";
+import { SOURCE_TRANSFER_NOTICE } from "./handoff.ts";
 import { decodePlanLifecycle, makePlanPath, PLAN_EXIT_APPROVE_CHOICE, PLAN_EXIT_FRESH_CHOICE, PLAN_EXIT_STAY_CHOICE, PLAN_ACTION_ANNOUNCEMENTS, planActionTone } from "./utils.ts";
 
 function harness(dir: string, entries: any[] = [], sessionId = "session", initialActive = ["read", "write", "edit", "bash"]) {
@@ -249,6 +250,7 @@ test("enabled per-mode selection defers manual routing until the active run sett
 		assert.equal(h.ctx.model.id, "planner", "cancelled handoff restores the planning selection");
 		assert.equal(level, "high");
 		assert.equal(h.state().collection.attached, 1, "cancelled handoff must leave the source plan open");
+		assert.equal(h.state().sourceTransferNotice, undefined, "cancelled handoff must not announce a transfer");
 		await h.event("session_shutdown");
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
 });
@@ -318,7 +320,7 @@ test("transferred source plans restore as history and allow a new task", async (
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-transferred-source-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	try {
-		const data = { version: STATE_VERSION, selectedMode: "plan", toolsBeforeModes: ["read", "write", "edit", "bash"], planSessionId: "session", collection: { records: [{ plan: { sequence: 1, status: "transferred", task: { title: "Transferred task", scope: "Implement elsewhere", decisions: [] } } }], attached: null, counter: 1 } };
+		const data = { version: STATE_VERSION, selectedMode: "plan", toolsBeforeModes: ["read", "write", "edit", "bash"], planSessionId: "session", sourceTransferNotice: true, collection: { records: [{ plan: { sequence: 1, status: "transferred", task: { title: "Transferred task", scope: "Implement elsewhere", decisions: [] } } }], attached: null, counter: 1 } };
 		const h = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data }]);
 		await h.event("session_start", { reason: "resume" });
 		assert.equal(h.state().collection.attached, null);
@@ -326,11 +328,15 @@ test("transferred source plans restore as history and allow a new task", async (
 		const context = await h.event("context", { messages: [] });
 		assert.doesNotMatch(context.messages[0].content, /Transferred task|Implement elsewhere/);
 		assert.match(context.messages[0].content, /No canonical writable plan path/);
+		const ordinaryState = h.entryRenderers.get("pi-plan-build-state")({ data: { ...data, sourceTransferNotice: undefined } }, { expanded: false }, { fg: (_color: string, text: string) => text });
+		assert.deepEqual(ordinaryState.render(160), [], "ordinary lifecycle snapshots remain invisible");
 		await h.command("history");
 		assert.ok(h.events.some((event) => event.kind === "notify" && /transferred[\s\S]*Implementation transferred to a linked session/i.test(event.text)));
 		await h.tool("plan_task", { action: "new", expectedAttached: null, title: "Next task", scope: "Continue in this source session" });
 		assert.equal(h.state().collection.attached, 2);
 		assert.equal(h.record().plan.task.title, "Next task");
+		assert.equal(h.state().sourceTransferNotice, undefined, "later state snapshots must not duplicate the historical notice");
+		assert.equal(h.entries.filter((entry) => entry.data?.sourceTransferNotice === true).length, 1);
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
 });
 
@@ -1505,6 +1511,11 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 					const sourceState = latestPlanState(SessionManager.open(sourceFile).getBranch())!;
 					assert.equal(sourceState.collection!.attached, null);
 					assert.equal((sourceState.collection as any).records[0].plan.status, "transferred");
+					assert.equal(sourceState.sourceTransferNotice, true);
+					const noticeColors: Array<{ color: string; text: string }> = [];
+					const sourceNotice = h.entryRenderers.get("pi-plan-build-state")({ data: sourceState }, { expanded: false }, { fg: (color: string, text: string) => { noticeColors.push({ color, text }); return text; } });
+					assert.equal(sourceNotice.render(160).join("\n").trimEnd(), SOURCE_TRANSFER_NOTICE);
+					assert.ok(noticeColors.some((call) => call.color === "success" && call.text === SOURCE_TRANSFER_NOTICE));
 					assert.ok(child.active().includes("plan_complete"), "the destination must adopt setup state before kickoff");
 					const noticeType = "pi-plan-build-fresh-announcement";
 					const user = destination.findIndex(e => e.kind === "user");
@@ -1633,6 +1644,7 @@ test("failed fresh-session setup does not announce success or start implementati
 		assert.equal(child.events.some(e => e.kind === "editor" && e.text.includes("# Approved plan")), true);
 		assert.equal(child.state().pendingFreshAnnouncement, undefined);
 		assert.equal(h.state().collection.attached, 1, "setup failure must leave the source plan open");
+		assert.equal(h.state().sourceTransferNotice, undefined, "setup failure must not announce a transfer");
 		await child.event("session_shutdown");
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -2114,6 +2126,7 @@ test("lifecycle decoding and sequence paths reject invalid state", () => {
 	assert.equal(source.collection.attached, 3, "building the handoff snapshot must not mutate live source state");
 	assert.equal(transferred.collection.attached, null);
 	assert.deepEqual(transferred.collection.records[0], { plan: { sequence: 3, status: "transferred" } });
+	assert.equal(transferred.sourceTransferNotice, true);
 	assert.throws(() => transferredState(transferred), /No open source plan/);
 	assert.equal(restoreCollection({ version: 3, collection: structuredClone(source.collection) }, () => "absent").attached, 3, "version 3 collections remain supported");
 	for (const sequence of [-1, NaN, 1.5, "2", Number.MAX_SAFE_INTEGER + 1]) {

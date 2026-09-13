@@ -12,6 +12,7 @@ export interface StoredState {
 	toolsBeforeModes: string[];
 	planSessionId?: string;
 	pendingFreshAnnouncement?: boolean;
+	sourceTransferNotice?: true;
 	// Run eligibility/failure/terminal flags are deliberately not durable.
 	reconciliation?: { sequence: number; sessionId: string; consumed: true };
 }
@@ -25,6 +26,7 @@ export interface LegacyState {
 	toolsBeforeModes?: string[];
 	planSessionId?: string;
 	pendingFreshAnnouncement?: boolean;
+	sourceTransferNotice?: boolean;
 	reconciliation?: unknown;
 }
 
@@ -69,6 +71,7 @@ export function transferredState(state: StoredState): StoredState {
 	attached.plan = { ...plan, status: "transferred" };
 	delete attached.execution;
 	snapshot.collection.attached = null;
+	snapshot.sourceTransferNotice = true;
 	delete snapshot.pendingFreshAnnouncement;
 	delete snapshot.reconciliation;
 	return snapshot;
