@@ -9,8 +9,8 @@ import { Type } from "typebox";
 import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker } from "./tool-presentation.ts";
 import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
 import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
-import { registerQuestionTool } from "./question-ui.ts";
-import { loadShortcutConfig, saveDefaultMode, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { registerQuestionNotice, registerQuestionTool } from "./question-ui.ts";
+import { loadShortcutConfig, saveDefaultMode, saveQuestionTool, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
 	COMPLETION_ROUTING_GUIDANCE,
 	PLAN_EXIT_DESCRIPTION,
@@ -77,8 +77,16 @@ const PLAN_STEP_GUIDANCE_ENTRY_TYPE = "pi-plan-build-step-guidance";
 const VALIDATION_NOTICE_ENTRY_TYPE = "pi-plan-build-validation-notice";
 const FRESH_ANNOUNCEMENT_MESSAGE_TYPE = "pi-plan-build-fresh-announcement";
 const PLAN_STEP_CHOICE = "Implement step by step";
-const MANAGED_TOOLS = new Set(["question", "plan_task", "plan_exit", "plan_step_control", "plan_step_complete", "plan_complete", "plan_finish"]);
-const MODE_ADDED_TOOLS = new Set([...MANAGED_TOOLS, "edit", "write"]);
+const MANAGED_PLAN_TOOLS = ["plan_task", "plan_exit", "plan_step_control", "plan_step_complete", "plan_complete", "plan_finish"];
+const MODE_ONLY_TOOLS = ["edit", "write"];
+
+function managedToolsFor(questionTool: boolean): Set<string> {
+	return new Set(questionTool ? [...MANAGED_PLAN_TOOLS, "question"] : MANAGED_PLAN_TOOLS);
+}
+
+function modeAddedToolsFor(managedTools: Set<string>): Set<string> {
+	return new Set([...managedTools, ...MODE_ONLY_TOOLS]);
+}
 const EMPTY_PARAMETERS = Type.Object({});
 
 
@@ -91,7 +99,7 @@ function shorten(filePath: string, cwd: string): string {
 
 export default function planBuildModes(pi: ExtensionAPI): void {
 	const shortcutAgentDir = getAgentDir();
-	const { config: shortcutConfig, showPlanTitle, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
+	const { config: shortcutConfig, showPlanTitle, questionTool: configuredQuestionTool, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
 	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
 	let defaultMode: Mode = configuredDefaultMode;
@@ -113,6 +121,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let savedPlanState: "saved" | "absent" | "unavailable" = "absent";
 	let savedPlanHeading: string | undefined;
 	let toolsBeforeModes: string[] = [];
+	let questionToolEnabled = configuredQuestionTool;
+	let questionToolRegistered = false;
+	let managedTools = managedToolsFor(questionToolEnabled);
+	let modeAddedTools = modeAddedToolsFor(managedTools);
 	let currentContext: ExtensionContext | undefined;
 	let freshImplementationRequest: ApprovedHandoff | undefined;
 	const composerSettings = { ...shortcutConfig, showPlanTitle };
@@ -147,7 +159,11 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		default: false,
 	});
 
-	registerQuestionTool(pi);
+	const questionNotices = registerQuestionNotice(pi);
+	if (questionToolEnabled) {
+		registerQuestionTool(pi, questionNotices);
+		questionToolRegistered = true;
+	}
 	const modeNotices = noticeTracker(pi, MODE_NOTICE_ENTRY_TYPE);
 	const renderPlanReview: EntryRenderer<{ plan: string }> = (entry) => {
 		const plan = typeof entry.data?.plan === "string" ? entry.data.plan : "Plan unavailable";
@@ -251,25 +267,45 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	}
 
 	function discoverUnmanagedTools(): void {
-		const additions = pi.getActiveTools().filter((name) => !MODE_ADDED_TOOLS.has(name) && !toolsBeforeModes.includes(name));
+		const additions = pi.getActiveTools().filter((name) => !modeAddedTools.has(name) && !toolsBeforeModes.includes(name));
 		toolsBeforeModes = unique([...toolsBeforeModes, ...additions]);
 	}
 
 	function applyTools(mode: Mode): void {
 		discoverUnmanagedTools();
 		const base = [...toolsBeforeModes];
+		const questionTools = questionToolEnabled ? ["question"] : [];
 		if (mode === "plan") {
-			pi.setActiveTools(unique([...base, "edit", "write", "question", "plan_exit", "plan_task"]));
+			pi.setActiveTools(unique([...base, "edit", "write", ...questionTools, "plan_exit", "plan_task"]));
 		} else {
 			pi.setActiveTools(unique([
 				...base,
-				"question",
+				...questionTools,
 				"plan_task",
 				...(plans.collection.attached !== null && plans.plan.status === "open" ? ["plan_complete", "plan_finish"] : []),
 				...(plans.execution && plans.execution.status !== "completed" ? ["plan_step_control"] : []),
 				...(plans.collection.attached !== null && completablePlanStep() ? ["plan_step_complete"] : []),
 			]));
 		}
+	}
+
+	/** Pi has no unregister API: disabling removes the tool from the active set while the notice renderer stays registered. */
+	function setQuestionToolEnabled(enabled: boolean, ctx: ExtensionContext): void {
+		questionToolEnabled = enabled;
+		managedTools = managedToolsFor(enabled);
+		modeAddedTools = modeAddedToolsFor(managedTools);
+		toolsBeforeModes = toolsBeforeModes.filter((name) => name !== "question");
+		if (enabled) {
+			if (!questionToolRegistered) {
+				registerQuestionTool(pi, questionNotices);
+				questionToolRegistered = true;
+			}
+		} else {
+			// Deactivate before rediscovering tools so an unmanaged "question" is not re-adopted into toolsBeforeModes.
+			pi.setActiveTools(pi.getActiveTools().filter((name) => name !== "question"));
+		}
+		applyTools(runMode ?? selectedMode);
+		composer.update(ctx);
 	}
 
 	async function ensurePlanDirectory(): Promise<void> {
@@ -470,7 +506,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const defaultModeOption = `Default mode (active: ${defaultMode})`;
 			const modelOption = `Per-mode model/thinking (active: ${modeSelections.enabled ? "on" : "off"})`;
 			const titleOption = `Plan title (active: ${composerSettings.showPlanTitle ? "on" : "off"})`;
-			const selected = await ctx.ui.select("Plan/Build settings", [defaultModeOption, shortcutOption, titleOption, modelOption]);
+			const questionOption = `Question tool (active: ${questionToolEnabled ? "on" : "off"})`;
+			const selected = await ctx.ui.select("Plan/Build settings", [defaultModeOption, shortcutOption, titleOption, questionOption, modelOption]);
 			if (!selected) return;
 			if (selected === defaultModeOption) {
 				const choice = await ctx.ui.select("Default mode for new sessions", ["Build (default)", "Plan"]);
@@ -502,6 +539,19 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					composerSettings.showPlanTitle = enabled;
 					composer.update(ctx);
 					ctx.ui.notify(`Plan title ${enabled ? "on" : "off"}.`, "info");
+				} catch (error) {
+					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+				}
+				return;
+			}
+			if (selected === questionOption) {
+				const choice = await ctx.ui.select("Question tool", ["On (default)", "Off"]);
+				if (!choice) return;
+				const enabled = choice === "On (default)";
+				try {
+					saveQuestionTool(shortcutAgentDir, enabled);
+					setQuestionToolEnabled(enabled, ctx);
+					ctx.ui.notify(`Question tool ${enabled ? "on" : "off"}.`, "info");
 				} catch (error) {
 					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
 				}
@@ -1051,7 +1101,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 
 	pi.on("tool_call", async (event, ctx) => {
 		const effectiveMode = runMode ?? selectedMode;
-		if (plans.error && (MANAGED_TOOLS.has(event.toolName) && event.toolName !== "question" || ["edit", "write", "bash", "powershell"].includes(event.toolName))) return { block: true, reason: `Plan state unavailable: ${plans.error}. Restore usable state before mutations.` };
+		if (plans.error && (managedTools.has(event.toolName) && event.toolName !== "question" || ["edit", "write", "bash", "powershell"].includes(event.toolName))) return { block: true, reason: `Plan state unavailable: ${plans.error}. Restore usable state before mutations.` };
 		if (["edit", "write", "bash", "powershell", "plan_complete", "plan_finish", "plan_step_control", "plan_step_complete", "plan_exit"].includes(event.toolName)) {
 			const latestAssistant = [...ctx.sessionManager.getBranch()].reverse().find((entry) => entry.type === "message" && entry.message.role === "assistant");
 			if (latestAssistant?.type === "message" && latestAssistant.message.role === "assistant" && latestAssistant.message.content.some((part) => part.type === "toolCall" && part.name === "plan_task" && !["list", "pause", "resume"].includes((part.arguments as { action?: string })?.action ?? ""))) {
@@ -1217,8 +1267,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		selectedMode = decoded?.selectedMode ?? flagMode ?? defaultMode ?? "build";
 		restoreUserMessageRails(ctx.sessionManager.getBranch());
 		toolsBeforeModes = Array.isArray(raw?.toolsBeforeModes)
-			? raw.toolsBeforeModes.filter((name): name is string => typeof name === "string" && !MANAGED_TOOLS.has(name))
-			: pi.getActiveTools().filter((name) => !MANAGED_TOOLS.has(name));
+			? raw.toolsBeforeModes.filter((name): name is string => typeof name === "string" && !managedTools.has(name))
+			: pi.getActiveTools().filter((name) => !managedTools.has(name));
 		const plansDir = path.join(getAgentDir(), "plans");
 		restorePlanState(raw, ctx, event.reason === "fork" ? raw?.planSessionId : undefined);
 		runMode = undefined;
