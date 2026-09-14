@@ -92,12 +92,17 @@ async function askOne(
 	return { question: prompt.question, header: prompt.header, answers: selected, custom: usedCustom };
 }
 
-export function registerQuestionTool(pi: ExtensionAPI): void {
+/** Cancelled-question notices stay renderable for restored history even when the question tool is disabled. */
+export function registerQuestionNotice(pi: ExtensionAPI) {
 	const notices = noticeTracker(pi, QUESTION_NOTICE_ENTRY_TYPE);
 	pi.registerEntryRenderer<{ message: string }>(QUESTION_NOTICE_ENTRY_TYPE, (entry, _options, theme) => {
 		const message = typeof entry.data?.message === "string" ? entry.data.message : QUESTION_CANCELLED_MESSAGE;
 		return new Text(formatInstruction(theme, message), 0, 0);
 	});
+	return notices;
+}
+
+export function registerQuestionTool(pi: ExtensionAPI, notices = registerQuestionNotice(pi)): void {
 	pi.registerTool({
 		name: "question",
 		renderShell: "self",

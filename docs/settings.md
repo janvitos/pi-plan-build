@@ -41,9 +41,25 @@ Manual mode changes during a run defer automatic model switching until that run 
 }
 ```
 
+## Question tool
+
+Pi Plan Build provides the structured `question` tool. It is **on by default**; choose **Question tool → Off** in `/plan-settings`, or set it directly:
+
+```json
+{
+  "questionTool": false
+}
+```
+
+The setting is read once when the extension loads. `/plan-settings` saves the new value and asks you to run `/reload`; the current session keeps the tool set it started with, because Pi cannot unregister a tool that is already registered. Only `true` and `false` are accepted; any other value warns and stays enabled. Direct file edits require `/reload` too.
+
+With the setting off, a `question` tool supplied by another extension is an ordinary host tool: it is not managed, not filtered out of the mode tool set, and stays available. One API limit follows. Pi requires tool names to be unique across extensions: with the setting **on** and another extension already providing `question`, Pi fails to load this plugin's extension (`Tool "question" conflicts with ...`) while the other extension keeps working — write `"questionTool": false` to run both. Pi has no unregister call, so the setting can only decide what happens at load time; that is why a saved change needs `/reload`. Starting Pi with `"questionTool": false` already written leaves a host `question` tool untouched.
+
+The cancelled-question notice renderer stays registered either way, so entries recorded in earlier sessions keep rendering.
+
 ## Shortcut configuration
 
-`/plan-settings` groups **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)** under the **Shortcuts** submenu. The main menu also offers **Default mode**, **Plan title**, and **Per-mode model/thinking**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Shortcut changes require `/reload`; default mode, title, and per-mode selection changes apply without reloading. Direct file edits require `/reload`.
+`/plan-settings` groups **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)** under the **Shortcuts** submenu. The main menu also offers **Default mode**, **Plan title**, **Question tool**, and **Per-mode model/thinking**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Shortcut changes require `/reload`; the question tool is read at load time, so `/plan-settings` saves it and asks for `/reload`; default mode, title, and per-mode selection changes apply without reloading. Direct file edits require `/reload`.
 
 Pi Plan Build reads `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`):
 

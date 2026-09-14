@@ -9,8 +9,8 @@ import { Type } from "typebox";
 import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker } from "./tool-presentation.ts";
 import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
 import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
-import { registerQuestionTool } from "./question-ui.ts";
-import { loadShortcutConfig, saveDefaultMode, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { registerQuestionNotice, registerQuestionTool } from "./question-ui.ts";
+import { loadShortcutConfig, saveDefaultMode, saveQuestionTool, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
 	COMPLETION_ROUTING_GUIDANCE,
 	PLAN_EXIT_DESCRIPTION,
@@ -77,10 +77,15 @@ const PLAN_STEP_GUIDANCE_ENTRY_TYPE = "pi-plan-build-step-guidance";
 const VALIDATION_NOTICE_ENTRY_TYPE = "pi-plan-build-validation-notice";
 const FRESH_ANNOUNCEMENT_MESSAGE_TYPE = "pi-plan-build-fresh-announcement";
 const PLAN_STEP_CHOICE = "Implement step by step";
-const MANAGED_TOOLS = new Set(["question", "plan_task", "plan_exit", "plan_step_control", "plan_step_complete", "plan_complete", "plan_finish"]);
+const MANAGED_PLAN_TOOLS = ["plan_task", "plan_exit", "plan_step_control", "plan_step_complete", "plan_complete", "plan_finish"];
 const FILE_MUTATION_TOOLS = new Set(["edit", "write", "replace", "insert", "undo_last_change"]);
 const SHELL_MUTATION_TOOLS = new Set(["bash", "powershell"]);
 const DEPENDENT_PLAN_TOOLS = new Set(["plan_complete", "plan_finish", "plan_step_control", "plan_step_complete", "plan_exit"]);
+
+/** Plan Build owns its lifecycle tools; "question" is owned only while the questionTool setting keeps it enabled. */
+function managedToolsFor(questionTool: boolean): Set<string> {
+	return new Set(questionTool ? [...MANAGED_PLAN_TOOLS, "question"] : MANAGED_PLAN_TOOLS);
+}
 const EMPTY_PARAMETERS = Type.Object({});
 
 function isFileMutationTool(toolName: string): boolean {
@@ -105,7 +110,7 @@ function shorten(filePath: string, cwd: string): string {
 
 export default function planBuildModes(pi: ExtensionAPI): void {
 	const shortcutAgentDir = getAgentDir();
-	const { config: shortcutConfig, showPlanTitle, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
+	const { config: shortcutConfig, showPlanTitle, questionTool: configuredQuestionTool, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
 	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
 	let defaultMode: Mode = configuredDefaultMode;
@@ -127,6 +132,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let savedPlanState: "saved" | "absent" | "unavailable" = "absent";
 	let savedPlanHeading: string | undefined;
 	let toolsBeforeModes: string[] = [];
+	// Pi cannot unregister tools, so the questionTool setting is fixed for the lifetime of this load.
+	const questionToolEnabled = configuredQuestionTool;
+	const managedTools = managedToolsFor(questionToolEnabled);
 	let currentContext: ExtensionContext | undefined;
 	let freshImplementationRequest: ApprovedHandoff | undefined;
 	const composerSettings = { ...shortcutConfig, showPlanTitle };
@@ -161,7 +169,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		default: false,
 	});
 
-	registerQuestionTool(pi);
+	const questionNotices = registerQuestionNotice(pi);
+	if (questionToolEnabled) registerQuestionTool(pi, questionNotices);
 	const modeNotices = noticeTracker(pi, MODE_NOTICE_ENTRY_TYPE);
 	const renderPlanReview: EntryRenderer<{ plan: string }> = (entry) => {
 		const plan = typeof entry.data?.plan === "string" ? entry.data.plan : "Plan unavailable";
@@ -269,18 +278,19 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	function discoverUnmanagedTools(): void {
 		// Plan Build owns only its lifecycle tools. Re-read the live host set so
 		// another extension's additions and removals both survive mode refreshes.
-		toolsBeforeModes = pi.getActiveTools().filter((name) => !MANAGED_TOOLS.has(name));
+		toolsBeforeModes = pi.getActiveTools().filter((name) => !managedTools.has(name));
 	}
 
 	function applyTools(mode: Mode): void {
 		discoverUnmanagedTools();
 		const base = [...toolsBeforeModes];
+		const questionTools = questionToolEnabled ? ["question"] : [];
 		if (mode === "plan") {
-			pi.setActiveTools(unique([...base, "question", "plan_exit", "plan_task"]));
+			pi.setActiveTools(unique([...base, ...questionTools, "plan_exit", "plan_task"]));
 		} else {
 			pi.setActiveTools(unique([
 				...base,
-				"question",
+				...questionTools,
 				"plan_task",
 				...(plans.collection.attached !== null && plans.plan.status === "open" ? ["plan_complete", "plan_finish"] : []),
 				...(plans.execution && plans.execution.status !== "completed" ? ["plan_step_control"] : []),
@@ -490,7 +500,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const defaultModeOption = `Default mode (active: ${defaultMode})`;
 			const modelOption = `Per-mode model/thinking (active: ${modeSelections.enabled ? "on" : "off"})`;
 			const titleOption = `Plan title (active: ${composerSettings.showPlanTitle ? "on" : "off"})`;
-			const selected = await ctx.ui.select("Plan/Build settings", [defaultModeOption, shortcutOption, titleOption, modelOption]);
+			const questionOption = `Question tool (active: ${questionToolEnabled ? "on" : "off"})`;
+			const selected = await ctx.ui.select("Plan/Build settings", [defaultModeOption, shortcutOption, titleOption, questionOption, modelOption]);
 			if (!selected) return;
 			if (selected === defaultModeOption) {
 				const choice = await ctx.ui.select("Default mode for new sessions", ["Build (default)", "Plan"]);
@@ -522,6 +533,18 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					composerSettings.showPlanTitle = enabled;
 					composer.update(ctx);
 					ctx.ui.notify(`Plan title ${enabled ? "on" : "off"}.`, "info");
+				} catch (error) {
+					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+				}
+				return;
+			}
+			if (selected === questionOption) {
+				const choice = await ctx.ui.select("Question tool", ["On (default)", "Off"]);
+				if (!choice) return;
+				const enabled = choice === "On (default)";
+				try {
+					saveQuestionTool(shortcutAgentDir, enabled);
+					ctx.ui.notify(`Question tool ${enabled ? "on" : "off"}. The current session is unchanged; run /reload to apply it.`, "info");
 				} catch (error) {
 					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
 				}
@@ -1077,7 +1100,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 
 	pi.on("tool_call", async (event, ctx) => {
 		const effectiveMode = runMode ?? selectedMode;
-		if (plans.error && (MANAGED_TOOLS.has(event.toolName) && event.toolName !== "question" || isProjectMutationTool(event.toolName))) return { block: true, reason: `Agent action blocked: plan state is unavailable (${plans.error}).` };
+		if (plans.error && (managedTools.has(event.toolName) && event.toolName !== "question" || isProjectMutationTool(event.toolName))) return { block: true, reason: `Agent action blocked: plan state is unavailable (${plans.error}).` };
 		if (isProjectMutationTool(event.toolName) || DEPENDENT_PLAN_TOOLS.has(event.toolName)) {
 			const latestAssistant = [...ctx.sessionManager.getBranch()].reverse().find((entry) => entry.type === "message" && entry.message.role === "assistant");
 			if (latestAssistant?.type === "message" && latestAssistant.message.role === "assistant" && latestAssistant.message.content.some((part) => part.type === "toolCall" && part.name === "plan_task" && !["list", "pause", "resume"].includes((part.arguments as { action?: string })?.action ?? ""))) {
@@ -1255,7 +1278,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		restoreUserMessageRails(ctx.sessionManager.getBranch());
 		// Persisted snapshots describe an older runtime and must not override tool
 		// changes made by the host or another extension during this startup.
-		toolsBeforeModes = pi.getActiveTools().filter((name) => !MANAGED_TOOLS.has(name));
+		toolsBeforeModes = pi.getActiveTools().filter((name) => !managedTools.has(name));
 		const plansDir = path.join(getAgentDir(), "plans");
 		restorePlanState(raw, ctx, event.reason === "fork" ? raw?.planSessionId : undefined);
 		runMode = undefined;

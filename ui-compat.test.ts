@@ -335,7 +335,7 @@ test("settings group shortcut presets in a submenu, retain active bindings until
 	harness.selectOptions("Shortcuts (active: Tab + Alt+M)", "Alt+M only");
 	await harness.commands.get("plan-settings").handler("", harness.ctx);
 	assert.equal(harness.selections[0]!.title, "Plan/Build settings");
-	for (const option of ["Default mode (active: build)", "Shortcuts (active: Tab + Alt+M)", "Plan title (active: off)", "Per-mode model/thinking (active: off)"]) {
+	for (const option of ["Default mode (active: build)", "Shortcuts (active: Tab + Alt+M)", "Plan title (active: off)", "Question tool (active: on)", "Per-mode model/thinking (active: off)"]) {
 		assert.ok(harness.selections[0]!.options.includes(option));
 	}
 	assert.match(harness.selections[1]!.title, /active: Tab \+ Alt\+M/);

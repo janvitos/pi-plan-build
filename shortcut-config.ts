@@ -24,6 +24,7 @@ export interface ShortcutConfig {
 
 export interface LoadedShortcutConfig {
 	showPlanTitle: boolean;
+	questionTool: boolean;
 	defaultMode: Mode;
 	config: ShortcutConfig;
 	path: string;
@@ -135,9 +136,15 @@ function parseDefaultMode(value: unknown): { defaultMode: Mode; warning?: string
 export function parseShortcutConfig(value: unknown): Omit<LoadedShortcutConfig, "path"> {
 	const parsed = parseShortcuts(value);
 	const preference = isObject(value) ? value.showPlanTitle : undefined;
+	const questionTool = isObject(value) ? value.questionTool : undefined;
 	const mode = isObject(value) ? parseDefaultMode(value.defaultMode) : { defaultMode: DEFAULT_MODE };
-	const warning = [parsed.warning, mode.warning, preference !== undefined && typeof preference !== "boolean" ? "showPlanTitle must be a boolean" : undefined].filter(Boolean).join("; ");
-	return { ...parsed, showPlanTitle: preference === true, defaultMode: mode.defaultMode, ...(warning ? { warning } : {}) };
+	const warning = [
+		parsed.warning,
+		mode.warning,
+		preference !== undefined && typeof preference !== "boolean" ? "showPlanTitle must be a boolean" : undefined,
+		questionTool !== undefined && typeof questionTool !== "boolean" ? "questionTool must be a boolean" : undefined,
+	].filter(Boolean).join("; ");
+	return { ...parsed, showPlanTitle: preference === true, questionTool: questionTool !== false, defaultMode: mode.defaultMode, ...(warning ? { warning } : {}) };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
@@ -152,6 +159,10 @@ export function saveShortcutPreset(agentDir: string, presetName: string): string
 
 export function saveShowPlanTitle(agentDir: string, enabled: boolean): string {
 	return saveSettings(agentDir, (document) => ({ ...document, showPlanTitle: enabled }));
+}
+
+export function saveQuestionTool(agentDir: string, enabled: boolean): string {
+	return saveSettings(agentDir, (document) => ({ ...document, questionTool: enabled }));
 }
 
 export function saveDefaultMode(agentDir: string, mode: Mode): string {
