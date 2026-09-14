@@ -132,9 +132,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let savedPlanState: "saved" | "absent" | "unavailable" = "absent";
 	let savedPlanHeading: string | undefined;
 	let toolsBeforeModes: string[] = [];
-	let questionToolEnabled = configuredQuestionTool;
-	let questionToolRegistered = false;
-	let managedTools = managedToolsFor(questionToolEnabled);
+	// Pi cannot unregister tools, so the questionTool setting is fixed for the lifetime of this load.
+	const questionToolEnabled = configuredQuestionTool;
+	const managedTools = managedToolsFor(questionToolEnabled);
 	let currentContext: ExtensionContext | undefined;
 	let freshImplementationRequest: ApprovedHandoff | undefined;
 	const composerSettings = { ...shortcutConfig, showPlanTitle };
@@ -170,10 +170,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	});
 
 	const questionNotices = registerQuestionNotice(pi);
-	if (questionToolEnabled) {
-		registerQuestionTool(pi, questionNotices);
-		questionToolRegistered = true;
-	}
+	if (questionToolEnabled) registerQuestionTool(pi, questionNotices);
 	const modeNotices = noticeTracker(pi, MODE_NOTICE_ENTRY_TYPE);
 	const renderPlanReview: EntryRenderer<{ plan: string }> = (entry) => {
 		const plan = typeof entry.data?.plan === "string" ? entry.data.plan : "Plan unavailable";
@@ -300,24 +297,6 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				...(plans.collection.attached !== null && completablePlanStep() ? ["plan_step_complete"] : []),
 			]));
 		}
-	}
-
-	/** Pi has no unregister API: disabling removes the tool from the active set while the notice renderer stays registered. */
-	function setQuestionToolEnabled(enabled: boolean, ctx: ExtensionContext): void {
-		questionToolEnabled = enabled;
-		managedTools = managedToolsFor(enabled);
-		toolsBeforeModes = toolsBeforeModes.filter((name) => name !== "question");
-		if (enabled) {
-			if (!questionToolRegistered) {
-				registerQuestionTool(pi, questionNotices);
-				questionToolRegistered = true;
-			}
-		} else {
-			// Deactivate before rediscovering tools so an unmanaged "question" is not re-adopted into toolsBeforeModes.
-			pi.setActiveTools(pi.getActiveTools().filter((name) => name !== "question"));
-		}
-		applyTools(runMode ?? selectedMode);
-		composer.update(ctx);
 	}
 
 	async function ensurePlanDirectory(): Promise<void> {
@@ -565,8 +544,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				const enabled = choice === "On (default)";
 				try {
 					saveQuestionTool(shortcutAgentDir, enabled);
-					setQuestionToolEnabled(enabled, ctx);
-					ctx.ui.notify(`Question tool ${enabled ? "on" : "off"}.`, "info");
+					ctx.ui.notify(`Question tool ${enabled ? "on" : "off"}. The current session is unchanged; run /reload to apply it.`, "info");
 				} catch (error) {
 					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
 				}

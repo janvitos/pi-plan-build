@@ -252,8 +252,8 @@ test("the question tool is optional and an unmanaged host question tool survives
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
 });
 
-test("/plan-settings toggles the question tool immediately without reloading", async () => {
-	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-question-tool-toggle-"));
+test("/plan-settings saves the question tool setting for the next load", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-question-tool-setting-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	try {
 		const file = path.join(dir, "pi-plan-build.json");
@@ -261,6 +261,7 @@ test("/plan-settings toggles the question tool immediately without reloading", a
 		const h = harness(dir);
 		await h.event("session_start", { reason: "startup" });
 		assert.ok(h.active().includes("question"), "the default keeps the question tool active");
+
 		let answers: any[] = ["Question tool (active: on)", "Off"];
 		h.ctx.ui.select = async () => answers.shift();
 		await h.commands.get("plan-settings").handler("", h.ctx);
@@ -268,21 +269,33 @@ test("/plan-settings toggles the question tool immediately without reloading", a
 		assert.equal(saved.questionTool, false);
 		assert.equal(saved.showPlanTitle, true);
 		assert.deepEqual(saved.shortcuts, { toggleMode: ["alt+m"], future: "value" });
-		assert.ok(!h.active().includes("question"), "disabling must drop the question tool from the active set without a reload");
-		assert.ok(h.events.some((event) => event.kind === "notify" && event.text === "Question tool off."));
-
-		answers = ["Question tool (active: off)", "On (default)"];
-		await h.commands.get("plan-settings").handler("", h.ctx);
-		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).questionTool, true);
-		assert.ok(h.tools.has("question"), "re-enabling must register the question tool again");
-		assert.ok(h.active().includes("question"), "re-enabling must activate the question tool again");
-		assert.ok(h.events.some((event) => event.kind === "notify" && event.text === "Question tool on."));
+		assert.ok(h.events.some((event) => event.kind === "notify" && event.text === "Question tool off. The current session is unchanged; run /reload to apply it."));
+		assert.ok(h.tools.has("question"), "the load already registered the tool and Pi cannot unregister it");
+		assert.ok(h.active().includes("question"), "the current session keeps its startup tool set");
 
 		const before = fs.readFileSync(file, "utf8");
 		answers = ["Question tool (active: on)", undefined];
 		await h.commands.get("plan-settings").handler("", h.ctx);
-		assert.equal(fs.readFileSync(file, "utf8"), before);
+		assert.equal(fs.readFileSync(file, "utf8"), before, "cancelling leaves the saved value untouched");
 		await h.event("session_shutdown");
+
+		const off = harness(dir);
+		const offAnswers: any[] = ["Question tool (active: off)", "On (default)"];
+		off.ctx.ui.select = async () => offAnswers.shift();
+		await off.event("session_start", { reason: "startup" });
+		assert.equal(off.tools.has("question"), false, "the next load applies the saved value");
+		assert.ok(!off.active().includes("question"));
+		await off.commands.get("plan-settings").handler("", off.ctx);
+		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).questionTool, true);
+		assert.equal(off.tools.has("question"), false, "re-enabling still waits for the next load");
+		assert.ok(off.events.some((event) => event.kind === "notify" && event.text === "Question tool on. The current session is unchanged; run /reload to apply it."));
+		await off.event("session_shutdown");
+
+		const on = harness(dir);
+		await on.event("session_start", { reason: "startup" });
+		assert.ok(on.tools.has("question"), "the following load registers the tool again");
+		assert.ok(on.active().includes("question"));
+		await on.event("session_shutdown");
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
 });
 test("enabled per-mode selection defers manual routing until the active run settles", async () => {
