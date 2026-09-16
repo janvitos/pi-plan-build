@@ -1569,10 +1569,12 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 						await child.event("session_start", { reason: "new" });
 						await setup({
 							getSessionId: () => "destination",
+							appendSessionInfo: (name: string) => child.entries.push({ type: "session_info", name }),
 							appendModelChange() {}, appendThinkingLevelChange() {},
 							// Raw storage does not emit the live entry event.
 							appendCustomEntry: (customType: string, data: any) => child.entries.push({ type: "custom", customType, data }),
 						});
+						assert.equal(child.entries.find((entry) => entry.type === "session_info")?.name, "Approved task title");
 						assert.equal(child.state().pendingFreshAnnouncement, true);
 						assert.equal(child.state().version, STATE_VERSION);
 						assert.equal(child.record().plan.task.title, "Approved task title");
@@ -1711,6 +1713,7 @@ test("failed fresh-session setup does not announce success or start implementati
 			await child.event("session_start", { reason: "new" });
 			await setup({
 				getSessionId: () => "failed-destination",
+				appendSessionInfo: (name: string) => child.entries.push({ type: "session_info", name }),
 				appendModelChange() { throw new Error("setup failure"); },
 				appendCustomEntry: (customType: string, data: any) => child.entries.push({ type: "custom", customType, data }),
 			});
@@ -1723,6 +1726,7 @@ test("failed fresh-session setup does not announce success or start implementati
 		};
 		await h.commands.get("build-fresh").handler("", h.ctx);
 		assert.equal(child.events.some(e => e.kickoff || e.customType === "pi-plan-build-notice" || e.customType === "pi-plan-build-fresh-announcement" || e.text === PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"]), false);
+		assert.equal(child.entries.find((entry) => entry.type === "session_info")?.name, "Approved plan", "the Markdown heading names a metadata-free destination");
 		assert.equal(child.events.some(e => e.kind === "notify" && e.text.includes("setup failed: setup failure")), true);
 		assert.equal(child.events.some(e => e.kind === "editor" && e.text.includes("# Approved plan")), true);
 		assert.equal(child.state().pendingFreshAnnouncement, undefined);
@@ -1756,6 +1760,7 @@ test("kickoff failure keeps the transferred source and open destination fallback
 			await child.event("session_start", { reason: "new" });
 			await setup({
 				getSessionId: () => "kickoff-destination",
+				appendSessionInfo: (name: string) => child.entries.push({ type: "session_info", name }),
 				appendModelChange() {}, appendThinkingLevelChange() {},
 				appendCustomEntry: (customType: string, data: any) => child.entries.push({ type: "custom", customType, data }),
 			});
@@ -1772,6 +1777,7 @@ test("kickoff failure keeps the transferred source and open destination fallback
 		assert.equal(sourceState.collection!.attached, null);
 		assert.equal(child.state().collection.attached, 1);
 		assert.equal(child.record().plan.status, "open");
+		assert.equal(child.entries.find((entry) => entry.type === "session_info")?.name, "Approved plan");
 		assert.ok(child.events.some((event) => event.kind === "editor" && event.text.includes("# Approved plan")));
 		assert.ok(child.events.some((event) => event.kind === "notify" && event.text.includes("implementation did not start: kickoff failure")));
 		await child.event("session_shutdown");

@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { getAgentDir, SessionManager, type ExtensionAPI, type ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
-import { buildFreshImplementationHandoff, makePlanPath, type FreshImplementationRequest, type PlanTask } from "./utils.ts";
+import { buildFreshImplementationHandoff, extractPlanTitle, makePlanPath, type FreshImplementationRequest, type PlanTask } from "./utils.ts";
 import { STATE_VERSION, STATE_TYPE, transferredState, type StoredState } from "./plan-state.ts";
 
 export const SOURCE_TRANSFER_NOTICE = "Plan transferred to the new implementation session. You can start a new plan here.";
@@ -72,6 +72,8 @@ export async function startFreshHandoff(pi: ExtensionAPI, ctx: ExtensionCommandC
 					);
 					await fs.promises.mkdir(path.dirname(destinationPlanPath), { recursive: true });
 					await fs.promises.writeFile(destinationPlanPath, request.plan, { encoding: "utf8", flag: "wx" });
+					const sessionName = request.task?.title || extractPlanTitle(request.plan);
+					if (sessionName) sessionManager.appendSessionInfo(sessionName);
 					sessionManager.appendModelChange(request.model.provider, request.model.id);
 					sessionManager.appendThinkingLevelChange(request.thinkingLevel);
 					sessionManager.appendCustomEntry(STATE_TYPE, {
