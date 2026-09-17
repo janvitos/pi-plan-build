@@ -91,8 +91,8 @@ test("plan title visibility preserves capitalization and aligns right with corne
 	const title = "Plan Title QX";
 	const plan = formatModeTopBorder("plan", 80, "╮", theme, title);
 	assert.ok(plan.startsWith("╭─"));
-	assert.ok(plan.endsWith(" Plan Title QX  ╮"));
-	assert.match(formatModeTopBorder("build", 80, "╮", theme, "Été 修復 🔑 123!?"), / Été 修復 🔑 123!\?  ╮$/);
+	assert.ok(plan.endsWith(" Plan Title QX ╮"));
+	assert.match(formatModeTopBorder("build", 80, "╮", theme, "Été 修復 🔑 123!?"), / Été 修復 🔑 123!\? ╮$/);
 });
 
 test("plan title visibility fits long Unicode titles without validation decoration", () => {
@@ -107,7 +107,7 @@ test("plan title visibility fits long Unicode titles without validation decorati
 test("plan border shows only a safe title and fits narrow Unicode layouts", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
 	const titled = formatModeTopBorder("plan", 60, "╮", theme, "Fix login redirects");
-	assert.ok(titled.endsWith(" Fix login redirects  ╮"));
+	assert.ok(titled.endsWith(" Fix login redirects ╮"));
 	assert.doesNotMatch(titled, /Plan|#003/);
 	for (const mode of ["plan", "build"] as const) for (const width of [1, 2, 3, 4, 8, 20, 60]) {
 		const line = formatModeTopBorder(mode, width, "╮", theme, "修復 🔑\n\x1b[31mlogin\x07 redirects");
@@ -125,7 +125,7 @@ test("composer outline uses only solid lines and rounded corners", () => {
 		const top = formatModeTopBorder(mode, 40, "╮", theme, title);
 		const output = renderModeComposer(["top", "  input", "─".repeat(40)], top, "│ ", "│", "metadata", "╰", 2, 40, { truncate: (s, w) => truncateToWidth(s, w, ""), measure: visibleWidth });
 		assert.doesNotMatch(output.join("\n"), /[╌┆┇]/);
-		if (title) assert.ok(top.endsWith(" Task title  ╮"));
+		if (title) assert.ok(top.endsWith(" Task title ╮"));
 		else assert.ok(top.endsWith("─╮"));
 		assert.ok(output[1].endsWith("│"));
 		assert.ok(output.every((line) => visibleWidth(line) <= 40));
@@ -137,7 +137,7 @@ test("plan title visibility uses normal-weight warning in both modes", () => {
 		const calls: Array<{ color: string; text: string }> = [];
 		const theme = { bold: (_: string): string => { throw new Error("Title must not be bold"); }, fg: (color: string, text: string) => { calls.push({ color, text }); return text; } };
 		formatModeTopBorder(mode, 60, "╮", theme, "Fix login");
-		assert.deepEqual(calls.find((call) => call.text === " Fix login  "), { color: "warning", text: " Fix login  " });
+		assert.deepEqual(calls.find((call) => call.text === " Fix login "), { color: "warning", text: " Fix login " });
 		assert.equal(calls[0].color, mode === "plan" ? "warning" : "thinkingLow");
 		assert.equal(calls.at(-1)?.color, "warning");
 	}
