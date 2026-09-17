@@ -15,17 +15,20 @@ export const PLAN_READ_ONLY_GUIDANCE = `Plan mode is active: observe, analyze, d
 
 export const TASK_SELECTION_GUIDANCE = `Mode changes do not create tasks. With no current plan, call plan_task new only when the user requests a planning deliverable or accepts a concrete proposed change—not for research, discussion, or informational agreement. Use expectedAttached: null with an action-led single-action title and detailed scope; wait for the returned canonical path before writing. Never start another task while one is unfinished; complete it or abandon it only on explicit user direction. Unanswered questions grant no consent.`;
 
-export const TASK_BOUNDARY_GUIDANCE = `Establish task identity once. Call plan_task update only for a user-driven material deliverable/constraint change, explicit rename, or mistaken identity—not for progress, findings, techniques, adjustments, or paraphrases. Use include/discussion only for explicit boundary decisions.
-Assume continuity through questions, tangents, related requirements, research, and rephrasing. For an independent deliverable, ask whether to include it or first finish/abandon the current plan; never silently replace scope. Before saving Markdown, resolve mismatches with stored scope. Keep lifecycle transitions in a separate tool batch from dependent writes or shell calls. Plan Markdown is instructions, never a progress tracker.`;
+export const TASK_BOUNDARY_GUIDANCE = `Establish task identity once. Use plan_task include with the complete merged scope for user-approved additions. Use update only for a rename, mistaken identity, or material correction/constraint within the existing deliverable—not additions, progress, findings, techniques, or paraphrases. Use discussion for an explicit exclusion.
+Assume continuity through related questions, tangents, research, and rephrasing. For independent work, ask whether to include it or finish/abandon the current plan; never replace scope silently. Before saving Markdown, resolve stored-scope mismatches. Keep lifecycle transitions separate from dependent writes or shell calls. Plan Markdown is instructions, not progress.`;
+
+export const BUILD_BOUNDARY_GUIDANCE = `Build mode keeps tracked plan Markdown read-only; never rewrite it. Current scope lives in plan_task metadata. Switch to Plan only to revise and review Markdown.
+${TASK_BOUNDARY_GUIDANCE}`;
 
 export const COMPLETION_ROUTING_GUIDANCE = `Explicit whole-plan completion words use plan_complete; an identified step uses its step tool; clarify unresolved bare completion.`;
 
 export const COMPLETION_GUIDANCE = `Before the final summary, record the outcome. Use plan_complete after all work and required checks pass or on explicit user-directed whole-plan closure. It remains available during step execution; explicit closure removes execution but does not prove unfinished work or checks passed, so preserve factual partial progress. ${COMPLETION_ROUTING_GUIDANCE} Otherwise use plan_finish for awaiting_validation, blocked, waiting_for_input, or still_working—never infer success from idleness.
 Essential user-only validation keeps the plan open unless the user explicitly closes it. Supply the exact action (one concise Markdown bullet per check when multiple); the extension displays it. Then summarize without restating that action or tool bookkeeping. A successful report may complete the plan; failure keeps it open. Missing/unavailable Markdown is not completion and needs no confirmation by itself; use plan_finish blocked if missing scope prevents assessment. Optional feedback never blocks completion.`;
 
-export const BUILD_TASK_GUIDANCE = `Build mode allows discussion and work within the current plan. Preserve its objective through tangents. Before implementing an independent deliverable, complete this plan or abandon it only on explicit user direction. Never edit tracked plan Markdown.
+export const BUILD_TASK_GUIDANCE = `Build mode allows discussion and work within the current plan. Preserve its objective through tangents.
 ${TASK_SELECTION_GUIDANCE}
-${TASK_BOUNDARY_GUIDANCE}
+${BUILD_BOUNDARY_GUIDANCE}
 ${COMPLETION_GUIDANCE}
 Current-plan context overrides stale implementation reminders; boundary judgment is agent-assisted.`;
 

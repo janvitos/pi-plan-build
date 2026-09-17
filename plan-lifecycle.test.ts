@@ -544,6 +544,60 @@ test("validation presentation keeps compact bookkeeping and complete readable ex
 	}
 });
 
+test("Build scope changes retain boundary guidance, invalidate stale outcomes, and preserve paused execution", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "build-scope-change-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		await h.command("");
+		await h.callTool("plan_task", { action: "new", expectedAttached: null, title: "Fix rain", scope: "Fix Hankey rain" });
+		await h.build();
+		await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs a live cast", userAction: "Cast Hankey rain" });
+
+		const awaitingContext = (await h.event("context", { messages: [] })).messages.at(-1).content;
+		assert.match(awaitingContext, /Build mode keeps tracked plan Markdown read-only/);
+		assert.match(awaitingContext, /plan_task include/);
+		assert.match(awaitingContext, /Cast Hankey rain/);
+		const taskTool = h.tools.get("plan_task");
+		assert.match(taskTool.description, /include adds explicit user-approved work using the complete merged scope/);
+		assert.match(taskTool.promptGuidelines.join(" "), /Use include with the complete merged scope/);
+		assert.match(taskTool.promptGuidelines.join(" "), /do not use it for additions/);
+
+		await h.callTool("plan_task", { action: "update", expectedAttached: 1, title: "Fix controlled rain" });
+		assert.equal(h.record().plan.outcome.kind, "awaiting_validation", "a title-only update preserves validation");
+		await h.callTool("plan_task", { action: "include", expectedAttached: 1, topic: "Player Boss rain", scope: "Fix Hankey and Player Boss rain" });
+		assert.equal(h.record().plan.outcome, undefined, "expanded scope invalidates the old validation outcome");
+		const expandedContext = (await h.event("context", { messages: [] })).messages.at(-1).content;
+		assert.match(expandedContext, /Fix Hankey and Player Boss rain/);
+		assert.doesNotMatch(expandedContext, /Cast Hankey rain/);
+		await h.callTool("plan_finish", { expectedAttached: 1, outcome: "blocked", reason: "Missing fixture" });
+		await h.callTool("plan_task", { action: "update", expectedAttached: 1, scope: "Fix Hankey and Player Boss rain without changing damage" });
+		assert.equal(h.record().plan.outcome, undefined, "a changed constraint also invalidates a stale blocker");
+		await h.event("session_shutdown");
+
+		const markdown = "# Rain\n\n## Implementation Steps\n1. Fix rain\n";
+		const execution = createPlanExecution(markdown);
+		execution.steps[0].status = "active";
+		execution.status = "paused";
+		const data = { version: STATE_VERSION, selectedMode: "build", collection: { records: [{ plan: { sequence: 1, status: "open", task: { title: "Fix rain", scope: "Fix Hankey rain", decisions: [] }, outcome: { kind: "awaiting_validation", reason: "Needs a live cast", userAction: "Cast Hankey rain" } }, execution }], attached: 1, counter: 1 } };
+		const paused = harness(dir, [{ type: "custom", customType: "pi-plan-build-state", data }]);
+		await paused.event("session_start", { reason: "resume" });
+		await paused.callTool("plan_task", { action: "include", expectedAttached: 1, topic: "Player Boss rain", scope: "Fix Hankey and Player Boss rain" });
+		assert.equal(paused.record().plan.outcome, undefined);
+		assert.equal(paused.record().execution.status, "paused", "scope changes never resume step execution");
+		assert.equal(paused.active().includes("plan_step_complete"), false, "cleared validation refreshes dependent tools");
+		paused.entries.push({ type: "message", message: { role: "assistant", content: [] } });
+		const guarded = await paused.event("tool_call", { toolName: "bash", input: { command: "true" } });
+		assert.equal(guarded.block, true);
+		assert.match(guarded.reason, /implementation is waiting for your instruction/);
+		await paused.event("session_shutdown");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("user-action handoffs render bold accent while state acknowledgements stay off warning", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "instruction-tone-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
@@ -1375,7 +1429,7 @@ test("plan lifecycle keeps revisions, preserves completed plans, and restores th
 		] as const) {
 			const blocked = await h.event("tool_call", { toolName, input });
 			assert.equal(blocked.block, true, `${toolName} cannot mutate the active plan in Build mode`);
-			assert.match(blocked.reason, /plan_complete/);
+			assert.match(blocked.reason, /tracked plan Markdown is read-only in Build mode/);
 		}
 		assert.equal(fs.readFileSync(first, "utf8"), "# First task\n");
 		await h.event("agent_settled");
@@ -1996,7 +2050,7 @@ test("third-party editors share Plan, Build-path, transition-batch, and unavaila
 		for (const toolName of ["replace", "insert", "undo_last_change"]) {
 			const guarded = await h.event("tool_call", { toolName, input: { path: file } });
 			assert.equal(guarded.block, true, `${toolName} cannot change tracked plans in Build`);
-			assert.equal(guarded.reason, "Agent action blocked: tracked plan files are read-only in Build mode; use plan_step_complete or plan_complete instead.");
+			assert.equal(guarded.reason, "Agent action blocked: tracked plan Markdown is read-only in Build mode. Keep current scope changes in plan_task metadata, or switch to Plan mode to revise and review the attached Markdown.");
 		}
 		assert.equal(await h.event("tool_call", { toolName: "replace", input: {} }), undefined, "opaque editors remain usable for ordinary Build work");
 		h.entries.push({ type: "message", message: { role: "assistant", content: [{ type: "toolCall", name: "plan_task", arguments: { action: "update" } }] } });

@@ -622,8 +622,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_task",
 		label: "Plan Task",
-		description: "Manage the one current plan's metadata, not its Markdown. new is Plan-only; update changes user-approved identity; include/discussion record explicit boundary decisions; abandon requires explicit direction and a reason; list is read-only. Supply expectedAttached (or legacy sequence). Deprecated pause/resume never mutate state. Keep transitions separate from dependent writes or shell calls.",
-		promptGuidelines: ["Use plan_task once to establish an imperative, single-action title and detailed scope—for example `Add color to the composer`. Update only for a material user-driven scope/constraint change, rename, or identity correction; do not log progress or implementation details. Create only after an explicit planning request or accepted concrete proposal, with expectedAttached: null, then use the returned path. Never replace an unfinished plan; abandon only on explicit user direction."],
+		description: "Manage the one current plan's metadata, not its Markdown. new is Plan-only; include adds explicit user-approved work using the complete merged scope; update is only for a rename, identity correction, or material correction/constraint within the existing deliverable; discussion records an explicit exclusion; abandon requires explicit direction and a reason; list is read-only. Supply expectedAttached (or legacy sequence). Deprecated pause/resume never mutate state. Keep transitions separate from dependent writes or shell calls.",
+		promptGuidelines: ["Use plan_task once to establish an imperative, single-action title and detailed scope—for example `Add color to the composer`. Use include with the complete merged scope for an explicit user-approved addition. Use update only for a rename, identity correction, or material correction/constraint within the existing deliverable; do not use it for additions, progress, or implementation details. Create only after an explicit planning request or accepted concrete proposal, with expectedAttached: null, then use the returned path. Never replace an unfinished plan; abandon only on explicit user direction."],
 		parameters: Type.Object({
 			action: Type.String({ enum: ["list", "pause", "resume", "update", "include", "discussion", "new", "abandon"] }),
 			sequence: Type.Optional(Type.Integer({ minimum: 0 })),
@@ -669,11 +669,12 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			}
 			const task = { title: action === "discussion" ? existing!.title : title, scope: action === "discussion" ? existing!.scope : scope, decisions };
 			const changed = action === "new" || JSON.stringify(task) !== JSON.stringify(plans.plan.task);
+			const scopeChanged = existing !== undefined && task.scope !== existing.scope;
 			if (action === "new") startNewPlan(ctx, task);
 			else if (changed) {
 				plans.updateTask(task);
-				persist();
-				composer.update(ctx);
+				if (scopeChanged) plans.outcome(undefined);
+				syncPlanState(ctx);
 			}
 			return taskResult(action, task.title, changed);
 		},
@@ -1112,7 +1113,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			if (inputPath !== undefined && (isAllowedPlanMutation(ctx.cwd, inputPath, currentPlanPath()) || plans.collection.records.some((r) => isAllowedPlanMutation(ctx.cwd, inputPath, planPathFor(r.plan.sequence, ctx))))) {
 				return {
 					block: true,
-					reason: "Agent action blocked: tracked plan files are read-only in Build mode; use plan_step_complete or plan_complete instead.",
+					reason: "Agent action blocked: tracked plan Markdown is read-only in Build mode. Keep current scope changes in plan_task metadata, or switch to Plan mode to revise and review the attached Markdown.",
 				};
 			}
 		}
