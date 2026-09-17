@@ -6,9 +6,11 @@ import test from "node:test";
 import { matchesKey } from "@earendil-works/pi-tui";
 import { DEFAULT_MODE, isKeyId, loadShortcutConfig, parseShortcutConfig, saveDefaultMode, saveQuestionTool, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_CONFIG_FILE, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 
-test("plan title visibility defaults off and saves safely", () => {
-	assert.equal(parseShortcutConfig(undefined).showPlanTitle, false);
-	assert.equal(parseShortcutConfig({ showPlanTitle: "true" }).showPlanTitle, false);
+test("plan title visibility defaults on, disables explicitly, and saves safely", () => {
+	assert.equal(parseShortcutConfig(undefined).showPlanTitle, true);
+	assert.equal(parseShortcutConfig({ showPlanTitle: true }).showPlanTitle, true);
+	assert.equal(parseShortcutConfig({ showPlanTitle: false }).showPlanTitle, false);
+	assert.equal(parseShortcutConfig({ showPlanTitle: "true" }).showPlanTitle, true);
 	assert.match(parseShortcutConfig({ showPlanTitle: "true" }).warning!, /showPlanTitle must be a boolean/);
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-title-visibility-"));
 	try {
@@ -67,7 +69,7 @@ test("the question tool defaults on, disables explicitly, and saves without clob
 test("obsolete small-caps settings are ignored", () => {
 	for (const smallCapsPlanTitle of [true, false, "false"]) {
 		assert.deepEqual(parseShortcutConfig({ smallCapsPlanTitle, shortcuts: { toggleMode: [] } }), {
-			showPlanTitle: false,
+			showPlanTitle: true,
 			questionTool: true,
 			defaultMode: "build",
 			config: { toggleMode: [], toggleModeInEditor: ["tab"] },
@@ -109,7 +111,7 @@ test("default startup mode parses, warns on invalid values, and saves without cl
 
 test("shortcut defaults preserve Tab and Alt+M", () => {
 	assert.deepEqual(parseShortcutConfig(undefined), {
-		showPlanTitle: false,
+		showPlanTitle: true,
 		questionTool: true,
 		defaultMode: "build",
 		config: {
@@ -128,7 +130,7 @@ test("shortcut configuration accepts remapping and explicit disabling", () => {
 	});
 
 	assert.deepEqual(result, {
-		showPlanTitle: false,
+		showPlanTitle: true,
 		questionTool: true,
 		defaultMode: "build",
 		config: {
@@ -214,7 +216,7 @@ test("shortcut configuration reads the Pi agent directory and fails safely", () 
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-plan-build-shortcuts-"));
 	try {
 		assert.deepEqual(loadShortcutConfig(dir), {
-			showPlanTitle: false,
+			showPlanTitle: true,
 			questionTool: true,
 			defaultMode: "build",
 			config: { toggleMode: ["alt+m"], toggleModeInEditor: ["tab"] },

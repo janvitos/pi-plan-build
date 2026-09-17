@@ -144,7 +144,7 @@ export function parseShortcutConfig(value: unknown): Omit<LoadedShortcutConfig, 
 		preference !== undefined && typeof preference !== "boolean" ? "showPlanTitle must be a boolean" : undefined,
 		questionTool !== undefined && typeof questionTool !== "boolean" ? "questionTool must be a boolean" : undefined,
 	].filter(Boolean).join("; ");
-	return { ...parsed, showPlanTitle: preference === true, questionTool: questionTool !== false, defaultMode: mode.defaultMode, ...(warning ? { warning } : {}) };
+	return { ...parsed, showPlanTitle: preference !== false, questionTool: questionTool !== false, defaultMode: mode.defaultMode, ...(warning ? { warning } : {}) };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

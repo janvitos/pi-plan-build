@@ -64,7 +64,7 @@ Open `/plan-settings`:
 | --- | --- | --- |
 | Default mode | Build | Startup mode for new sessions; the current session is unchanged |
 | Shortcuts | Tab + Alt+M | Open its submenu to choose Alt+M only, disable shortcuts, or configure custom keys; reload to apply |
-| Plan title | Off | Show the current task's title in the composer; applies immediately |
+| Plan title | On | Show the current task's title in the composer; applies immediately |
 | Per-mode model/thinking | Off | Remember separate Plan and Build selections; applies immediately |
 | Question tool | On | Provide this extension's structured `question` tool; off leaves a `question` tool from another extension alone; reload to apply |
 

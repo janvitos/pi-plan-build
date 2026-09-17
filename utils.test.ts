@@ -86,11 +86,13 @@ test("plan guards normalize Pi paths and resolve filesystem aliases without auth
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("plan title visibility uses regular lowercase", () => {
+test("plan title visibility preserves capitalization and aligns right with corner padding", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
 	const title = "Plan Title QX";
-	assert.match(formatModeTopBorder("plan", 80, "╮", theme, title), /plan title qx/);
-	assert.match(formatModeTopBorder("build", 80, "╮", theme, "Été 修復 🔑 123!?"), /été 修復 🔑 123!\?/);
+	const plan = formatModeTopBorder("plan", 80, "╮", theme, title);
+	assert.ok(plan.startsWith("╭─"));
+	assert.ok(plan.endsWith(" Plan Title QX  ╮"));
+	assert.match(formatModeTopBorder("build", 80, "╮", theme, "Été 修復 🔑 123!?"), / Été 修復 🔑 123!\?  ╮$/);
 });
 
 test("plan title visibility fits long Unicode titles without validation decoration", () => {
@@ -105,7 +107,7 @@ test("plan title visibility fits long Unicode titles without validation decorati
 test("plan border shows only a safe title and fits narrow Unicode layouts", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
 	const titled = formatModeTopBorder("plan", 60, "╮", theme, "Fix login redirects");
-	assert.match(titled, /fix login redirects/);
+	assert.ok(titled.endsWith(" Fix login redirects  ╮"));
 	assert.doesNotMatch(titled, /Plan|#003/);
 	for (const mode of ["plan", "build"] as const) for (const width of [1, 2, 3, 4, 8, 20, 60]) {
 		const line = formatModeTopBorder(mode, width, "╮", theme, "修復 🔑\n\x1b[31mlogin\x07 redirects");
@@ -113,7 +115,7 @@ test("plan border shows only a safe title and fits narrow Unicode layouts", () =
 		// truncateToWidth emits its own SGR resets; user-supplied controls must not survive.
 		assert.doesNotMatch(line.replaceAll("\x1b[0m", ""), /[\x00-\x1f\x7f-\x9f]/);
 	}
-	assert.match(formatModeTopBorder("build", 40, "╮", theme, "Visible title"), /visible title/);
+	assert.match(formatModeTopBorder("build", 40, "╮", theme, "Visible title"), /Visible title/);
 	assert.doesNotMatch(formatModeTopBorder("build", 40, "╮", theme), /Untitled/);
 });
 
@@ -123,7 +125,8 @@ test("composer outline uses only solid lines and rounded corners", () => {
 		const top = formatModeTopBorder(mode, 40, "╮", theme, title);
 		const output = renderModeComposer(["top", "  input", "─".repeat(40)], top, "│ ", "│", "metadata", "╰", 2, 40, { truncate: (s, w) => truncateToWidth(s, w, ""), measure: visibleWidth });
 		assert.doesNotMatch(output.join("\n"), /[╌┆┇]/);
-		assert.ok(top.endsWith("─╮"));
+		if (title) assert.ok(top.endsWith(" Task title  ╮"));
+		else assert.ok(top.endsWith("─╮"));
 		assert.ok(output[1].endsWith("│"));
 		assert.ok(output.every((line) => visibleWidth(line) <= 40));
 	}
@@ -134,9 +137,9 @@ test("plan title visibility uses normal-weight warning in both modes", () => {
 		const calls: Array<{ color: string; text: string }> = [];
 		const theme = { bold: (_: string): string => { throw new Error("Title must not be bold"); }, fg: (color: string, text: string) => { calls.push({ color, text }); return text; } };
 		formatModeTopBorder(mode, 60, "╮", theme, "Fix login");
-		assert.deepEqual(calls.find((call) => call.text === " fix login "), { color: "warning", text: " fix login " });
+		assert.deepEqual(calls.find((call) => call.text === " Fix login  "), { color: "warning", text: " Fix login  " });
 		assert.equal(calls[0].color, mode === "plan" ? "warning" : "thinkingLow");
-		assert.equal(calls.at(-1)?.color, calls[0].color);
+		assert.equal(calls.at(-1)?.color, "warning");
 	}
 });
 

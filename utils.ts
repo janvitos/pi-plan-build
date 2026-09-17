@@ -67,8 +67,8 @@ export function formatModeTopBorder(
 ): string {
 	if (width <= 2) return "";
 	if (!title) return `${formatModeColor(mode, `╭${"─".repeat(width - 2)}`, theme)}${topRightCorner}`;
-	const label = truncateToWidth(` ${truncateToWidth(cleanTaskTitle(title).toLowerCase(), Math.max(0, width - 4), "…")} `, Math.max(0, width - 2), "…");
-	return `${formatModeColor(mode, "╭", theme)}${label ? theme.fg("warning", label) : ""}${formatModeColor(mode, `${"─".repeat(Math.max(0, width - 2 - visibleWidth(label)))}`, theme)}${topRightCorner}`;
+	const label = truncateToWidth(` ${truncateToWidth(cleanTaskTitle(title), Math.max(0, width - 5), "…")}  `, Math.max(0, width - 2), "…");
+	return `${formatModeColor(mode, `╭${"─".repeat(Math.max(0, width - 2 - visibleWidth(label)))}`, theme)}${label ? theme.fg("warning", label) : ""}${topRightCorner}`;
 }
 
 export function formatModeMetadata(

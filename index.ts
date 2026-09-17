@@ -525,10 +525,10 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				return;
 			}
 			if (selected === titleOption) {
-				const choice = await ctx.ui.select("Composer plan title", ["Off (default)", "On"]);
+				const choice = await ctx.ui.select("Composer plan title", ["On (default)", "Off"]);
 				if (!choice) return;
 				try {
-					const enabled = choice === "On";
+					const enabled = choice === "On (default)";
 					saveShowPlanTitle(shortcutAgentDir, enabled);
 					composerSettings.showPlanTitle = enabled;
 					composer.update(ctx);

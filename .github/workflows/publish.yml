@@ -70,7 +70,7 @@ jobs:
           }
           try {
             let confirmed = false;
-            for (let attempt = 1; attempt <= 6; attempt++) {
+            for (let attempt = 1; attempt <= 18; attempt++) {
               try {
                 const metadata = JSON.parse((await download(metadataUrl)).toString('utf8'));
                 if (metadata.name !== expected.name || metadata.version !== expected.version) throw new Error('Registry metadata identity mismatch');
@@ -84,8 +84,8 @@ jobs:
                 confirmed = true;
                 break;
               } catch (error) {
-                console.warn(`Availability attempt ${attempt}/6 failed: ${error.message}`);
-                if (attempt < 6) await delay(10000);
+                console.warn(`Availability attempt ${attempt}/18 failed: ${error.message}`);
+                if (attempt < 18) await delay(10000);
               }
             }
             if (!confirmed) throw new Error('Publication may have succeeded, but artifact availability was not confirmed. Investigate the registry; do not automatically unpublish, bump again, or republish this version.');

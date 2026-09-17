@@ -290,23 +290,27 @@ test("plan title visibility persists through settings and reload without compose
 		return h;
 	};
 	const h = await setup();
-	assert.doesNotMatch(h.editor().render(100)[0], /plan title/);
+	assert.ok(h.editor().render(100)[0].endsWith(" Plan Title  ╮"));
 	assert.match(JSON.stringify(h.persisted), /"title":"Plan Title"/);
 	assert.equal(h.editor().getText(), "Regular User Text");
-	h.selectOptions("Plan title (active: off)", undefined);
+	h.selectOptions("Plan title (active: on)", undefined);
 	await h.commands.get("plan-settings").handler("", h.ctx);
 	assert.equal(fs.existsSync(path.join(agentDir, SHORTCUT_CONFIG_FILE)), false);
 	let current = h;
 	for (const enabled of [true, false]) {
-		current.selectOptions(`Plan title (active: ${enabled ? "off" : "on"})`, enabled ? "On" : "Off (default)");
+		current.selectOptions("Plan title (active: on)", enabled ? "On (default)" : "Off");
 		await current.commands.get("plan-settings").handler("", current.ctx);
 		assert.equal(loadShortcutConfig(agentDir).showPlanTitle, enabled);
 		assert.deepEqual(current.notifications.at(-1), [`Plan title ${enabled ? "on" : "off"}.`, "info"]);
-		if (enabled) assert.match(current.editor().render(100)[0], /plan title/);
+		if (enabled) {
+			const top = current.editor().render(100)[0];
+			assert.ok(top.endsWith(" Plan Title  ╮"), top);
+		}
 		else assert.ok(!current.statuses.at(-1)?.[1]?.includes("Plan Title"));
 		const reloaded = await setup();
 		const lines = reloaded.editor().render(100);
-		assert.equal(lines[0].includes("plan title"), enabled);
+		assert.equal(lines[0].includes("Plan Title"), enabled);
+		if (enabled) assert.ok(lines[0].endsWith(" Plan Title  ╮"));
 		assert.equal(lines.at(-1), h.editor().render(100).at(-1));
 		assert.equal(reloaded.editor().getText(), "Regular User Text");
 		await reloaded.commands.get("build").handler("", reloaded.ctx);
@@ -335,7 +339,7 @@ test("settings group shortcut presets in a submenu, retain active bindings until
 	harness.selectOptions("Shortcuts (active: Tab + Alt+M)", "Alt+M only");
 	await harness.commands.get("plan-settings").handler("", harness.ctx);
 	assert.equal(harness.selections[0]!.title, "Plan/Build settings");
-	for (const option of ["Default mode (active: build)", "Shortcuts (active: Tab + Alt+M)", "Plan title (active: off)", "Question tool (active: on)", "Per-mode model/thinking (active: off)"]) {
+	for (const option of ["Default mode (active: build)", "Shortcuts (active: Tab + Alt+M)", "Plan title (active: on)", "Question tool (active: on)", "Per-mode model/thinking (active: off)"]) {
 		assert.ok(harness.selections[0]!.options.includes(option));
 	}
 	assert.match(harness.selections[1]!.title, /active: Tab \+ Alt\+M/);
