@@ -86,13 +86,19 @@ test("plan guards normalize Pi paths and resolve filesystem aliases without auth
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("plan title visibility preserves capitalization and aligns right with corner padding", () => {
+test("plan title visibility preserves capitalization and centers between corners", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
 	const title = "Plan Title QX";
 	const plan = formatModeTopBorder("plan", 80, "╮", theme, title);
-	assert.ok(plan.startsWith("╭─"));
-	assert.ok(plan.endsWith(" Plan Title QX ╮"));
-	assert.match(formatModeTopBorder("build", 80, "╮", theme, "Été 修復 🔑 123!?"), / Été 修復 🔑 123!\? ╮$/);
+	const planLabel = " Plan Title QX ";
+	const planRemaining = 80 - 2 - visibleWidth(planLabel);
+	const planLeft = Math.floor(planRemaining / 2);
+	assert.equal(plan, `╭${"─".repeat(planLeft)}${planLabel}${"─".repeat(planRemaining - planLeft)}╮`);
+	const unicodeLabel = " Été 修復 🔑 123!? ";
+	const unicodeLine = formatModeTopBorder("build", 80, "╮", theme, "Été 修復 🔑 123!?");
+	const unicodeRemaining = 80 - 2 - visibleWidth(unicodeLabel);
+	const unicodeLeft = Math.floor(unicodeRemaining / 2);
+	assert.equal(unicodeLine, `╭${"─".repeat(unicodeLeft)}${unicodeLabel}${"─".repeat(unicodeRemaining - unicodeLeft)}╮`);
 });
 
 test("plan title visibility fits long Unicode titles without validation decoration", () => {
@@ -107,7 +113,10 @@ test("plan title visibility fits long Unicode titles without validation decorati
 test("plan border shows only a safe title and fits narrow Unicode layouts", () => {
 	const theme = { bold: (s: string) => s, fg: (_: string, s: string) => s };
 	const titled = formatModeTopBorder("plan", 60, "╮", theme, "Fix login redirects");
-	assert.ok(titled.endsWith(" Fix login redirects ╮"));
+	const titledLabel = " Fix login redirects ";
+	const titledRemaining = 60 - 2 - visibleWidth(titledLabel);
+	const titledLeft = Math.floor(titledRemaining / 2);
+	assert.equal(titled, `╭${"─".repeat(titledLeft)}${titledLabel}${"─".repeat(titledRemaining - titledLeft)}╮`);
 	assert.doesNotMatch(titled, /Plan|#003/);
 	for (const mode of ["plan", "build"] as const) for (const width of [1, 2, 3, 4, 8, 20, 60]) {
 		const line = formatModeTopBorder(mode, width, "╮", theme, "修復 🔑\n\x1b[31mlogin\x07 redirects");
@@ -125,7 +134,7 @@ test("composer outline uses only solid lines and rounded corners", () => {
 		const top = formatModeTopBorder(mode, 40, "╮", theme, title);
 		const output = renderModeComposer(["top", "  input", "─".repeat(40)], top, "│ ", "│", "metadata", "╰", 2, 40, { truncate: (s, w) => truncateToWidth(s, w, ""), measure: visibleWidth });
 		assert.doesNotMatch(output.join("\n"), /[╌┆┇]/);
-		if (title) assert.ok(top.endsWith(" Task title ╮"));
+		if (title) assert.equal(top, `╭${"─".repeat(13)} Task title ${"─".repeat(13)}╮`);
 		else assert.ok(top.endsWith("─╮"));
 		assert.ok(output[1].endsWith("│"));
 		assert.ok(output.every((line) => visibleWidth(line) <= 40));
@@ -137,9 +146,11 @@ test("plan title visibility uses normal-weight warning in both modes", () => {
 		const calls: Array<{ color: string; text: string }> = [];
 		const theme = { bold: (_: string): string => { throw new Error("Title must not be bold"); }, fg: (color: string, text: string) => { calls.push({ color, text }); return text; } };
 		formatModeTopBorder(mode, 60, "╮", theme, "Fix login");
+		const borderColor = mode === "plan" ? "warning" : "thinkingLow";
 		assert.deepEqual(calls.find((call) => call.text === " Fix login "), { color: "warning", text: " Fix login " });
-		assert.equal(calls[0].color, mode === "plan" ? "warning" : "thinkingLow");
-		assert.equal(calls.at(-1)?.color, "warning");
+		assert.ok(calls.filter((call) => call.text !== " Fix login ").every((call) => call.color === borderColor), "border dashes keep the mode color on both sides");
+		assert.ok(calls.some((call) => call.text.startsWith("╭") && call.color === borderColor), "left dash run is mode-colored");
+		assert.ok(calls.some((call) => !call.text.startsWith("╭") && call.text.includes("─") && call.color === borderColor), "right dash run is mode-colored");
 	}
 });
 

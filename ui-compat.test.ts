@@ -290,7 +290,8 @@ test("plan title visibility persists through settings and reload without compose
 		return h;
 	};
 	const h = await setup();
-	assert.ok(h.editor().render(100)[0].endsWith(" Plan Title ╮"));
+	const centeredTitle = `╭${"─".repeat(43)} Plan Title ${"─".repeat(43)}╮`;
+	assert.equal(h.editor().render(100)[0], centeredTitle);
 	assert.match(JSON.stringify(h.persisted), /"title":"Plan Title"/);
 	assert.equal(h.editor().getText(), "Regular User Text");
 	h.selectOptions("Plan title (active: on)", undefined);
@@ -304,13 +305,13 @@ test("plan title visibility persists through settings and reload without compose
 		assert.deepEqual(current.notifications.at(-1), [`Plan title ${enabled ? "on" : "off"}.`, "info"]);
 		if (enabled) {
 			const top = current.editor().render(100)[0];
-			assert.ok(top.endsWith(" Plan Title ╮"), top);
+			assert.equal(top, centeredTitle, top);
 		}
 		else assert.ok(!current.statuses.at(-1)?.[1]?.includes("Plan Title"));
 		const reloaded = await setup();
 		const lines = reloaded.editor().render(100);
 		assert.equal(lines[0].includes("Plan Title"), enabled);
-		if (enabled) assert.ok(lines[0].endsWith(" Plan Title ╮"));
+		if (enabled) assert.equal(lines[0], centeredTitle);
 		assert.equal(lines.at(-1), h.editor().render(100).at(-1));
 		assert.equal(reloaded.editor().getText(), "Regular User Text");
 		await reloaded.commands.get("build").handler("", reloaded.ctx);
