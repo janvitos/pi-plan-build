@@ -77,6 +77,10 @@ const PLAN_STEP_GUIDANCE_ENTRY_TYPE = "pi-plan-build-step-guidance";
 const VALIDATION_NOTICE_ENTRY_TYPE = "pi-plan-build-validation-notice";
 const FRESH_ANNOUNCEMENT_MESSAGE_TYPE = "pi-plan-build-fresh-announcement";
 const PLAN_STEP_CHOICE = "Implement step by step";
+const VALIDATION_COMPLETION_QUESTION = "Did the required validation pass?";
+const COMPLETE_PLAN_CHOICE = "Yes — mark the plan as complete";
+const COMPLETE_STEP_CHOICE = "Yes — mark the current step as complete";
+const STAY_BUILD_CHOICE = "No — stay in Build mode";
 const MANAGED_PLAN_TOOLS = ["plan_task", "plan_exit", "plan_step_control", "plan_step_complete", "plan_complete", "plan_finish"];
 const FILE_MUTATION_TOOLS = new Set(["edit", "write", "replace", "insert", "undo_last_change"]);
 const SHELL_MUTATION_TOOLS = new Set(["bash", "powershell"]);
@@ -250,6 +254,50 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		const next = completePlanStep(validated ? pausePlanExecution(execution) : execution, id, summary);
 		if (validated) plans.outcome(undefined);
 		return applyExecutionTransition(next);
+	}
+
+	function announceValidationCompletion(message: string, ctx: ExtensionContext): void {
+		pi.appendEntry(MODE_NOTICE_ENTRY_TYPE, { message, tone: "ack" });
+		if (ctx.mode === "rpc") ctx.ui.notify(message, "info");
+	}
+
+	function validationCompletionKind(): "plan" | "step" | undefined {
+		if (!plans.execution) return "plan";
+		const active = activePlanStep(plans.execution);
+		if (!active) return undefined;
+		return plans.execution.steps.every((step) => step.id === active.id || step.status === "completed" || step.status === "skipped")
+			? "plan"
+			: "step";
+	}
+
+	async function promptForValidationCompletion(userAction: string, ctx: ExtensionContext): Promise<void> {
+		if (!ctx.hasUI || plans.collection.attached === null || plans.plan.outcome?.kind !== "awaiting_validation") return;
+		const sequence = plans.collection.attached;
+		const stepId = activePlanStep(plans.execution)?.id;
+		const completionKind = validationCompletionKind();
+		if (!completionKind) return;
+		const completeChoice = completionKind === "step" ? COMPLETE_STEP_CHOICE : COMPLETE_PLAN_CHOICE;
+		const title = ctx.mode === "rpc"
+			? `${validationNotice(userAction)}\n\n${VALIDATION_COMPLETION_QUESTION}`
+			: VALIDATION_COMPLETION_QUESTION;
+		const selection = await ctx.ui.select(title, [completeChoice, STAY_BUILD_CHOICE]);
+		if (selection !== completeChoice) return;
+
+		const currentStepId = activePlanStep(plans.execution)?.id;
+		const outcome = plans.attached?.plan.outcome;
+		if ((runMode ?? selectedMode) !== "build" || plans.collection.attached !== sequence || outcome?.kind !== "awaiting_validation" || outcome.userAction !== userAction || currentStepId !== stepId || validationCompletionKind() !== completionKind) {
+			ctx.ui.notify("The plan or validation request changed while the prompt was open. Nothing was completed.", "warning");
+			return;
+		}
+		if (stepId) {
+			const completion = completeExecutionStep(stepId);
+			announceValidationCompletion(completion === undefined
+				? "The current step is complete. The next step is ready and awaits your instruction."
+				: "Plan complete.", ctx);
+			return;
+		}
+		completeCurrentPlan();
+		announceValidationCompletion("Plan complete.", ctx);
 	}
 
 	function refreshSavedPlanTitle(knownState?: typeof savedPlanState): void {
@@ -1199,11 +1247,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			followUpDispatched = true;
 		}
 		if (pendingValidationNotice && !followUpDispatched) {
+			const userAction = pendingValidationNotice;
+			pendingValidationNotice = undefined;
 			const record = plans.collection.records.find((candidate) => candidate.plan.sequence === plans.collection.attached);
 			if (record?.plan.outcome?.kind === "awaiting_validation") {
-				pi.appendEntry(VALIDATION_NOTICE_ENTRY_TYPE, { userAction: pendingValidationNotice });
+				pi.appendEntry(VALIDATION_NOTICE_ENTRY_TYPE, { userAction });
+				await promptForValidationCompletion(userAction, ctx);
 			}
-			pendingValidationNotice = undefined;
 		}
 	});
 

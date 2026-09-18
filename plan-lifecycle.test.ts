@@ -544,6 +544,136 @@ test("validation presentation keeps compact bookkeeping and complete readable ex
 	}
 });
 
+test("awaiting validation offers a one-shot plan completion decision", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "validation-completion-prompt-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const complete = harness(path.join(dir, "complete"));
+		await complete.event("session_start", { reason: "startup" });
+		await complete.command("");
+		await complete.callTool("plan_task", { action: "new", expectedAttached: null, title: "Validate completion", scope: "Finish after user validation" });
+		await complete.build();
+		let shown: { title: string; options: string[] } | undefined;
+		complete.ctx.ui.select = async (title: string, options: string[]) => {
+			shown = { title, options };
+			return "Yes — mark the plan as complete";
+		};
+		await complete.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user observation", userAction: "Confirm the completed behavior" });
+		await complete.event("agent_settled");
+		assert.deepEqual(shown?.options, ["Yes — mark the plan as complete", "No — stay in Build mode"]);
+		assert.match(shown?.title ?? "", /Awaiting your validation[\s\S]*Confirm the completed behavior[\s\S]*Did the required validation pass\?/);
+		assert.equal(complete.state().collection.attached, null);
+		assert.equal(complete.record().plan.status, "completed");
+		assert.ok(complete.events.some((event) => event.kind === "notify" && event.text === "Plan complete."));
+
+		const stay = harness(path.join(dir, "stay"));
+		await stay.event("session_start", { reason: "startup" });
+		await stay.command("");
+		await stay.callTool("plan_task", { action: "new", expectedAttached: null, title: "Keep validation open", scope: "Allow validation discussion" });
+		await stay.build();
+		let prompts = 0;
+		stay.ctx.ui.select = async () => { prompts++; return undefined as any; };
+		await stay.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user observation", userAction: "Check the result" });
+		await stay.event("agent_settled");
+		await stay.event("agent_settled");
+		assert.equal(prompts, 1, "later settled events must not replay the prompt");
+		assert.equal(stay.state().collection.attached, 1);
+		assert.equal(stay.record().plan.outcome.kind, "awaiting_validation");
+		const restored = harness(path.join(dir, "stay"), structuredClone(stay.entries));
+		let restoredPrompts = 0;
+		restored.ctx.ui.select = async () => { restoredPrompts++; return "Yes — mark the plan as complete"; };
+		await restored.event("session_start", { reason: "resume" });
+		await restored.event("agent_settled");
+		assert.equal(restoredPrompts, 0, "restoration must not recreate a consumed prompt");
+		assert.equal(restored.state().collection.attached, 1);
+
+		const stale = harness(path.join(dir, "stale"));
+		await stale.event("session_start", { reason: "startup" });
+		await stale.command("");
+		await stale.callTool("plan_task", { action: "new", expectedAttached: null, title: "Stale validation", scope: "Reject stale completion" });
+		await stale.build();
+		await stale.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user observation", userAction: "Check stale behavior" });
+		stale.ctx.ui.select = async () => {
+			await stale.callTool("plan_finish", { expectedAttached: 1, outcome: "blocked", reason: "State changed while prompting" });
+			return "Yes — mark the plan as complete";
+		};
+		await stale.event("agent_settled");
+		assert.equal(stale.state().collection.attached, 1);
+		assert.equal(stale.record().plan.outcome.kind, "blocked");
+		assert.ok(stale.events.some((event) => event.kind === "notify" && /Nothing was completed/.test(event.text)));
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("awaiting validation completes only the active step and closes on the final step", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "step-validation-completion-prompt-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		for (const final of [false, true]) {
+			const folder = path.join(dir, final ? "final" : "intermediate");
+			fs.mkdirSync(path.join(folder, "plans"), { recursive: true });
+			const markdown = final
+				? "# Work\n\n## Implementation Steps\n1. Validate final behavior\n"
+				: "# Work\n\n## Implementation Steps\n1. Validate first behavior\n2. Implement remaining behavior\n";
+			const execution = createPlanExecution(markdown);
+			execution.steps[0]!.status = "active";
+			const data = { version: STATE_VERSION, selectedMode: "build", collection: { records: [{ plan: { sequence: 1, status: "open", task: { title: "Step validation", scope: "Validate step behavior", decisions: [] } }, execution }], attached: 1, counter: 1 } };
+			const h = harness(folder, [{ type: "custom", customType: "pi-plan-build-state", data }]);
+			await h.event("session_start", { reason: "resume" });
+			let options: string[] = [];
+			const completionChoice = final ? "Yes — mark the plan as complete" : "Yes — mark the current step as complete";
+			h.ctx.ui.select = async (_title: string, choices: string[]) => { options = choices; return completionChoice; };
+			await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user observation", userAction: "Confirm the active step" });
+			assert.equal(h.record().execution.status, "paused");
+			await h.event("agent_settled");
+			assert.deepEqual(options, [completionChoice, "No — stay in Build mode"]);
+			if (final) {
+				assert.equal(h.state().collection.attached, null);
+				assert.equal(h.record().plan.status, "completed");
+				assert.equal(h.record().execution, undefined);
+				assert.ok(h.events.some((event) => event.kind === "notify" && event.text === "Plan complete."));
+			} else {
+				assert.equal(h.state().collection.attached, 1);
+				assert.equal(h.record().plan.outcome, undefined);
+				assert.equal(h.record().execution.status, "running");
+				assert.equal(h.record().execution.steps[0].status, "completed");
+				assert.equal(h.record().execution.steps[1].status, "ready");
+				assert.ok(h.events.some((event) => event.kind === "notify" && /next step is ready/i.test(event.text)));
+			}
+		}
+
+		const noUi = harness(path.join(dir, "no-ui"));
+		await noUi.event("session_start", { reason: "startup" });
+		await noUi.command("");
+		await noUi.callTool("plan_task", { action: "new", expectedAttached: null, title: "No UI validation", scope: "Keep validation open without UI" });
+		await noUi.build();
+		noUi.ctx.hasUI = false;
+		let selected = false;
+		noUi.ctx.ui.select = async () => { selected = true; return "Yes — mark the plan as complete"; };
+		await noUi.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user observation", userAction: "Confirm without UI" });
+		await noUi.event("agent_settled");
+		assert.equal(selected, false);
+		assert.equal(noUi.state().collection.attached, 1);
+
+		const blocked = harness(path.join(dir, "blocked"));
+		await blocked.event("session_start", { reason: "startup" });
+		await blocked.command("");
+		await blocked.callTool("plan_task", { action: "new", expectedAttached: null, title: "Blocked validation", scope: "Do not prompt for a blocker" });
+		await blocked.build();
+		let blockerPrompted = false;
+		blocked.ctx.ui.select = async () => { blockerPrompted = true; return "Yes — mark the plan as complete"; };
+		await blocked.callTool("plan_finish", { expectedAttached: 1, outcome: "blocked", reason: "Missing access" });
+		await blocked.event("agent_settled");
+		assert.equal(blockerPrompted, false);
+		assert.equal(blocked.record().plan.outcome.kind, "blocked");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("Build scope changes retain boundary guidance, invalidate stale outcomes, and preserve paused execution", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "build-scope-change-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;

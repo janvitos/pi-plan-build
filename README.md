@@ -7,7 +7,7 @@ A [Pi coding agent](https://github.com/earendil-works/pi-mono) extension that se
 - Persistent **Plan/Build** modes and one current unfinished plan.
 - Complete plan review before implementation, with a clean-session option.
 - Optional step-by-step execution—with or without a sidebar.
-- Interactive questions, explicit completion, and outstanding validation tracking.
+- Interactive questions, explicit validation decisions, completion, and outstanding validation tracking.
 - Optional remembered model/thinking selections for each mode.
 
 ## Install
@@ -30,7 +30,7 @@ Restart Pi or run `/reload`. Do not load multiple npm/Git/local copies simultane
 2. Select **Plan** with `/plan`, `Alt+M`, or editor `Tab`. Explore and discuss; entering Plan does not create a task or write a file. Plan entry is user-controlled—the agent cannot route a Build request into Plan.
 3. Ask for a plan or accept a concrete proposed change. The agent investigates, saves the plan, and presents it for review. Accepting scope does **not** authorize implementation.
 4. Choose **implement here**, **start fresh and implement**, or **step by step**. Choose **stay in Plan** or press Escape to stop and wait.
-5. After implementation and required checks, the agent records completion. Essential user-only validation keeps the plan open with clear instructions; optional feedback does not block completion.
+5. After implementation and required checks, the agent records completion. Essential user-only validation keeps the plan open with clear instructions, then asks **Did the required validation pass?** Normal choices are **Yes — mark the plan as complete** and **No — stay in Build mode**. Intermediate step validation uses **Yes — mark the current step as complete**; final-step validation uses the plan wording because it closes the plan. Step completion never starts the next step. Optional feedback does not block completion.
 
 One plan stays current through discussion, mode changes, and revisions. Complete it or explicitly abandon it before starting another. Abandonment preserves the file but does not imply success or allow resumption. A successful clean-session handoff instead marks the source record transferred and moves it to history; only the destination copy remains open.
 
