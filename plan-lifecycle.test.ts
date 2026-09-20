@@ -818,6 +818,7 @@ test("metadata-only plans expose outcomes in Build and complete without creating
 	try {
 		const h = harness(dir);
 		await h.event("session_start", { reason: "startup" });
+		assert.ok(!h.active().includes("plan_task"), "empty Build hides plan task lifecycle actions");
 		assert.ok(!h.active().includes("plan_complete"));
 		await assert.rejects(h.tool("plan_complete"), /No current plan/);
 		await h.command("");
@@ -825,6 +826,7 @@ test("metadata-only plans expose outcomes in Build and complete without creating
 		assert.ok(!h.active().includes("plan_complete"));
 		await assert.rejects(h.tool("plan_complete"), /Switch to Build/);
 		await h.build();
+		assert.ok(h.active().includes("plan_task"), "attached Build keeps plan metadata and lifecycle actions available");
 		assert.ok(h.active().includes("plan_complete"));
 		assert.ok(h.active().includes("plan_finish"));
 		await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user observation", userAction: "Confirm the title appearance" });
@@ -833,6 +835,7 @@ test("metadata-only plans expose outcomes in Build and complete without creating
 		assert.equal(h.state().collection.attached, null);
 		assert.equal(h.record().plan.status, "completed");
 		assert.equal(fs.existsSync(created.details.planPath), false);
+		assert.ok(!h.active().includes("plan_task"), "completing the plan returns Build to its empty lifecycle tool set");
 		assert.ok(!h.active().includes("plan_complete"));
 		assert.ok(!h.active().includes("plan_finish"));
 		assert.ok(!h.events.filter((event) => event.kind === "status").at(-1)?.text?.includes("Metadata-only task"));
@@ -852,6 +855,7 @@ test("Build requests cannot enter Plan until the user explicitly selects it", as
 		assert.equal(h.state().selectedMode, "build");
 		assert.equal(h.tools.has("plan_enter"), false);
 		assert.equal(h.active().includes("plan_enter"), false);
+		assert.equal(h.active().includes("plan_task"), false, "empty Build must not advertise Plan-only task creation");
 		await assert.rejects(h.tool("plan_task", { action: "new", expectedAttached: null, title: "Raise ability damage", scope: "Make Gale Burst deal eight hearts per hit" }), /Plan mode/);
 		assert.deepEqual(await h.prompt("Make Gale Burst deal eight hearts per hit"), [{ role: "user", content: "Make Gale Burst deal eight hearts per hit" }]);
 		assert.equal(h.state().selectedMode, "build");
@@ -861,6 +865,7 @@ test("Build requests cannot enter Plan until the user explicitly selects it", as
 		await h.command("");
 		assert.equal(h.state().selectedMode, "plan");
 		assert.ok(h.active().includes("plan_exit"));
+		assert.ok(h.active().includes("plan_task"), "Plan mode exposes task creation");
 		assert.equal(h.active().includes("plan_enter"), false);
 		const context = await h.event("context", { messages: [] });
 		assert.match(context.messages.at(-1).content, /Plan mode is active/);

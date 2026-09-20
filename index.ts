@@ -339,8 +339,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			pi.setActiveTools(unique([
 				...base,
 				...questionTools,
-				"plan_task",
-				...(plans.collection.attached !== null && plans.plan.status === "open" ? ["plan_complete", "plan_finish"] : []),
+				...(plans.collection.attached !== null && plans.plan.status === "open" ? ["plan_task", "plan_complete", "plan_finish"] : []),
 				...(plans.execution && plans.execution.status !== "completed" ? ["plan_step_control"] : []),
 				...(plans.collection.attached !== null && completablePlanStep() ? ["plan_step_complete"] : []),
 			]));
