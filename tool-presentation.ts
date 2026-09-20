@@ -2,14 +2,16 @@ import { getMarkdownTheme, type Theme, type ExtensionAPI, type ExtensionContext 
 import { Container, Markdown, Text } from "@earendil-works/pi-tui";
 import { formatInstruction } from "./utils.ts";
 
+export const TRANSCRIPT_PADDING = 1;
+
 export function resultText(result: { content: readonly { type: string; text?: string }[] }, fallback = ""): string {
 	return result.content.filter((part) => part.type === "text").map((part) => part.text ?? "").join("\n") || fallback;
 }
 
 /** Call rows own pending feedback; settled rows are result-only. */
-export function statusCall(pending: string) {
+export function statusCall(pending: string, padding = 0) {
 	return (_args: unknown, theme: Theme, context?: { isPartial?: boolean; isError?: boolean }) =>
-		context?.isPartial && !context.isError ? new Text(theme.fg("muted", pending), 0, 0) : new Container();
+		context?.isPartial && !context.isError ? new Text(theme.fg("muted", pending), padding, 0) : new Container();
 }
 
 /** Correlate existing durable UI notices without changing model-visible tool results. */
@@ -42,8 +44,9 @@ export function pendingOrError(
 	context: { isError?: boolean },
 	_pending: string,
 	failure: string,
+	padding = 0,
 ): Text | Container | undefined {
-	if (context.isError) return new Text(theme.fg("error", resultText(result, failure)), 0, 0);
+	if (context.isError) return new Text(theme.fg("error", resultText(result, failure)), padding, 0);
 	if (options.isPartial) return new Container();
 	return undefined;
 }

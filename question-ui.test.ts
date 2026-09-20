@@ -10,12 +10,13 @@ const prompt = (question: string, overrides: Record<string, unknown> = {}) => ({
 	...overrides,
 });
 
-function getQuestionTool(): { tool: any; entries: any[] } {
+function getQuestionTool(): { tool: any; entries: any[]; entryRenderers: Map<string, any> } {
 	let tool: any;
 	const entries: any[] = [];
+	const entryRenderers = new Map<string, any>();
 	registerQuestionTool({
 		on() {},
-		registerEntryRenderer() {},
+		registerEntryRenderer(type: string, renderer: any) { entryRenderers.set(type, renderer); },
 		registerTool(candidate: any) {
 			tool = candidate;
 		},
@@ -23,7 +24,7 @@ function getQuestionTool(): { tool: any; entries: any[] } {
 			entries.push({ type, data });
 		},
 	} as any);
-	return { tool, entries };
+	return { tool, entries, entryRenderers };
 }
 
 function makeContext(select: (title: string, options: string[], opts?: { signal?: AbortSignal }) => Promise<string | undefined>, input?: (title: string, placeholder?: string, opts?: { signal?: AbortSignal }) => Promise<string | undefined>) {
@@ -62,19 +63,34 @@ test("question output preserves answers without coaching and distinguishes rende
 	const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text };
 	for (const expanded of [false, true]) {
 		const render = (r: any, isPartial = false, isError = false) => tool.renderResult(r, { expanded, isPartial }, theme, { isError }).render(100).join("\n").trimEnd();
-		assert.match(render(result), /Yes/);
-		assert.match(render({ content: [{ type: "text", text: "Connection failed" }] }, false, true), /Connection failed/);
-		assert.match(render({ content: [{ type: "text", text: "Connection failed" }, { type: "text", text: "Retry later" }] }, true, true), /Connection failed[\s\S]*Retry later/);
-		assert.equal(render({ content: [], details: {} }), "Answer status unavailable");
+		const answer = render(result);
+		const error = render({ content: [{ type: "text", text: "Connection failed" }] }, false, true);
+		const multilineError = render({ content: [{ type: "text", text: "Connection failed" }, { type: "text", text: "Retry later" }] }, true, true);
+		const unavailable = render({ content: [], details: {} });
+		const cancelled = render({ content: [], details: { cancelled: true } });
+		for (const rendered of [answer, error, multilineError, unavailable, cancelled]) assert.match(rendered, /^ \S/u);
+		assert.match(answer, /Yes/);
+		assert.match(error, /Connection failed/);
+		assert.match(multilineError, /Connection failed[\s\S]*Retry later/);
+		assert.equal(unavailable, " Answer status unavailable");
 		assert.equal(render(result, true), "");
-		assert.match(tool.renderCall({}, theme, { isPartial: true }).render(100).join("\n"), /Awaiting answers/);
+		const pending = tool.renderCall({}, theme, { isPartial: true }).render(100).join("\n").trimEnd();
+		assert.match(pending, /^ Awaiting answers/u);
 		assert.deepEqual(tool.renderCall({}, theme, { isPartial: false }).render(100), []);
-		assert.equal(render({ content: [], details: { cancelled: true } }), "Question(s) skipped");
+		assert.equal(cancelled, " Question(s) skipped");
 	}
 	const skippedColors: Array<{ color: string; text: string }> = [];
 	const capture = { fg: (color: string, text: string) => { skippedColors.push({ color, text }); return text; }, bold: (text: string) => text };
 	tool.renderResult({ content: [], details: { cancelled: true } }, { expanded: false, isPartial: false }, capture, {}).render(100);
 	assert.ok(skippedColors.some((call) => call.color === "muted" && call.text === "Question(s) skipped"));
+});
+
+test("question cancellation notices use the normal transcript inset", () => {
+	const { entryRenderers } = getQuestionTool();
+	const renderer = entryRenderers.get("pi-plan-build-question-notice");
+	const theme = { fg: (_: string, text: string) => text, bold: (text: string) => text };
+	const rendered = renderer({ data: { message: "Cancelled" } }, { expanded: false }, theme).render(40).join("\n").trimEnd();
+	assert.equal(rendered, " Cancelled");
 });
 
 test("cancelling a selector terminates cleanly and reports a skipped question", async () => {

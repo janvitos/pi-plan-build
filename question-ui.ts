@@ -2,7 +2,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Container, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { formatInstruction, formatQuestionAnswers, type QuestionAnswerData } from "./utils.ts";
-import { pendingOrError, statusCall, noticeTracker } from "./tool-presentation.ts";
+import { pendingOrError, statusCall, noticeTracker, TRANSCRIPT_PADDING } from "./tool-presentation.ts";
 
 const OptionSchema = Type.Object({
 	label: Type.String({ description: "Display label for the option" }),
@@ -97,7 +97,7 @@ export function registerQuestionNotice(pi: ExtensionAPI) {
 	const notices = noticeTracker(pi, QUESTION_NOTICE_ENTRY_TYPE);
 	pi.registerEntryRenderer<{ message: string }>(QUESTION_NOTICE_ENTRY_TYPE, (entry, _options, theme) => {
 		const message = typeof entry.data?.message === "string" ? entry.data.message : QUESTION_CANCELLED_MESSAGE;
-		return new Text(formatInstruction(theme, message), 0, 0);
+		return new Text(formatInstruction(theme, message), TRANSCRIPT_PADDING, 0);
 	});
 	return notices;
 }
@@ -131,15 +131,15 @@ export function registerQuestionTool(pi: ExtensionAPI, notices = registerQuestio
 				details: { answers },
 			};
 		},
-		renderCall: statusCall("Awaiting answers…"),
+		renderCall: statusCall("Awaiting answers…", TRANSCRIPT_PADDING),
 		renderResult(result, options, theme, context) {
-			const status = pendingOrError(result, options, theme, context, "Awaiting answers…", "Question failed");
+			const status = pendingOrError(result, options, theme, context, "Awaiting answers…", "Question failed", TRANSCRIPT_PADDING);
 			if (status) return status;
 			const details = result.details as { answers?: QuestionAnswer[]; cancelled?: boolean } | undefined;
 			if (details?.cancelled && !options.expanded && notices.has(context)) return new Container();
-			if (details?.cancelled) return new Text(theme.fg("muted", "Question(s) skipped"), 0, 0);
-			if (!details?.answers) return new Text(theme.fg("muted", "Answer status unavailable"), 0, 0);
-			return new Text(details.answers.map((a) => `${theme.fg("success", "✓")} ${a.header}: ${a.answers.join(", ")}`).join("\n"), 0, 0);
+			if (details?.cancelled) return new Text(theme.fg("muted", "Question(s) skipped"), TRANSCRIPT_PADDING, 0);
+			if (!details?.answers) return new Text(theme.fg("muted", "Answer status unavailable"), TRANSCRIPT_PADDING, 0);
+			return new Text(details.answers.map((a) => `${theme.fg("success", "✓")} ${a.header}: ${a.answers.join(", ")}`).join("\n"), TRANSCRIPT_PADDING, 0);
 		},
 	});
 }

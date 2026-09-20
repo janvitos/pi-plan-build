@@ -6,7 +6,7 @@ import path from "node:path";
 import { withFileMutationQueue, getAgentDir, getMarkdownTheme, parseSkillBlock, type EntryRenderer, type ExtensionAPI, type ExtensionContext, UserMessageComponent } from "@earendil-works/pi-coding-agent";
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
-import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker } from "./tool-presentation.ts";
+import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker, TRANSCRIPT_PADDING } from "./tool-presentation.ts";
 import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
 import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
 import { registerQuestionNotice, registerQuestionTool } from "./question-ui.ts";
@@ -178,16 +178,16 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	const modeNotices = noticeTracker(pi, MODE_NOTICE_ENTRY_TYPE);
 	const renderPlanReview: EntryRenderer<{ plan: string }> = (entry) => {
 		const plan = typeof entry.data?.plan === "string" ? entry.data.plan : "Plan unavailable";
-		return new Markdown(buildPlanReviewMessage(plan), 0, 0, getMarkdownTheme());
+		return new Markdown(buildPlanReviewMessage(plan), TRANSCRIPT_PADDING, 0, getMarkdownTheme());
 	};
 	const renderModeNotice: EntryRenderer<{ message: string; tone?: "instruction" | "ack" }> = (entry, _options, theme) => {
 		const message = typeof entry.data?.message === "string" ? entry.data.message : "Plan mode unchanged.";
-		if (entry.data?.tone === "instruction") return new Text(formatInstruction(theme, message), 0, 0);
-		if (entry.data?.tone === "ack") return new Text(theme.fg("success", message), 0, 0);
-		return new Text(theme.fg("muted", message), 0, 0);
+		if (entry.data?.tone === "instruction") return new Text(formatInstruction(theme, message), TRANSCRIPT_PADDING, 0);
+		if (entry.data?.tone === "ack") return new Text(theme.fg("success", message), TRANSCRIPT_PADDING, 0);
+		return new Text(theme.fg("muted", message), TRANSCRIPT_PADDING, 0);
 	};
 	const renderPlanStepGuidance: EntryRenderer = (_entry, _options, theme) =>
-		new Text(formatInstruction(theme, PLAN_STEP_READY_ACKNOWLEDGEMENT), 0, 0);
+		new Text(formatInstruction(theme, PLAN_STEP_READY_ACKNOWLEDGEMENT), TRANSCRIPT_PADDING, 0);
 	const renderValidationNotice: EntryRenderer<{ userAction?: string; message?: string }> = (entry, _options, theme) => {
 		const legacyMessage = typeof entry.data?.message === "string" ? entry.data.message : "";
 		const legacyPrefix = `${VALIDATION_NOTICE_HEADING}:`;
@@ -202,17 +202,17 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		return notice;
 	};
 	pi.registerEntryRenderer<StoredState>(STATE_TYPE, (entry, _options, theme) =>
-		entry.data?.sourceTransferNotice === true ? new Text(theme.fg("success", SOURCE_TRANSFER_NOTICE), 0, 0) : new Container());
+		entry.data?.sourceTransferNotice === true ? new Text(theme.fg("success", SOURCE_TRANSFER_NOTICE), TRANSCRIPT_PADDING, 0) : new Container());
 	pi.registerEntryRenderer<{ markdown: string }>("pi-plan-build-inspection", (entry) =>
-		new Markdown(entry.data?.markdown ?? "Plan inspection unavailable", 0, 0, getMarkdownTheme()));
+		new Markdown(entry.data?.markdown ?? "Plan inspection unavailable", TRANSCRIPT_PADDING, 0, getMarkdownTheme()));
 	pi.registerEntryRenderer<{ plan: string }>(PLAN_REVIEW_ENTRY_TYPE, renderPlanReview);
 	pi.registerEntryRenderer<{ plan: string }>(LEGACY_PLAN_REVIEW_ENTRY_TYPE, renderPlanReview);
 	pi.registerEntryRenderer<{ message: string }>(MODE_NOTICE_ENTRY_TYPE, renderModeNotice);
 	pi.registerEntryRenderer<{ message: string }>(LEGACY_MODE_NOTICE_ENTRY_TYPE, renderModeNotice);
 	pi.registerEntryRenderer(PLAN_STEP_GUIDANCE_ENTRY_TYPE, renderPlanStepGuidance);
 	pi.registerEntryRenderer<{ userAction?: string; message?: string }>(VALIDATION_NOTICE_ENTRY_TYPE, renderValidationNotice);
-	pi.registerMessageRenderer(FRESH_ANNOUNCEMENT_MESSAGE_TYPE, (message, _options, theme) =>
-		new Text(theme.fg("success", typeof message.content === "string" ? message.content : ""), 0, 0));
+	pi.registerMessageRenderer(FRESH_ANNOUNCEMENT_MESSAGE_TYPE, (message, options, theme) =>
+		new Text(theme.fg("success", typeof message.content === "string" ? message.content : ""), options.outputPad, 0));
 
 	function stateData(): StoredState {
 		return { version: STATE_VERSION, selectedMode, collection: plans.collection, toolsBeforeModes, planSessionId: currentContext?.sessionManager.getSessionId(), ...(pendingFreshAnnouncement ? { pendingFreshAnnouncement: true } : {}), ...(reconciliation?.consumed ? { reconciliation: { sequence: reconciliation.sequence, sessionId: reconciliation.sessionId, consumed: true as const } } : {}) };
@@ -1064,27 +1064,27 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				details: { approved: true, mode: "build", planPath: currentPlanPath() },
 			};
 		},
-		renderCall: statusCall("Processing plan approval…"),
+		renderCall: statusCall("Processing plan approval…", TRANSCRIPT_PADDING),
 		renderResult(result, options, theme, context) {
-			const status = pendingOrError(result, options, theme, context, "Processing plan approval…", "Plan approval failed");
+			const status = pendingOrError(result, options, theme, context, "Processing plan approval…", "Plan approval failed", TRANSCRIPT_PADDING);
 			if (status) return status;
 			const details = result.details as { approved?: boolean; action?: string } | undefined;
 			if (!options.expanded && typeof details?.approved === "boolean" && modeNotices.has(context)) return new Container();
 			if (details?.action === "step-by-step" && !context.isError) {
-				return new Text(theme.fg("success", "Step-by-step execution ready"), 0, 0);
+				return new Text(theme.fg("success", "Step-by-step execution ready"), TRANSCRIPT_PADDING, 0);
 			}
 			if (details?.action === "implement-fresh" && !context.isError) {
 				return new Text(
 					theme.fg("success", "Clean-session implementation selected — starting automatically."),
-					0,
+					TRANSCRIPT_PADDING,
 					0,
 				);
 			}
 			if (details?.approved === true && !context.isError) {
-				return new Text(theme.fg("success", "Plan approved; switched to Build mode"), 0, 0);
+				return new Text(theme.fg("success", "Plan approved; switched to Build mode"), TRANSCRIPT_PADDING, 0);
 			}
-			if (details?.approved === false) return new Text(theme.fg("muted", "Remaining in Plan mode"), 0, 0);
-			return new Text(theme.fg("muted", "Plan approval status unavailable"), 0, 0);
+			if (details?.approved === false) return new Text(theme.fg("muted", "Remaining in Plan mode"), TRANSCRIPT_PADDING, 0);
+			return new Text(theme.fg("muted", "Plan approval status unavailable"), TRANSCRIPT_PADDING, 0);
 		},
 	});
 

@@ -93,7 +93,7 @@ function harness(dir: string, entries: any[] = [], sessionId = "session", initia
 				} else {
 					entries.push({ type: "custom_message", ...message });
 					if (ctx.mode === "tui" && message.display) {
-						const component = messageRenderers.get(message.customType)(message, { expanded: false }, ctx.ui.theme);
+						const component = messageRenderers.get(message.customType)(message, { expanded: false, outputPad: 1 }, ctx.ui.theme);
 						events.push({ kind: "render", customType: message.customType, text: component.render(120).join("\n").trim() });
 					}
 				}
@@ -1788,7 +1788,7 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 					assert.equal(sourceState.sourceTransferNotice, true);
 					const noticeColors: Array<{ color: string; text: string }> = [];
 					const sourceNotice = h.entryRenderers.get("pi-plan-build-state")({ data: sourceState }, { expanded: false }, { fg: (color: string, text: string) => { noticeColors.push({ color, text }); return text; } });
-					assert.equal(sourceNotice.render(160).join("\n").trimEnd(), SOURCE_TRANSFER_NOTICE);
+					assert.equal(sourceNotice.render(160).join("\n").trimEnd(), ` ${SOURCE_TRANSFER_NOTICE}`);
 					assert.ok(noticeColors.some((call) => call.color === "success" && call.text === SOURCE_TRANSFER_NOTICE));
 					assert.ok(child.active().includes("plan_complete"), "the destination must adopt setup state before kickoff");
 					const noticeType = "pi-plan-build-fresh-announcement";
@@ -1808,7 +1808,7 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 						assert.equal(renders[0].text, "I’ll implement the approved plan in this clean session.");
 						assert.ok(user < destination.indexOf(renders[0]) && destination.indexOf(renders[0]) < assistant);
 						const freshColors: Array<{ color: string; text: string }> = [];
-						child.messageRenderers.get("pi-plan-build-fresh-announcement")({ content: PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"] }, { expanded: false }, { fg: (color: string, text: string) => { freshColors.push({ color, text }); return text; }, bold: (text: string) => text }).render(160);
+						child.messageRenderers.get("pi-plan-build-fresh-announcement")({ content: PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"] }, { expanded: false, outputPad: 1 }, { fg: (color: string, text: string) => { freshColors.push({ color, text }); return text; }, bold: (text: string) => text }).render(160);
 						assert.ok(freshColors.some((call) => call.color === "success" && call.text === PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"]));
 					}
 					const rpcNotices = destination.filter(e => e.kind === "notify" && e.text === PLAN_ACTION_ANNOUNCEMENTS["implement-fresh"]);

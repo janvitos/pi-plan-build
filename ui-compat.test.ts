@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import test, { afterEach, beforeEach } from "node:test";
+import { initTheme } from "@earendil-works/pi-coding-agent";
 import { CombinedAutocompleteProvider, matchesKey } from "@earendil-works/pi-tui";
 import planBuildModes from "./index.ts";
 import { eventHandlers } from "./test-events.ts";
@@ -30,6 +31,8 @@ afterEach(async () => {
 function createHarness(initialEditor?: unknown, entries: any[] = []) {
 	const { handlers, on } = eventHandlers();
 	const registeredTools = new Map<string, any>();
+	const entryRenderers = new Map<string, any>();
+	const messageRenderers = new Map<string, any>();
 	let currentEditor = initialEditor;
 	const editorCalls: unknown[] = [];
 	let createdEditor: any;
@@ -63,8 +66,8 @@ function createHarness(initialEditor?: unknown, entries: any[] = []) {
 		registerTool(definition: any) { registeredTools.set(definition.name, definition); },
 		registerCommand(name: string, options: unknown) { commands.set(name, options); },
 		registerShortcut(key: string, options: unknown) { shortcuts.set(key, options); },
-		registerEntryRenderer() {},
-		registerMessageRenderer() {},
+		registerEntryRenderer(type: string, renderer: any) { entryRenderers.set(type, renderer); },
+		registerMessageRenderer(type: string, renderer: any) { messageRenderers.set(type, renderer); },
 		getFlag() { return false; },
 		getActiveTools() { return [...activeTools]; },
 		setActiveTools(next: string[]) { activeTools = [...next]; },
@@ -125,6 +128,8 @@ function createHarness(initialEditor?: unknown, entries: any[] = []) {
 		notifications,
 		shortcuts,
 		registeredTools,
+		entryRenderers,
+		messageRenderers,
 		commands,
 		selections,
 		persisted,
@@ -421,6 +426,66 @@ test("model-facing tool metadata keeps schemas stable and prompt overhead bounde
 		assert.ok(JSON.stringify(harness.registeredTools.get(name)).includes(COMPLETION_ROUTING_GUIDANCE), `${name} must include the shared completion-routing policy`);
 	}
 	assert.deepEqual(harness.registeredTools.get("plan_step_control").parameters.properties.action.anyOf.map((item: any) => item.const), ["start", "complete", "skip", "revise", "pause", "resume", "cancel", "hide", "show"]);
+});
+
+test("non-user transcript renderers share Pi's normal one-column inset", () => {
+	initTheme("dark", false);
+	const harness = createHarness();
+	const theme = { fg: (_color: string, text: string) => text, bold: (text: string) => text };
+	const firstContentColumn = (component: any) => {
+		const line = component.render(100).find((candidate: string) => candidate.trim().length > 0);
+		assert.notEqual(line, undefined);
+		return /^ */u.exec(line!)![0].length;
+	};
+	const entries = [
+		["pi-plan-build-state", { sourceTransferNotice: true }],
+		["pi-plan-build-inspection", { markdown: "# Inspection" }],
+		["pi-plan-build-review", { plan: "# Plan" }],
+		["opencode-plan-review", { plan: "# Legacy plan" }],
+		["pi-plan-build-notice", { message: "Plan complete.", tone: "ack" }],
+		["pi-plan-build-notice", { message: "Proceed", tone: "instruction" }],
+		["opencode-mode-notice", { message: "Legacy notice" }],
+		["pi-plan-build-step-guidance", {}],
+		["pi-plan-build-validation-notice", { userAction: "Check behavior" }],
+		["pi-plan-build-question-notice", { message: "Question skipped" }],
+	] as const;
+	for (const [type, data] of entries) {
+		const renderer = harness.entryRenderers.get(type);
+		assert.ok(renderer, `missing entry renderer ${type}`);
+		assert.equal(firstContentColumn(renderer({ data }, { expanded: false }, theme)), 1, type);
+	}
+
+	const freshRenderer = harness.messageRenderers.get("pi-plan-build-fresh-announcement");
+	assert.ok(freshRenderer);
+	for (const outputPad of [0, 1]) {
+		assert.equal(firstContentColumn(freshRenderer({ content: "Fresh implementation" }, { expanded: false, outputPad }, theme)), outputPad);
+	}
+
+	const planExit = harness.registeredTools.get("plan_exit");
+	assert.equal(planExit.renderShell, "self");
+	assert.equal(firstContentColumn(planExit.renderCall({}, theme, { isPartial: true })), 1);
+	for (const [result, context] of [
+		[{ content: [{ type: "text", text: "Approval failed" }] }, { isError: true }],
+		[{ content: [], details: { action: "step-by-step", approved: true } }, {}],
+		[{ content: [], details: { action: "implement-fresh", approved: true } }, {}],
+		[{ content: [], details: { approved: true } }, {}],
+		[{ content: [], details: { approved: false } }, {}],
+		[{ content: [], details: {} }, {}],
+	] as const) {
+		assert.equal(firstContentColumn(planExit.renderResult(result, { expanded: true, isPartial: false }, theme, context)), 1);
+	}
+
+	for (const name of ["plan_task", "plan_finish", "plan_complete", "plan_step_control", "plan_step_complete"]) {
+		const tool = harness.registeredTools.get(name);
+		assert.notEqual(tool.renderShell, "self", name);
+		assert.equal(firstContentColumn(tool.renderCall({}, theme, { isPartial: true })), 0, `${name} receives its inset from Pi's outer shell`);
+	}
+	assert.equal(firstContentColumn(harness.registeredTools.get("plan_complete").renderResult(
+		{ content: [{ type: "text", text: "Plan complete." }], details: { completed: true } },
+		{ expanded: false, isPartial: false },
+		theme,
+		{},
+	)), 0, "default-shell results remain internally flush");
 });
 
 test("an editor installed before Pi Plan Build triggers reduced optional UI", async () => {
