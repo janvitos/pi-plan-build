@@ -8,8 +8,8 @@ export const VERIFICATION_GUIDANCE = `Follow the approved Verification section u
 
 export const PLAN_VERIFICATION_GUIDANCE = `Design a brief \`## Verification\` section with the smallest credible proof of changed behavior.
 
-- Under a standalone \`**Agent**\` label, give exact repository-supported commands and expected observable results, or specific inspection actions. Never invent commands. Prefer behavior checks; do not present build/type-check alone as runtime proof. Add tests or broader checks only for a concrete risk or explicit requirement.
-- Add a standalone \`**User**\` label only for essential checks requiring user access, credentials, judgment, hardware, privilege, or unsafe effects. State the action and expected result; the agent must not perform it without separate authorization. Omit this section otherwise.`;
+- Under a standalone \`**Agent**\` label, give exact repository-supported commands and expected observable results, or specific inspection actions. Put one empty line between the label and its bulleted list. Never invent commands. Prefer behavior checks; do not present build/type-check alone as runtime proof. Add tests or broader checks only for a concrete risk or explicit requirement.
+- Add a standalone \`**User**\` label only for essential checks requiring user access, credentials, judgment, hardware, privilege, or unsafe effects. Put one empty line between the label and its bulleted list. State the action and expected result; the agent must not perform it without separate authorization. Omit this section otherwise.`;
 
 export const PLAN_READ_ONLY_GUIDANCE = `Plan mode is active: observe, analyze, discuss, and plan only. Do not mutate the system, configs, or commits. Edit only the attached canonical plan file, and only to finalize or explicitly revise it. During research or discussion, answer normally without writing Markdown or calling plan_exit.`;
 

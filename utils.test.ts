@@ -448,6 +448,7 @@ test("plan guidance supports conversation before persisted finalization", () => 
 	assert.match(reminder, /write the complete plan to its canonical path, and call plan_exit/);
 	assert.match(reminder, /Design a brief `## Verification` section/);
 	assert.match(reminder, /standalone `\*\*Agent\*\*` label/);
+	assert.equal((reminder.match(/one empty line between the label and its bulleted list/g) ?? []).length, 2);
 	assert.match(reminder, /Execution remains deferred until approval/);
 	assert.match(reminder, /repository-supported commands and expected observable results/);
 	assert.match(reminder, /Never invent commands/i);
