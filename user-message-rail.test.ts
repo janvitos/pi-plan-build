@@ -14,14 +14,20 @@ const OSC_PATTERN = /\x1b\][^\x07]*\x07/gu;
 
 class FakeUserMessageComponent {
 	text: string;
+	widths: number[] = [];
+	private padded: boolean;
 
-	constructor(text: string) {
+	constructor(text: string, padded = true) {
 		this.text = text;
+		this.padded = padded;
 	}
 
 	render(width: number): string[] {
+		this.widths.push(width);
 		const fill = (text: string) => text + " ".repeat(Math.max(0, width - text.length));
-		return [`${OSC_START}${fill("")}`, fill(this.text), `${OSC_END}${fill("")}`];
+		const background = (text: string) => `\x1b[48;2;30;30;30m${text}\x1b[49m`;
+		const content = this.padded ? ` ${this.text}` : this.text;
+		return [`${OSC_START}${background(fill(" "))}`, background(fill(content)), `${OSC_END}${background(fill(" "))}`];
 	}
 }
 
@@ -31,7 +37,7 @@ function visible(text: string): string {
 
 function formatter(mode: Mode, glyph: string): string {
 	const color = mode === "plan" ? "245;167;66" : "92;156;245";
-	return `\x1b[38;2;${color}m${glyph}\x1b[0m`;
+	return `\x1b[38;2;${color}m${glyph}\x1b[39m`;
 }
 
 test("shared text extraction preserves transcript whitespace but normalizes history", () => {
@@ -78,7 +84,7 @@ test("resolver preserves repeated-prompt order across component-tree rebuilds", 
 	assert.equal(resolver.resolve("same", "build"), "plan");
 });
 
-test("thin rails cover every row, preserve width and OSC prefixes, and keep submitted colors", () => {
+test("thin composer-aligned rails add one text inset while preserving background, width, OSC prefixes, and colors", () => {
 	let fallback: Mode = "build";
 	const controller = installUserMessageRail(FakeUserMessageComponent, {
 		formatRail: formatter,
@@ -94,15 +100,42 @@ test("thin rails cover every row, preserve width and OSC prefixes, and keep subm
 	const buildLines = build.render(24);
 	const planLines = plan.render(24);
 	for (const line of [...buildLines, ...planLines]) assert.equal(visible(line).length, 24);
+	assert.deepEqual(build.widths, [23]);
+	assert.deepEqual(plan.widths, [23]);
 	assert.equal(buildLines.map((line) => visible(line)[0]).join(""), "│││");
 	assert.equal(planLines.map((line) => visible(line)[0]).join(""), "│││");
+	assert.equal(visible(buildLines[1]!).indexOf("build prompt"), 2);
+	assert.equal(visible(planLines[1]!).indexOf("plan prompt"), 2);
 	assert.ok(buildLines.every((line) => line.includes("\x1b[38;2;92;156;245m")));
 	assert.ok(planLines.every((line) => line.includes("\x1b[38;2;245;167;66m")));
+	assert.ok(
+		[...buildLines, ...planLines].every((line) => {
+			const railIndex = line.indexOf("│");
+			const firstBackground = line.indexOf("\x1b[48;2;30;30;30m");
+			return firstBackground < railIndex &&
+				line.indexOf("\x1b[49m", firstBackground) < railIndex &&
+				line.indexOf("\x1b[48;2;30;30;30m", firstBackground + 1) > railIndex;
+		}),
+	);
 	assert.ok(buildLines[0]!.startsWith(OSC_START));
 	assert.ok(buildLines.at(-1)!.startsWith(OSC_END));
 
 	fallback = "plan";
 	assert.equal(build.render(24).map((line) => visible(line)[0]).join(""), "│││");
+	controller.deactivate();
+});
+
+test("messages without leading padding are rerendered unchanged at the requested width", () => {
+	const controller = installUserMessageRail(FakeUserMessageComponent, {
+		formatRail: formatter,
+		getFallbackMode: () => "build",
+	});
+	controller.setTranscript([{ text: "flush message", mode: "build" }]);
+	const message = new FakeUserMessageComponent("flush message", false);
+	const lines = message.render(20);
+	assert.deepEqual(message.widths, [19, 20]);
+	assert.equal(visible(lines[1]!).indexOf("flush message"), 0);
+	assert.ok(lines.every((line) => !visible(line).includes("│")));
 	controller.deactivate();
 });
 

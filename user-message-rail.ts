@@ -1,7 +1,9 @@
 import { extractUserMessageText, type Mode } from "./utils.ts";
 
-const OSC133_PREFIX = /^((?:\x1b\]133;[ABC]\x07)*)/u;
+const ANSI_SEQUENCE = /\x1b(?:\][^\x07]*(?:\x07|\x1b\\)|\[[0-?]*[ -/]*[@-~])/uy;
+const SGR_SEQUENCE = /\x1b\[([0-9:;]*)m/gu;
 const PATCH_KEY = Symbol.for("@janvitos/pi-plan-build:user-message-rail");
+const USER_MESSAGE_RAIL_GLYPH = "│";
 
 export interface TranscriptModeRecord {
 	text: string;
@@ -103,8 +105,26 @@ export function collectTranscriptModeRecords(
 	return records;
 }
 
-function prependRail(line: string, rail: string): string {
-	return line.replace(OSC133_PREFIX, `$1${rail}`);
+function firstVisibleIndex(line: string): number {
+	let index = 0;
+	while (line[index] === "\x1b") {
+		ANSI_SEQUENCE.lastIndex = index;
+		const match = ANSI_SEQUENCE.exec(line);
+		if (!match) break;
+		index += match[0].length;
+	}
+	return index;
+}
+
+function insertRailAndPadding(line: string, rail: string): string | undefined {
+	const index = firstVisibleIndex(line);
+	if (line[index] !== " ") return undefined;
+	const prefix = line.slice(0, index);
+	const background = [...prefix.matchAll(SGR_SEQUENCE)]
+		.filter((match) => /(?:^|;)(?:4[0-8]|10[0-7]|48(?=[:;]|$))/u.test(match[1]!))
+		.at(-1)?.[0];
+	if (!background) return undefined;
+	return `${prefix}\x1b[49m${rail}${background} ${line.slice(index + 1)}`;
 }
 
 export function installUserMessageRail(
@@ -124,7 +144,7 @@ export function installUserMessageRail(
 			resolver: new TranscriptModeResolver(),
 			formatRail: options.formatRail,
 			getFallbackMode: options.getFallbackMode,
-			glyph: "│",
+			glyph: USER_MESSAGE_RAIL_GLYPH,
 		};
 		globalState[PATCH_KEY] = state;
 	}
@@ -133,7 +153,7 @@ export function installUserMessageRail(
 	state.owner = owner;
 	state.formatRail = options.formatRail;
 	state.getFallbackMode = options.getFallbackMode;
-	state.glyph = "│";
+	state.glyph = USER_MESSAGE_RAIL_GLYPH;
 	// Reinstall from the preserved original on every extension load. This migrates
 	// already-running processes away from stale decorator code without stacking wrappers.
 	UserMessageComponent.prototype.render = function renderWithModeRail(width: number): string[] {
@@ -146,7 +166,10 @@ export function installUserMessageRail(
 			active.componentModes.set(this, mode);
 		}
 		const rail = active.formatRail(mode, active.glyph);
-		return active.originalRender.call(this, width - 1).map((line) => prependRail(line, rail));
+		const insetLines = active.originalRender.call(this, width - 1);
+		const decoratedLines = insetLines.map((line) => insertRailAndPadding(line, rail));
+		if (decoratedLines.every((line): line is string => line !== undefined)) return decoratedLines;
+		return active.originalRender.call(this, width);
 	};
 
 	return {
