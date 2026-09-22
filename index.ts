@@ -202,7 +202,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		return notice;
 	};
 	pi.registerEntryRenderer<StoredState>(STATE_TYPE, (entry, _options, theme) =>
-		entry.data?.sourceTransferNotice === true ? new Text(theme.fg("success", SOURCE_TRANSFER_NOTICE), TRANSCRIPT_PADDING, 0) : new Container());
+		entry.data?.sourceTransferNotice === true ? new Text(theme.fg("success", SOURCE_TRANSFER_NOTICE), TRANSCRIPT_PADDING, 0) : undefined);
 	pi.registerEntryRenderer<{ markdown: string }>("pi-plan-build-inspection", (entry) =>
 		new Markdown(entry.data?.markdown ?? "Plan inspection unavailable", TRANSCRIPT_PADDING, 0, getMarkdownTheme()));
 	pi.registerEntryRenderer<{ plan: string }>(PLAN_REVIEW_ENTRY_TYPE, renderPlanReview);

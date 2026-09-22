@@ -412,7 +412,7 @@ test("transferred source plans restore as history and allow a new task", async (
 		assert.doesNotMatch(context.messages[0].content, /Transferred task|Implement elsewhere/);
 		assert.match(context.messages[0].content, /No canonical writable plan path/);
 		const ordinaryState = h.entryRenderers.get("pi-plan-build-state")({ data: { ...data, sourceTransferNotice: undefined } }, { expanded: false }, { fg: (_color: string, text: string) => text });
-		assert.deepEqual(ordinaryState.render(160), [], "ordinary lifecycle snapshots remain invisible");
+		assert.equal(ordinaryState, undefined, "ordinary lifecycle snapshots must return no component so Pi adds no transcript spacer");
 		await h.command("history");
 		assert.ok(h.events.some((event) => event.kind === "notify" && /transferred[\s\S]*Implementation transferred to a linked session/i.test(event.text)));
 		await h.tool("plan_task", { action: "new", expectedAttached: null, title: "Next task", scope: "Continue in this source session" });

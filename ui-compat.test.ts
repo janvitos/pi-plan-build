@@ -237,6 +237,9 @@ test("default Tab and Alt+M toggle modes while an open menu retains completion",
 	const harness = createHarness();
 	await start(harness);
 	await toggle(harness, "\t", "plan");
+	const stateRenderer = harness.entryRenderers.get("pi-plan-build-state");
+	assert.ok(stateRenderer);
+	assert.equal(stateRenderer({ data: harness.persisted.at(-1) }, { expanded: false }, harness.ctx.ui.theme), undefined, "Tab mode toggles must not add transcript content");
 	await toggle(harness, "\x1bm", "build");
 
 	const editor = harness.editor();
