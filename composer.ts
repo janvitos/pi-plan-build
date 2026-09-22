@@ -2,7 +2,7 @@ import { CustomEditor, type ExtensionAPI, type ExtensionContext } from "@earendi
 import { HStack, matchesKey, truncateToWidth, visibleWidth, isViewportTUI, type Component, type TUI, type ViewportTUI } from "@earendil-works/pi-tui";
 import { PlanPanel } from "./plan-panel.ts";
 import type { PlanExecutionState } from "./plan-execution.ts";
-import { installThinkingStatusFilter } from "./thinking-status-filter.ts";
+import { installComposerStatusFilter } from "./composer-status-filter.ts";
 import { formatModeRail, formatModeMetadata, formatModeTopBorder, nextMode, ownsUiSlot, renderModeComposer, shouldReduceOptionalUi, type Mode } from "./utils.ts";
 
 type EditorFactory = NonNullable<ReturnType<ExtensionContext["ui"]["getEditorComponent"]>>;
@@ -26,7 +26,7 @@ export function createComposer(
 	let token: { enabled: boolean } | undefined;
 	let installed: EditorFactory | undefined;
 	let mounting: EditorFactory | undefined;
-	let disposeThinkingStatusFilter: (() => void) | undefined;
+	let disposeComposerStatusFilter: (() => void) | undefined;
 	let capable = false;
 	let reduced = false;
 	let noticeShown = false;
@@ -56,8 +56,8 @@ export function createComposer(
 		if (shouldReduceOptionalUi(ctx.ui.getEditorComponent(), mounting ?? installed) || expected !== undefined && !ownsUiSlot(root(), expected)) {
 			reduced = true;
 			removePanel();
-			disposeThinkingStatusFilter?.();
-			disposeThinkingStatusFilter = undefined;
+			disposeComposerStatusFilter?.();
+			disposeComposerStatusFilter = undefined;
 			capable = false;
 			status();
 			if (!noticeShown) {
@@ -93,8 +93,8 @@ export function createComposer(
 		requestRender?.();
 	}
 	function mount(context: ExtensionContext, history: string[]) {
-		disposeThinkingStatusFilter?.();
-		disposeThinkingStatusFilter = undefined;
+		disposeComposerStatusFilter?.();
+		disposeComposerStatusFilter = undefined;
 		ctx = context;
 		installed = undefined;
 		mounting = undefined;
@@ -127,8 +127,8 @@ export function createComposer(
 			for (const prompt of history) editor.addToHistory(prompt);
 			requestRender = () => surface.requestRender();
 			tui = surface;
-			disposeThinkingStatusFilter?.();
-			disposeThinkingStatusFilter = installThinkingStatusFilter(surface as TUI & { layoutRoot?: Component });
+			disposeComposerStatusFilter?.();
+			disposeComposerStatusFilter = installComposerStatusFilter(surface as TUI & { layoutRoot?: Component });
 			capable = isViewportTUI(surface) && typeof (surface as ViewportTUI).setLayoutRoot === "function";
 			if (capable && !originalRoot) {
 				originalRoot = (surface as TUI & { layoutRoot?: Component }).layoutRoot;
@@ -142,8 +142,8 @@ export function createComposer(
 	}
 	function dispose(context: ExtensionContext) {
 		removePanel();
-		disposeThinkingStatusFilter?.();
-		disposeThinkingStatusFilter = undefined;
+		disposeComposerStatusFilter?.();
+		disposeComposerStatusFilter = undefined;
 		context.ui.setStatus(STATUS_KEY, undefined);
 		if (ownsUiSlot(context.ui.getEditorComponent(), installed)) context.ui.setEditorComponent(undefined);
 		requestRender = undefined;
