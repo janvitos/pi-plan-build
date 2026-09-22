@@ -50,6 +50,7 @@ function createHarness(initialEditor?: unknown, entries: any[] = []) {
 		requestRender() {},
 		terminal: { columns: 160, rows: 40 },
 	};
+	const originalRequestRender = tui.requestRender;
 	const editorTheme = {
 		borderColor: (text: string) => text,
 		selectList: {},
@@ -131,6 +132,8 @@ function createHarness(initialEditor?: unknown, entries: any[] = []) {
 		entryRenderers,
 		messageRenderers,
 		commands,
+		tui,
+		originalRequestRender,
 		selections,
 		persisted,
 		selectOption(value: string | undefined) { selectedOption = value; },
@@ -521,10 +524,11 @@ test("a later decorator that invokes Pi Plan Build's editor retains full optiona
 	assert.equal(harness.editorCalls.includes(undefined), false);
 });
 
-test("a later editor owner is detected and is not cleared during teardown", async () => {
+test("a later editor owner is detected and restores the filtered render path", async () => {
 	const harness = createHarness();
 	await start(harness);
 	assert.equal(typeof harness.editorCalls[0], "function");
+	assert.notEqual(harness.tui.requestRender, harness.originalRequestRender);
 
 	const otherEditor = () => undefined;
 	harness.setCurrentEditor(otherEditor);
@@ -532,6 +536,15 @@ test("a later editor owner is detected and is not cleared during teardown", asyn
 
 	assert.equal(harness.notifications.length, 1);
 	assert.match(harness.statuses.at(-1)?.[1] ?? "", /build/);
+	assert.equal(harness.tui.requestRender, harness.originalRequestRender);
 	await shutdown(harness);
 	assert.equal(harness.editorCalls.includes(undefined), false);
+});
+
+test("composer teardown restores the original render function", async () => {
+	const harness = createHarness();
+	await start(harness);
+	assert.notEqual(harness.tui.requestRender, harness.originalRequestRender);
+	await shutdown(harness);
+	assert.equal(harness.tui.requestRender, harness.originalRequestRender);
 });
