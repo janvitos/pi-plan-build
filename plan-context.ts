@@ -2,18 +2,7 @@ import { buildPlanReminder, BUILD_BOUNDARY_GUIDANCE, BUILD_TASK_GUIDANCE, PLAN_R
 import { activePlanStep, executablePlanStep, type PlanExecutionState } from "./plan-execution.ts";
 import { describePlanFileState, type Mode, type PlanCollection, type PlanFileState } from "./utils.ts";
 
-export const TASK_CONTEXT_TYPE = "pi-plan-build-task";
 export const RECONCILIATION_CONTEXT_TYPE = "pi-plan-build-reconcile";
-const OBSOLETE_CONTEXT_TYPES = new Set([TASK_CONTEXT_TYPE, "pi-plan-build-reminder", "pi-plan-build-fresh-announcement"]);
-
-/** Preserve history on disk, but expose only the live bookkeeping reminder to the model. */
-export function isObsoletePlanContext(message: { role: string; customType?: string; details?: unknown }, activeReconciliationId?: string): boolean {
-	if (message.role !== "custom") return false;
-	if (message.customType === RECONCILIATION_CONTEXT_TYPE) {
-		return !activeReconciliationId || (message.details as { reconciliationId?: string } | undefined)?.reconciliationId !== activeReconciliationId;
-	}
-	return OBSOLETE_CONTEXT_TYPES.has(message.customType ?? "");
-}
 
 export function buildPlanContext(mode: Mode, collection: PlanCollection, file: { path: string; state: PlanFileState }, error?: string): string | undefined {
 	if (error) return `Plan state unavailable: ${error}. Do not mutate plan state or tracked plan files. Restore usable state before continuing planned work.`;

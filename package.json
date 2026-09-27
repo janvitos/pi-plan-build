@@ -26,6 +26,7 @@
     "plan-execution.ts",
     "plan-state.ts",
     "plan-context.ts",
+    "context-delivery.ts",
     "plan-markdown.ts",
     "composer.ts",
     "composer-status-filter.ts",
@@ -42,7 +43,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "node --experimental-strip-types --test mode-selection.test.ts utils.test.ts shortcut-config.test.ts question-ui.test.ts plan-execution.test.ts plan-panel.test.ts user-message-rail.test.ts composer-status-filter.test.ts ui-compat.test.ts plan-lifecycle.test.ts",
+    "test": "node --experimental-strip-types --test context-delivery.test.ts mode-selection.test.ts utils.test.ts shortcut-config.test.ts question-ui.test.ts plan-execution.test.ts plan-panel.test.ts user-message-rail.test.ts composer-status-filter.test.ts ui-compat.test.ts plan-lifecycle.test.ts",
     "prepublishOnly": "npm test"
   },
   "peerDependencies": {

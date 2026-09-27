@@ -1,4 +1,5 @@
-// Shared policies are selected by plan-context.ts, never replayed as turn history.
+// Shared policies are selected by plan-context.ts and delivered in anchored snapshots.
+// Full snapshots keep compaction/restoration independent of earlier policy anchors.
 export const VERIFICATION_GUIDANCE = `Follow the approved Verification section using the smallest sufficient check, then stop.
 
 - Prefer one focused behavioral test or smoke check with an expected observable result and existing repository tools. Add a small test only when existing coverage misses changed behavior. Build, type-check, configuration validation, or dry run are useful when appropriate but do not alone prove runtime behavior; prose-only work needs only focused inspection.
@@ -79,6 +80,6 @@ Interpret clear intent contextually. When running, approval/proceed starts the r
 </system-reminder>`;
 }
 
-export const PLAN_STEP_COMPLETE_DESCRIPTION = `Complete the active step only after its implementation and applicable checks. ${COMPLETION_ROUTING_GUIDANCE} Summarize work, reuse valid results, and report later-step deferrals without claiming they passed. A paused active step may complete only when the user confirms its required validation. Never start the next step.`;
+export const PLAN_STEP_COMPLETE_DESCRIPTION = `In Build mode, complete the active step only after its implementation and applicable checks. ${COMPLETION_ROUTING_GUIDANCE} Summarize work, reuse valid results, and report later-step deferrals without claiming they passed. A paused active step may complete only when the user confirms its required validation. Never start the next step.`;
 
-export const PLAN_EXIT_DESCRIPTION = `After saving the complete plan and resolving planning questions, display it for approval. Implement-here continues under Build guidance; fresh-session dispatches separately; step-by-step waits for step approval; stay/cancel stops in Plan. Do not call during discussion or before saving.`;
+export const PLAN_EXIT_DESCRIPTION = `In Plan mode only: after saving the complete plan and resolving planning questions, display it for approval. Implement-here continues under Build guidance; fresh-session dispatches separately; step-by-step waits for step approval; stay/cancel stops in Plan. Do not call during discussion or before saving.`;

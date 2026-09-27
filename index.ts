@@ -7,7 +7,8 @@ import { withFileMutationQueue, getAgentDir, getMarkdownTheme, parseSkillBlock, 
 import { Container, Markdown, Spacer, Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
 import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker, TRANSCRIPT_PADDING } from "./tool-presentation.ts";
-import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
+import { buildPlanContext, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
+import { CONTEXT_DELIVERY_TYPE, deliverContext, deliveriesFrom } from "./context-delivery.ts";
 import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
 import { registerQuestionNotice, registerQuestionTool } from "./question-ui.ts";
 import { loadShortcutConfig, saveDefaultMode, saveQuestionTool, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
@@ -114,7 +115,7 @@ function shorten(filePath: string, cwd: string): string {
 
 export default function planBuildModes(pi: ExtensionAPI): void {
 	const shortcutAgentDir = getAgentDir();
-	const { config: shortcutConfig, showPlanTitle, questionTool: configuredQuestionTool, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
+	const { stableToolCatalog, config: shortcutConfig, showPlanTitle, questionTool: configuredQuestionTool, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
 	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
 	let defaultMode: Mode = configuredDefaultMode;
@@ -329,14 +330,22 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		toolsBeforeModes = pi.getActiveTools().filter((name) => !managedTools.has(name));
 	}
 
+	function setToolsIfChanged(names: string[]): void {
+		const next = unique(names);
+		const current = pi.getActiveTools();
+		if (current.length !== next.length || current.some((name, index) => name !== next[index])) pi.setActiveTools(next);
+	}
+
 	function applyTools(mode: Mode): void {
 		discoverUnmanagedTools();
 		const base = [...toolsBeforeModes];
 		const questionTools = questionToolEnabled ? ["question"] : [];
-		if (mode === "plan") {
-			pi.setActiveTools(unique([...base, ...questionTools, "plan_exit", "plan_task"]));
+		if (stableToolCatalog) {
+			setToolsIfChanged([...base, ...questionTools, ...MANAGED_PLAN_TOOLS]);
+		} else if (mode === "plan") {
+			setToolsIfChanged([...base, ...questionTools, "plan_exit", "plan_task"]);
 		} else {
-			pi.setActiveTools(unique([
+			setToolsIfChanged(unique([
 				...base,
 				...questionTools,
 				...(plans.collection.attached !== null && plans.plan.status === "open" ? ["plan_task", "plan_complete", "plan_finish"] : []),
@@ -834,7 +843,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_step_control",
 		label: "Control Plan Execution",
-		description: `Apply one clear single-step or execution-control action: start or skip a ready step; record one explicitly identified finished step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. ${COMPLETION_ROUTING_GUIDANCE} A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical, ambiguous, or unrelated text.`,
+		description: `In Build mode only, apply one clear single-step or execution-control action: start or skip a ready step; record one explicitly identified finished step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. ${COMPLETION_ROUTING_GUIDANCE} A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical, ambiguous, or unrelated text.`,
 		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("start"),
@@ -934,6 +943,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		executionMode: "sequential",
 		async execute(_toolCallId, params) {
 			plans.assertUsable();
+			if ((runMode ?? selectedMode) !== "build") throw new Error("Step completion requires Build mode");
 			const step = completablePlanStep();
 			if (!plans.execution || !step) throw new Error("No plan step is currently active");
 			const completion = completeExecutionStep(step.id, params.summary);
@@ -960,6 +970,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		executionMode: "sequential",
 		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
 			plans.assertUsable();
+			if ((runMode ?? selectedMode) !== "plan") throw new Error("plan_exit requires Plan mode");
 			if (!ctx.hasUI) throw new Error("plan_exit requires an interactive TUI or RPC client");
 			if (plans.collection.attached === null) throw new Error("No attached plan to approve");
 			const reviewedAttachment = plans.collection.attached;
@@ -1181,20 +1192,13 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		};
 	});
 
-	pi.on("context", (event) => {
-		const messages = event.messages.filter((message) => !isObsoletePlanContext(message, activeReconciliationId));
+	pi.on("context", (event, ctx) => {
 		const content = buildPlanContext(runMode ?? selectedMode, plans.collection, { path: currentPlanPath(), state: savedPlanState }, plans.error);
-		if (content) {
-			// Pi converts custom messages to user-role messages. Keep operational context
-			// before the actual request, never after its assistant/tool exchange.
-			const userIndex = messages.findLastIndex((message) => message.role === "user");
-			messages.splice(Math.max(0, userIndex), 0, {
-				role: "custom", customType: TASK_CONTEXT_TYPE,
-				content: `Background operational context, not a new user request. Do not acknowledge this block; follow the actual user request within these constraints.\n\n${content}`,
-				display: false, timestamp: Date.now(),
-			});
-		}
-		return { messages };
+		// Persist once before returning the projection, so retries/reloads reproduce it.
+		// Only anchors still in the outgoing context replay; compaction gets a new snapshot.
+		const result = deliverContext(event.messages, deliveriesFrom(ctx.sessionManager.getBranch()), content);
+		if (result.delivery) pi.appendEntry(CONTEXT_DELIVERY_TYPE, result.delivery);
+		return { messages: result.messages };
 	});
 
 	pi.on("before_agent_start", async (_event, ctx) => {
@@ -1242,7 +1246,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			reconciliationFollowUp = true;
 			persist();
 			activeReconciliationId = randomUUID();
-			pi.sendMessage({ customType: RECONCILIATION_CONTEXT_TYPE, details: { reconciliationId: activeReconciliationId }, display: false, content: "Record the attached plan's truthful terminal outcome now; this grants no more work or verification. Use plan_complete only if all work and required checks passed, otherwise plan_finish with the reason and exact essential validation action when applicable. Then summarize without repeating that action or tool bookkeeping. Do not infer success or rerun checks merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
+			pi.sendMessage({ customType: RECONCILIATION_CONTEXT_TYPE, details: { reconciliationId: activeReconciliationId }, display: false, content: "One-shot bookkeeping for this follow-up only, not an instruction for later user turns. Record the attached plan's truthful terminal outcome now; this grants no more work or verification. Use plan_complete only if all work and required checks passed, otherwise plan_finish with the reason and exact essential validation action when applicable. Then summarize without repeating that action or tool bookkeeping. Do not infer success or rerun checks merely to close the plan." }, { triggerTurn: true, deliverAs: "followUp" });
 			followUpDispatched = true;
 		}
 		if (pendingValidationNotice && !followUpDispatched) {

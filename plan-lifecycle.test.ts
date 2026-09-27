@@ -1040,7 +1040,7 @@ test("correlated approval and cancellation notices suppress empty rows across re
 	}
 });
 
-test("operational context precedes the real request and preserves the tool-exchange tail", async () => {
+test("operational context stays anchored and lifecycle updates preserve the tool-exchange tail", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-context-order-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	try {
@@ -1058,27 +1058,23 @@ test("operational context precedes the real request and preserves the tool-excha
 		];
 		const original = structuredClone(history);
 		let result = await h.event("context", { messages: history });
-		assert.match(result.messages[1].content, /Plan mode is active/);
-		assert.equal(result.messages[2], history[2], "context is before the real user, not the other extension");
-		assert.match(result.messages[1].content, /not a new user request.*Do not acknowledge/);
+		assert.match(result.messages.at(-1).content.at(-1).text, /Plan mode is active/);
+		assert.deepEqual(result.messages.slice(0, -1), history.slice(0, -1));
+		const first = structuredClone(result.messages);
 		await h.tool("plan_exit");
+		const nextHistory = [...history, { role: "user", content: "Continue", timestamp: 4 }];
+		result = await h.event("context", { messages: nextHistory });
+		assert.deepEqual(result.messages.slice(0, first.length), first, "earlier snapshot remains byte-stable");
+		assert.match(result.messages.at(-2).content, /Build mode allows/);
 		for (let i = 0; i < 3; i++) {
-			result = await h.event("context", { messages: result.messages });
-			assert.equal(result.messages.filter((m: any) => m.customType === "pi-plan-build-task").length, 1);
-			assert.match(result.messages[1].content, /Build mode allows/);
-			assert.doesNotMatch(result.messages[1].content, /Plan mode is active/);
-			const converted = convertToLlm(result.messages);
-			assert.equal(converted[1].role, "user", "Pi converts custom context to user-role content");
-			assert.deepEqual(converted.slice(2), convertToLlm(history.slice(2)));
-			assert.equal(converted.at(-1)?.role, "toolResult");
+			const retry = await h.event("context", { messages: result.messages });
+			assert.deepEqual(retry.messages, result.messages, "retry does not duplicate projected context");
 		}
 		assert.deepEqual(history, original, "stored history is not rewritten");
 		await h.tool("plan_task", { action: "update", expectedAttached: 1, title: "Revised identity", scope: "Approved scope" });
-		const updated = await h.event("context", { messages: history });
-		assert.match(updated.messages[1].content, /Revised identity/);
-		const noUser = await h.event("context", { messages: history.slice(3) });
-		assert.equal(noUser.messages[0].customType, "pi-plan-build-task");
-		assert.deepEqual(noUser.messages.slice(1), history.slice(3));
+		const updated = await h.event("context", { messages: [...nextHistory, { role: "toolResult", toolCallId: "update", content: [{ type: "text", text: "Updated" }], timestamp: 5 }] });
+		assert.match(updated.messages.at(-1).content.at(-1).text, /Revised identity/);
+		assert.equal(convertToLlm(updated.messages).at(-1)?.role, "toolResult");
 		await h.event("session_shutdown");
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
@@ -1086,7 +1082,7 @@ test("operational context precedes the real request and preserves the tool-excha
 	}
 });
 
-test("reconciliation context is limited to its live follow-up, including direct continuations", async () => {
+test("reconciliation history stays anchored while its action remains one-shot", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-reconcile-context-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	try {
@@ -1111,7 +1107,8 @@ test("reconciliation context is limited to its live follow-up, including direct 
 			const outgoing = async () => (await h.event("context", { messages })).messages;
 			const live = await outgoing();
 			assert.ok(live.includes(reminder), boundary);
-			assert.ok(!live.includes(historical), "a live reminder must not reactivate older reminders");
+			assert.ok(live.includes(historical), "historical instructions are preserved, not reactivated");
+			assert.match(sent.message.content, /One-shot bookkeeping.*not an instruction for later user turns/);
 			assert.equal(convertToLlm(live).at(-1)?.role, "user");
 			const outcome = await h.callTool("plan_finish", { expectedAttached: 1, outcome: "still_working", reason: "Approved work remains" });
 			messages.push({ role: "assistant", content: [{ type: "toolCall", id: "finish", name: "plan_finish", arguments: {} }], timestamp: 2 });
@@ -1129,9 +1126,9 @@ test("reconciliation context is limited to its live follow-up, including direct 
 			else if (boundary === "abandon") await h.tool("plan_task", { action: "abandon", expectedAttached: 1, reason: "User cancelled work" });
 			else if (boundary === "complete") await h.tool("plan_complete");
 			else await h.command("");
-			assert.ok(!(await outgoing()).some((m: any) => m.customType === "pi-plan-build-reconcile"), boundary);
+			assert.ok((await outgoing()).includes(reminder), `preserve history across ${boundary}`);
 			assert.equal(h.events.filter(e => e.kind === "internal").length, 1, "no automatic implementation retry");
-			assert.equal(messages.filter(m => m.customType === "pi-plan-build-reconcile").length, 2, "filtering preserves original history");
+			assert.equal(messages.filter(m => m.customType === "pi-plan-build-reconcile").length, 2, "original history remains unchanged");
 			await h.event("session_shutdown");
 		}
 	} finally {
@@ -1776,7 +1773,7 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 								const context = await child.prompt(text);
 								assert.ok(context.some((message: any) => message.role === "user" && message.content === text));
 								assert.ok(context.some((message: any) => message.customType === "pi-plan-build-task"));
-								assert.equal(context.some((message: any) => message.customType === "pi-plan-build-fresh-announcement"), false);
+								assert.equal(context.some((message: any) => message.customType === "pi-plan-build-fresh-announcement"), true);
 							},
 						});
 						return { cancelled: false };
@@ -1852,7 +1849,7 @@ test("plan selections announce before proceeding, with fresh feedback in the des
 	}
 });
 
-test("fresh acknowledgement survives reload before kickoff and filters only its own context message", async () => {
+test("fresh acknowledgement survives reload before kickoff and remains in model history", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-fresh-pending-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	try {
@@ -1877,7 +1874,8 @@ test("fresh acknowledgement survives reload before kickoff and filters only its 
 		const context = await restored.event("context", { messages: [
 			...keep, { role: "custom", customType: "pi-plan-build-fresh-announcement", content: "UI only" },
 		] });
-		assert.deepEqual(context.messages, keep.filter((message) => message.customType !== "pi-plan-build-reminder"));
+		assert.deepEqual(context.messages.slice(0, -1), [...keep, { role: "custom", customType: "pi-plan-build-fresh-announcement", content: "UI only" }]);
+		assert.match(context.messages.at(-1).content, /Current plan: none/);
 		await restored.event("session_shutdown");
 	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR;
@@ -1973,7 +1971,7 @@ test("kickoff failure keeps the transferred source and open destination fallback
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
 });
 
-test("accumulated context is current, bounded, and read-only with one snapshot per transition", async () => {
+test("unchanged context stays anchored with one canonical state snapshot per transition", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-context-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
 	try {
@@ -1999,7 +1997,7 @@ test("accumulated context is current, bounded, and read-only with one snapshot p
 			const blocks = context.filter((m: any) => m.customType === "pi-plan-build-task");
 			assert.equal(blocks.length, 1);
 			assert.match(blocks[0].content, /Plan mode is active/);
-			assert.doesNotMatch(JSON.stringify(context), /Obsolete implementation/);
+			assert.match(JSON.stringify(context), /Obsolete implementation/, "legacy history is preserved; the new snapshot supersedes it");
 			assert.ok(context.some((m: any) => m.customType === "another-extension"));
 			if (size) assert.equal(blocks[0].content.length, size);
 			size = blocks[0].content.length;
@@ -2124,6 +2122,49 @@ test("RPC approval carries the complete review in its blocking request without c
 		assert.equal(h.state().selectedMode, "plan");
 	} finally {
 		await h.event("session_shutdown");
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
+test("stable catalog preserves visibility but rejects invalid lifecycle executions", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-stable-tools-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		fs.writeFileSync(path.join(dir, "pi-plan-build.json"), JSON.stringify({ stableToolCatalog: true, questionTool: false }));
+		const h = harness(dir);
+		await h.event("session_start", { reason: "new" });
+		const catalog = [...h.active()];
+		for (const name of ["plan_exit", "plan_task", "plan_finish", "plan_complete", "plan_step_control", "plan_step_complete"]) assert.ok(catalog.includes(name));
+		assert.ok(!catalog.includes("question"));
+		await assert.rejects(h.tools.get("plan_exit").execute("x", {}, undefined, undefined, h.ctx), /requires Plan mode/);
+		await assert.rejects(h.tools.get("plan_complete").execute("x", {}), /No current plan/);
+		await h.command("");
+		assert.deepEqual(h.active(), catalog);
+		await assert.rejects(h.tools.get("plan_finish").execute("x", {}, undefined, undefined, h.ctx), /requires Build mode/);
+		await assert.rejects(h.tools.get("plan_step_complete").execute("x", { summary: "no" }), /requires Build mode/);
+		await assert.rejects(h.tools.get("plan_step_control").execute("x", { action: "start" }, undefined, undefined, h.ctx), /requires Build mode/);
+		await assert.rejects(h.tools.get("plan_complete").execute("x", {}), /Switch to Build/);
+		const definitions = () => JSON.stringify(h.active().filter((name) => h.tools.has(name)).map((name) => {
+			const t = h.tools.get(name);
+			return { name, description: t.description, parameters: t.parameters, promptSnippet: t.promptSnippet, promptGuidelines: t.promptGuidelines };
+		}));
+		const baseline = definitions();
+		await h.callTool("plan_task", { action: "new", expectedAttached: null, title: "Cache test", scope: "Test only" });
+		await h.build();
+		await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user", userAction: "Confirm mock output" });
+		assert.equal(definitions(), baseline, "outcomes do not change ordered definitions or guidelines");
+		await h.callTool("plan_complete");
+		assert.equal(definitions(), baseline, "completion and empty Build keep the same catalog");
+		await assert.rejects(h.tool("plan_task", { action: "new", expectedAttached: null, title: "Invalid", scope: "No" }), /require Plan mode/);
+		const count = h.events.filter((e) => e.kind === "tools").length;
+		await h.event("session_compact");
+		assert.equal(h.events.filter((e) => e.kind === "tools").length, count);
+		h.setActive(h.active().filter((name) => name !== "edit"));
+		await h.build();
+		assert.deepEqual(h.active(), catalog.filter((name) => name !== "edit"));
+		await h.event("session_shutdown");
+	} finally {
 		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
 		fs.rmSync(dir, { recursive: true, force: true });
 	}
