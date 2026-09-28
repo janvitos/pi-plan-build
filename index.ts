@@ -610,9 +610,9 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				return;
 			}
 			if (selected === catalogOption) {
-				const choice = await ctx.ui.select("Stable tool catalog: keep all plan tools visible so mode and plan changes keep the prompt cache (best with the same model in both modes)", ["Off (default)", "On"]);
+				const choice = await ctx.ui.select("Stable tool catalog: keep all plan tools visible so mode and plan changes keep the prompt cache (best with the same model in both modes)", ["On (default)", "Off"]);
 				if (!choice) return;
-				const enabled = choice === "On";
+				const enabled = choice === "On (default)";
 				try {
 					saveStableToolCatalog(shortcutAgentDir, enabled);
 					stableToolCatalog = enabled;

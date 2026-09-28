@@ -67,7 +67,7 @@ Open `/plan-settings`:
 | Plan title | On | Show the current task's title in the composer; applies immediately |
 | Per-mode model/thinking | Off | Remember separate Plan and Build selections; applies immediately |
 | Question tool | On | Provide this extension's structured `question` tool; off leaves a `question` tool from another extension alone; reload to apply |
-| Stable tool catalog | Off | Keep all plan tools visible in every mode so mode and plan changes keep the prompt cache; best with the same model in both modes; applies immediately |
+| Stable tool catalog | On | Keep all plan tools visible in every mode so mode and plan changes keep the prompt cache; best with the same model in both modes; applies immediately |
 
 When per-mode memory is enabled, use Pi's normal model picker and thinking controls in each mode. Switching modes restores that mode's last pair. Disabling leaves the current selection unchanged.
 
