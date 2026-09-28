@@ -1086,6 +1086,41 @@ test("operational context precedes the real request and preserves the tool-excha
 	}
 });
 
+test("unchanged operational context keeps its position across user turns", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-context-anchor-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		await h.command("new");
+		fs.writeFileSync(makePlanPath(path.join(dir, "plans"), "session", 1), "# Plan\n");
+		const notes = (messages: any[]) => messages.flatMap((m, i) => m.customType === "pi-plan-build-task" ? [i] : []);
+		const history: any[] = [
+			{ role: "user", content: [{ type: "text", text: "Draft the plan" }], timestamp: 1 },
+			{ role: "assistant", content: [{ type: "toolCall", id: "read-1", name: "read", arguments: { path: "project.ts" } }], timestamp: 2 },
+			{ role: "toolResult", toolCallId: "read-1", toolName: "read", content: [{ type: "text", text: "File contents" }], isError: false, timestamp: 3 },
+			{ role: "assistant", content: [{ type: "text", text: "Drafted" }], timestamp: 4 },
+		];
+		const first = (await h.event("context", { messages: history })).messages;
+		assert.deepEqual(notes(first), [0]);
+		history.push({ role: "user", content: [{ type: "text", text: "Refine it" }], timestamp: 5 });
+		const second = (await h.event("context", { messages: history })).messages;
+		assert.deepEqual(second.slice(0, first.length), first, "earlier messages are unchanged");
+		assert.deepEqual(notes(second), [0]);
+		assert.deepEqual((await h.event("context", { messages: second })).messages, second, "retries reuse the same position");
+		await h.tool("plan_task", { action: "update", expectedAttached: 1, title: "Revised identity", scope: "Approved scope" });
+		const changed = (await h.event("context", { messages: history })).messages;
+		assert.deepEqual(notes(changed), [4], "changed context moves before the latest request");
+		assert.match(changed[4].content, /Revised identity/);
+		const compacted = (await h.event("context", { messages: [{ role: "user", content: [{ type: "text", text: "Summary" }], timestamp: 10 }] })).messages;
+		assert.deepEqual(notes(compacted), [0], "a missing anchor falls back to the latest request");
+		await h.event("session_shutdown");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("reconciliation context is limited to its live follow-up, including direct continuations", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-reconcile-context-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
