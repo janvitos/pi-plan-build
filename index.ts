@@ -114,7 +114,7 @@ function shorten(filePath: string, cwd: string): string {
 
 export default function planBuildModes(pi: ExtensionAPI): void {
 	const shortcutAgentDir = getAgentDir();
-	const { config: shortcutConfig, showPlanTitle, questionTool: configuredQuestionTool, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
+	const { stableToolCatalog, config: shortcutConfig, showPlanTitle, questionTool: configuredQuestionTool, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
 	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
 	let defaultMode: Mode = configuredDefaultMode;
@@ -329,20 +329,28 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		toolsBeforeModes = pi.getActiveTools().filter((name) => !managedTools.has(name));
 	}
 
+	function setToolsIfChanged(names: string[]): void {
+		const next = unique(names);
+		const current = pi.getActiveTools();
+		if (current.length !== next.length || current.some((name, index) => name !== next[index])) pi.setActiveTools(next);
+	}
+
 	function applyTools(mode: Mode): void {
 		discoverUnmanagedTools();
 		const base = [...toolsBeforeModes];
 		const questionTools = questionToolEnabled ? ["question"] : [];
-		if (mode === "plan") {
-			pi.setActiveTools(unique([...base, ...questionTools, "plan_exit", "plan_task"]));
+		if (stableToolCatalog) {
+			setToolsIfChanged([...base, ...questionTools, ...MANAGED_PLAN_TOOLS]);
+		} else if (mode === "plan") {
+			setToolsIfChanged([...base, ...questionTools, "plan_exit", "plan_task"]);
 		} else {
-			pi.setActiveTools(unique([
+			setToolsIfChanged([
 				...base,
 				...questionTools,
 				...(plans.collection.attached !== null && plans.plan.status === "open" ? ["plan_task", "plan_complete", "plan_finish"] : []),
 				...(plans.execution && plans.execution.status !== "completed" ? ["plan_step_control"] : []),
 				...(plans.collection.attached !== null && completablePlanStep() ? ["plan_step_complete"] : []),
-			]));
+			]);
 		}
 	}
 
@@ -834,7 +842,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.registerTool({
 		name: "plan_step_control",
 		label: "Control Plan Execution",
-		description: `Apply one clear single-step or execution-control action: start or skip a ready step; record one explicitly identified finished step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. ${COMPLETION_ROUTING_GUIDANCE} A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical, ambiguous, or unrelated text.`,
+		description: `In Build mode only, apply one clear single-step or execution-control action: start or skip a ready step; record one explicitly identified finished step; revise an unimplemented step; pause/resume/cancel execution; or hide/show the panel. ${COMPLETION_ROUTING_GUIDANCE} A paused active step may complete after successful required validation; failure may resume it for remediation. Never advance on hypothetical, ambiguous, or unrelated text.`,
 		parameters: Type.Object({
 			action: Type.Union([
 				Type.Literal("start"),
@@ -934,6 +942,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		executionMode: "sequential",
 		async execute(_toolCallId, params) {
 			plans.assertUsable();
+			if ((runMode ?? selectedMode) !== "build") throw new Error("Step completion requires Build mode");
 			const step = completablePlanStep();
 			if (!plans.execution || !step) throw new Error("No plan step is currently active");
 			const completion = completeExecutionStep(step.id, params.summary);
@@ -960,6 +969,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 		executionMode: "sequential",
 		async execute(_toolCallId, _params, _signal, _onUpdate, ctx) {
 			plans.assertUsable();
+			if ((runMode ?? selectedMode) !== "plan") throw new Error("plan_exit requires Plan mode");
 			if (!ctx.hasUI) throw new Error("plan_exit requires an interactive TUI or RPC client");
 			if (plans.collection.attached === null) throw new Error("No attached plan to approve");
 			const reviewedAttachment = plans.collection.attached;

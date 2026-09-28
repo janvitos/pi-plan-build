@@ -79,6 +79,6 @@ Interpret clear intent contextually. When running, approval/proceed starts the r
 </system-reminder>`;
 }
 
-export const PLAN_STEP_COMPLETE_DESCRIPTION = `Complete the active step only after its implementation and applicable checks. ${COMPLETION_ROUTING_GUIDANCE} Summarize work, reuse valid results, and report later-step deferrals without claiming they passed. A paused active step may complete only when the user confirms its required validation. Never start the next step.`;
+export const PLAN_STEP_COMPLETE_DESCRIPTION = `In Build mode, complete the active step only after its implementation and applicable checks. ${COMPLETION_ROUTING_GUIDANCE} Summarize work, reuse valid results, and report later-step deferrals without claiming they passed. A paused active step may complete only when the user confirms its required validation. Never start the next step.`;
 
-export const PLAN_EXIT_DESCRIPTION = `After saving the complete plan and resolving planning questions, display it for approval. Implement-here continues under Build guidance; fresh-session dispatches separately; step-by-step waits for step approval; stay/cancel stops in Plan. Do not call during discussion or before saving.`;
+export const PLAN_EXIT_DESCRIPTION = `In Plan mode only: after saving the complete plan and resolving planning questions, display it for approval. Implement-here continues under Build guidance; fresh-session dispatches separately; step-by-step waits for step approval; stay/cancel stops in Plan. Do not call during discussion or before saving.`;

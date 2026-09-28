@@ -23,6 +23,7 @@ export interface ShortcutConfig {
 }
 
 export interface LoadedShortcutConfig {
+	stableToolCatalog: boolean;
 	showPlanTitle: boolean;
 	questionTool: boolean;
 	defaultMode: Mode;
@@ -137,14 +138,16 @@ export function parseShortcutConfig(value: unknown): Omit<LoadedShortcutConfig, 
 	const parsed = parseShortcuts(value);
 	const preference = isObject(value) ? value.showPlanTitle : undefined;
 	const questionTool = isObject(value) ? value.questionTool : undefined;
+	const stableToolCatalog = isObject(value) ? value.stableToolCatalog : undefined;
 	const mode = isObject(value) ? parseDefaultMode(value.defaultMode) : { defaultMode: DEFAULT_MODE };
 	const warning = [
 		parsed.warning,
+		stableToolCatalog !== undefined && typeof stableToolCatalog !== "boolean" ? "stableToolCatalog must be a boolean" : undefined,
 		mode.warning,
 		preference !== undefined && typeof preference !== "boolean" ? "showPlanTitle must be a boolean" : undefined,
 		questionTool !== undefined && typeof questionTool !== "boolean" ? "questionTool must be a boolean" : undefined,
 	].filter(Boolean).join("; ");
-	return { ...parsed, showPlanTitle: preference !== false, questionTool: questionTool !== false, defaultMode: mode.defaultMode, ...(warning ? { warning } : {}) };
+	return { ...parsed, stableToolCatalog: stableToolCatalog === true, showPlanTitle: preference !== false, questionTool: questionTool !== false, defaultMode: mode.defaultMode, ...(warning ? { warning } : {}) };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {
