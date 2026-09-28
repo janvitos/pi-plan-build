@@ -16,6 +16,9 @@ import { decodePlanLifecycle, makePlanPath, PLAN_EXIT_APPROVE_CHOICE, PLAN_EXIT_
 
 function harness(dir: string, entries: any[] = [], sessionId = "session", initialActive = ["read", "write", "edit", "bash"]) {
 	process.env.PI_CODING_AGENT_DIR = dir;
+	// Most tests exercise mode-specific tool lists; the stable catalog is covered explicitly.
+	const settingsFile = path.join(dir, "pi-plan-build.json");
+	if (!fs.existsSync(settingsFile)) { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(settingsFile, JSON.stringify({ stableToolCatalog: false })); }
 	const { handlers, on } = eventHandlers();
 	const commands = new Map<string, any>();
 	const tools = new Map<string, any>();
@@ -154,8 +157,8 @@ test("stable tool catalog toggles from settings and applies immediately", async 
 		await h.event("session_start", { reason: "startup" });
 		const file = path.join(dir, "pi-plan-build.json");
 		const lifecycle = ["plan_task", "plan_exit", "plan_step_control", "plan_step_complete", "plan_complete", "plan_finish"];
-		assert.ok(!h.active().includes("plan_exit"), "Build without a plan hides lifecycle tools by default");
-		let answers: any[] = ["Stable tool catalog (active: off)", "On"];
+		assert.ok(!h.active().includes("plan_exit"), "Build without a plan hides lifecycle tools when off");
+		let answers: any[] = ["Stable tool catalog (active: off)", "On (default)"];
 		h.ctx.ui.select = async () => answers.shift();
 		await h.commands.get("plan-settings").handler("", h.ctx);
 		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).stableToolCatalog, true);
@@ -164,7 +167,7 @@ test("stable tool catalog toggles from settings and applies immediately", async 
 		answers = ["Stable tool catalog (active: on)", undefined];
 		await h.commands.get("plan-settings").handler("", h.ctx);
 		assert.equal(fs.readFileSync(file, "utf8"), before, "cancellation changes nothing");
-		answers = ["Stable tool catalog (active: on)", "Off (default)"];
+		answers = ["Stable tool catalog (active: on)", "Off"];
 		await h.commands.get("plan-settings").handler("", h.ctx);
 		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).stableToolCatalog, false);
 		assert.ok(!h.active().includes("plan_exit"));
@@ -178,7 +181,7 @@ test("startup mode follows the session record, then the CLI flag, then defaultMo
 	// session_start applies the startup mode to tool routing, which is observable without persisting a record.
 	const startedInPlan = (h: ReturnType<typeof harness>) => h.active().includes("plan_exit") && !h.active().includes("plan_enter");
 	try {
-		fs.writeFileSync(path.join(dir, "pi-plan-build.json"), JSON.stringify({ defaultMode: "plan" }));
+		fs.writeFileSync(path.join(dir, "pi-plan-build.json"), JSON.stringify({ defaultMode: "plan", stableToolCatalog: false }));
 		const configured = harness(dir);
 		await configured.event("session_start", { reason: "startup" });
 		assert.ok(startedInPlan(configured), "a new session must honor defaultMode");

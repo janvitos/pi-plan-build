@@ -57,15 +57,15 @@ With the setting off, a `question` tool supplied by another extension is an ordi
 
 The cancelled-question notice renderer stays registered either way, so entries recorded in earlier sessions keep rendering.
 
-## Stable tool catalog (opt-in)
+## Stable tool catalog
 
-Choose **Stable tool catalog → On** in `/plan-settings`; it applies immediately. You can also set `"stableToolCatalog": true` in `~/.pi/agent/pi-plan-build.json` and run `/reload`. The default is `false`; invalid values warn and fall back to `false`.
+This is **on by default**. To turn it off, choose **Stable tool catalog → Off** in `/plan-settings`; it applies immediately. You can also set `"stableToolCatalog": false` in `~/.pi/agent/pi-plan-build.json` and run `/reload`. Invalid values warn and fall back to `true`.
 
 When enabled, all six Plan Build lifecycle tools remain visible in a fixed order across modes, attachment changes and step transitions. Visibility is not permission: tools still reject invalid modes, missing attachments and invalid execution state. Plan file guards, step authorization and review approval remain in force. The optional question tool continues to respect `questionTool`.
 
 This stabilizes only this extension's catalog. Tools owned by other extensions remain governed by the live host set; their additions/removals are not suppressed or reversed. Model changes and external tool changes can still invalidate caching. The trade-off is a larger initial catalog and irrelevant tools visible to the model, which may occasionally call one in the wrong mode and receive an error.
 
-It helps most when you switch modes often and use the same model in both. Without it, a mode or plan change alters the tool list, and providers must re-read the whole conversation. It helps little if you mostly work without plans or use different models per mode.
+It helps most when you switch modes often and use the same model in both. Without it, a mode or plan change alters the tool list, and providers must re-read the whole conversation. It helps little if you mostly work without plans or use different models per mode. If your model often calls plan tools in the wrong mode, turn it off.
 
 Other prompt-cache tips:
 

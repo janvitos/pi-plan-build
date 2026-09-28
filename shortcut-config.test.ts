@@ -69,7 +69,7 @@ test("the question tool defaults on, disables explicitly, and saves without clob
 test("obsolete small-caps settings are ignored", () => {
 	for (const smallCapsPlanTitle of [true, false, "false"]) {
 		assert.deepEqual(parseShortcutConfig({ smallCapsPlanTitle, shortcuts: { toggleMode: [] } }), {
-			stableToolCatalog: false,
+			stableToolCatalog: true,
 			showPlanTitle: true,
 			questionTool: true,
 			defaultMode: "build",
@@ -110,12 +110,12 @@ test("default startup mode parses, warns on invalid values, and saves without cl
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
-test("stable tool catalog is explicit opt-in and rejects invalid configuration", () => {
-	assert.equal(parseShortcutConfig(undefined).stableToolCatalog, false);
-	assert.equal(parseShortcutConfig({ stableToolCatalog: true }).stableToolCatalog, true);
-	for (const value of ["true", 1, null, []]) {
+test("stable tool catalog is on by default, can be disabled, and rejects invalid configuration", () => {
+	assert.equal(parseShortcutConfig(undefined).stableToolCatalog, true);
+	assert.equal(parseShortcutConfig({ stableToolCatalog: false }).stableToolCatalog, false);
+	for (const value of ["false", 0, null, []]) {
 		const parsed = parseShortcutConfig({ stableToolCatalog: value });
-		assert.equal(parsed.stableToolCatalog, false);
+		assert.equal(parsed.stableToolCatalog, true);
 		assert.match(parsed.warning!, /stableToolCatalog must be a boolean/);
 	}
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-stable-catalog-"));
@@ -132,7 +132,7 @@ test("stable tool catalog is explicit opt-in and rejects invalid configuration",
 
 test("shortcut defaults preserve Tab and Alt+M", () => {
 	assert.deepEqual(parseShortcutConfig(undefined), {
-		stableToolCatalog: false,
+		stableToolCatalog: true,
 		showPlanTitle: true,
 		questionTool: true,
 		defaultMode: "build",
@@ -152,7 +152,7 @@ test("shortcut configuration accepts remapping and explicit disabling", () => {
 	});
 
 	assert.deepEqual(result, {
-		stableToolCatalog: false,
+		stableToolCatalog: true,
 		showPlanTitle: true,
 		questionTool: true,
 		defaultMode: "build",
@@ -239,7 +239,7 @@ test("shortcut configuration reads the Pi agent directory and fails safely", () 
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-plan-build-shortcuts-"));
 	try {
 		assert.deepEqual(loadShortcutConfig(dir), {
-			stableToolCatalog: false,
+			stableToolCatalog: true,
 			showPlanTitle: true,
 			questionTool: true,
 			defaultMode: "build",
