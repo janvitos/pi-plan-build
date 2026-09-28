@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 import { matchesKey } from "@earendil-works/pi-tui";
-import { DEFAULT_MODE, isKeyId, loadShortcutConfig, parseShortcutConfig, saveDefaultMode, saveQuestionTool, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_CONFIG_FILE, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { DEFAULT_MODE, isKeyId, loadShortcutConfig, parseShortcutConfig, saveDefaultMode, saveQuestionTool, saveShortcutPreset, saveShowPlanTitle, saveStableToolCatalog, SHORTCUT_CONFIG_FILE, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 
 test("plan title visibility defaults on, disables explicitly, and saves safely", () => {
 	assert.equal(parseShortcutConfig(undefined).showPlanTitle, true);
@@ -118,6 +118,16 @@ test("stable tool catalog is explicit opt-in and rejects invalid configuration",
 		assert.equal(parsed.stableToolCatalog, false);
 		assert.match(parsed.warning!, /stableToolCatalog must be a boolean/);
 	}
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-stable-catalog-"));
+	try {
+		const file = path.join(dir, SHORTCUT_CONFIG_FILE);
+		fs.writeFileSync(file, JSON.stringify({ unrelated: 42, questionTool: false }));
+		assert.equal(saveStableToolCatalog(dir, true), file);
+		assert.equal(loadShortcutConfig(dir).stableToolCatalog, true);
+		assert.deepEqual(JSON.parse(fs.readFileSync(file, "utf8")), { unrelated: 42, questionTool: false, stableToolCatalog: true });
+		saveStableToolCatalog(dir, false);
+		assert.equal(loadShortcutConfig(dir).stableToolCatalog, false);
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("shortcut defaults preserve Tab and Alt+M", () => {

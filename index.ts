@@ -10,7 +10,7 @@ import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker
 import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
 import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
 import { registerQuestionNotice, registerQuestionTool } from "./question-ui.ts";
-import { loadShortcutConfig, saveDefaultMode, saveQuestionTool, saveShortcutPreset, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { loadShortcutConfig, saveDefaultMode, saveQuestionTool, saveShortcutPreset, saveStableToolCatalog, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
 	COMPLETION_ROUTING_GUIDANCE,
 	PLAN_EXIT_DESCRIPTION,
@@ -114,10 +114,11 @@ function shorten(filePath: string, cwd: string): string {
 
 export default function planBuildModes(pi: ExtensionAPI): void {
 	const shortcutAgentDir = getAgentDir();
-	const { stableToolCatalog, config: shortcutConfig, showPlanTitle, questionTool: configuredQuestionTool, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
+	const { stableToolCatalog: configuredStableToolCatalog, config: shortcutConfig, showPlanTitle, questionTool: configuredQuestionTool, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
 	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
 	let defaultMode: Mode = configuredDefaultMode;
+	let stableToolCatalog = configuredStableToolCatalog;
 	let runMode: Mode | undefined;
 	let pendingMode: Mode | undefined;
 	let modeTransition = 0;
@@ -558,7 +559,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const modelOption = `Per-mode model/thinking (active: ${modeSelections.enabled ? "on" : "off"})`;
 			const titleOption = `Plan title (active: ${composerSettings.showPlanTitle ? "on" : "off"})`;
 			const questionOption = `Question tool (active: ${questionToolEnabled ? "on" : "off"})`;
-			const selected = await ctx.ui.select("Plan/Build settings", [defaultModeOption, shortcutOption, titleOption, questionOption, modelOption]);
+			const catalogOption = `Stable tool catalog (active: ${stableToolCatalog ? "on" : "off"})`;
+			const selected = await ctx.ui.select("Plan/Build settings", [defaultModeOption, shortcutOption, titleOption, questionOption, catalogOption, modelOption]);
 			if (!selected) return;
 			if (selected === defaultModeOption) {
 				const choice = await ctx.ui.select("Default mode for new sessions", ["Build (default)", "Plan"]);
@@ -602,6 +604,20 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 				try {
 					saveQuestionTool(shortcutAgentDir, enabled);
 					ctx.ui.notify(`Question tool ${enabled ? "on" : "off"}. The current session is unchanged; run /reload to apply it.`, "info");
+				} catch (error) {
+					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+				}
+				return;
+			}
+			if (selected === catalogOption) {
+				const choice = await ctx.ui.select("Stable tool catalog: keep all plan tools visible so mode and plan changes keep the prompt cache (best with the same model in both modes)", ["Off (default)", "On"]);
+				if (!choice) return;
+				const enabled = choice === "On";
+				try {
+					saveStableToolCatalog(shortcutAgentDir, enabled);
+					stableToolCatalog = enabled;
+					if (ctx.isIdle()) applyTools(runMode ?? selectedMode);
+					ctx.ui.notify(`Stable tool catalog ${enabled ? "on" : "off"}.`, "info");
 				} catch (error) {
 					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
 				}

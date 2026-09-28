@@ -59,15 +59,22 @@ The cancelled-question notice renderer stays registered either way, so entries r
 
 ## Stable tool catalog (opt-in)
 
-Set `"stableToolCatalog": true` in `~/.pi/agent/pi-plan-build.json`, then start a new Pi session or reload. The default is `false`; invalid values warn and fall back to `false`. This setting is currently file-configured, not a `/plan-settings` menu item.
+Choose **Stable tool catalog → On** in `/plan-settings`; it applies immediately. You can also set `"stableToolCatalog": true` in `~/.pi/agent/pi-plan-build.json` and run `/reload`. The default is `false`; invalid values warn and fall back to `false`.
 
 When enabled, all six Plan Build lifecycle tools remain visible in a fixed order across modes, attachment changes and step transitions. Visibility is not permission: tools still reject invalid modes, missing attachments and invalid execution state. Plan file guards, step authorization and review approval remain in force. The optional question tool continues to respect `questionTool`.
 
-This stabilizes only this extension's catalog. Tools owned by other extensions remain governed by the live host set; their additions/removals are not suppressed or reversed. Model changes and external tool changes can still invalidate caching. The trade-off is a larger initial catalog and irrelevant tools visible to the model.
+This stabilizes only this extension's catalog. Tools owned by other extensions remain governed by the live host set; their additions/removals are not suppressed or reversed. Model changes and external tool changes can still invalidate caching. The trade-off is a larger initial catalog and irrelevant tools visible to the model, which may occasionally call one in the wrong mode and receive an error.
+
+It helps most when you switch modes often and use the same model in both. Without it, a mode or plan change alters the tool list, and providers must re-read the whole conversation. It helps little if you mostly work without plans or use different models per mode.
+
+Other prompt-cache tips:
+
+- **Same model and thinking level in both modes.** Different models never share a cache, and on some providers (such as Anthropic) a thinking-level change also resets the cached conversation. Keep **Per-mode model/thinking** off, or choose the same pair for both modes, if caching matters more than per-mode models.
+- **Anthropic cache lifetime.** Anthropic's cache expires after about 5 minutes of inactivity by default. Pi can request a 1-hour cache with the `PI_CACHE_RETENTION=long` environment variable; cache writes cost more, so this pays off mainly if you often pause between requests.
 
 ## Shortcut configuration
 
-`/plan-settings` groups **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)** under the **Shortcuts** submenu. The main menu also offers **Default mode**, **Plan title**, **Question tool**, and **Per-mode model/thinking**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Shortcut changes require `/reload`; the question tool is read at load time, so `/plan-settings` saves it and asks for `/reload`; default mode, title, and per-mode selection changes apply without reloading. Direct file edits require `/reload`.
+`/plan-settings` groups **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)** under the **Shortcuts** submenu. The main menu also offers **Default mode**, **Plan title**, **Question tool**, **Stable tool catalog**, and **Per-mode model/thinking**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Shortcut changes require `/reload`; the question tool is read at load time, so `/plan-settings` saves it and asks for `/reload`; default mode, title, stable tool catalog, and per-mode selection changes apply without reloading. Direct file edits require `/reload`.
 
 Pi Plan Build reads `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`):
 
