@@ -133,6 +133,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	let reconciliation: CompletionReconciliation | undefined;
 	let reconciliationFollowUp = false;
 	let activeReconciliationId: string | undefined;
+	// The message the operational context last preceded, and the text it carried.
+	let contextAnchor: { role: string; timestamp: number; content: string } | undefined;
 	let savedPlanState: "saved" | "absent" | "unavailable" = "absent";
 	let savedPlanHeading: string | undefined;
 	let toolsBeforeModes: string[] = [];
@@ -1194,16 +1196,26 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	pi.on("context", (event) => {
 		const messages = event.messages.filter((message) => !isObsoletePlanContext(message, activeReconciliationId));
 		const content = buildPlanContext(runMode ?? selectedMode, plans.collection, { path: currentPlanPath(), state: savedPlanState }, plans.error);
-		if (content) {
-			// Pi converts custom messages to user-role messages. Keep operational context
-			// before the actual request, never after its assistant/tool exchange.
-			const userIndex = messages.findLastIndex((message) => message.role === "user");
-			messages.splice(Math.max(0, userIndex), 0, {
-				role: "custom", customType: TASK_CONTEXT_TYPE,
-				content: `Background operational context, not a new user request. Do not acknowledge this block; follow the actual user request within these constraints.\n\n${content}`,
-				display: false, timestamp: Date.now(),
-			});
+		if (!content) {
+			contextAnchor = undefined;
+			return { messages };
 		}
+		// Unchanged context stays before the same message, so providers can reuse the
+		// cached prefix. New context (or a compacted-away anchor) moves before the latest
+		// actual request: Pi converts custom messages to user-role messages, so keep it
+		// before the request, never after its assistant/tool exchange.
+		const anchor = contextAnchor?.content === content ? contextAnchor : undefined;
+		let index = anchor ? messages.findIndex((message) => message.role === anchor.role && message.timestamp === anchor.timestamp) : -1;
+		if (index === -1) {
+			index = Math.max(0, messages.findLastIndex((message) => message.role === "user"));
+			const target = messages[index];
+			contextAnchor = target ? { role: target.role, timestamp: target.timestamp, content } : undefined;
+		}
+		messages.splice(index, 0, {
+			role: "custom", customType: TASK_CONTEXT_TYPE,
+			content: `Background operational context, not a new user request. Do not acknowledge this block; follow the actual user request within these constraints.\n\n${content}`,
+			display: false, timestamp: messages[index]?.timestamp ?? 0,
+		});
 		return { messages };
 	});
 
