@@ -2129,6 +2129,49 @@ test("RPC approval carries the complete review in its blocking request without c
 	}
 });
 
+test("stable catalog preserves visibility but rejects invalid lifecycle executions", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-stable-tools-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		fs.writeFileSync(path.join(dir, "pi-plan-build.json"), JSON.stringify({ stableToolCatalog: true, questionTool: false }));
+		const h = harness(dir);
+		await h.event("session_start", { reason: "new" });
+		const catalog = [...h.active()];
+		for (const name of ["plan_exit", "plan_task", "plan_finish", "plan_complete", "plan_step_control", "plan_step_complete"]) assert.ok(catalog.includes(name));
+		assert.ok(!catalog.includes("question"));
+		await assert.rejects(h.tools.get("plan_exit").execute("x", {}, undefined, undefined, h.ctx), /requires Plan mode/);
+		await assert.rejects(h.tools.get("plan_complete").execute("x", {}), /No current plan/);
+		await h.command("");
+		assert.deepEqual(h.active(), catalog);
+		await assert.rejects(h.tools.get("plan_finish").execute("x", {}, undefined, undefined, h.ctx), /requires Build mode/);
+		await assert.rejects(h.tools.get("plan_step_complete").execute("x", { summary: "no" }), /requires Build mode/);
+		await assert.rejects(h.tools.get("plan_step_control").execute("x", { action: "start" }, undefined, undefined, h.ctx), /requires Build mode/);
+		await assert.rejects(h.tools.get("plan_complete").execute("x", {}), /Switch to Build/);
+		const definitions = () => JSON.stringify(h.active().filter((name) => h.tools.has(name)).map((name) => {
+			const t = h.tools.get(name);
+			return { name, description: t.description, parameters: t.parameters, promptSnippet: t.promptSnippet, promptGuidelines: t.promptGuidelines };
+		}));
+		const baseline = definitions();
+		await h.callTool("plan_task", { action: "new", expectedAttached: null, title: "Cache test", scope: "Test only" });
+		await h.build();
+		await h.callTool("plan_finish", { expectedAttached: 1, outcome: "awaiting_validation", reason: "Needs user", userAction: "Confirm mock output" });
+		assert.equal(definitions(), baseline, "outcomes do not change ordered definitions or guidelines");
+		await h.callTool("plan_complete");
+		assert.equal(definitions(), baseline, "completion and empty Build keep the same catalog");
+		await assert.rejects(h.tool("plan_task", { action: "new", expectedAttached: null, title: "Invalid", scope: "No" }), /require Plan mode/);
+		const count = h.events.filter((e) => e.kind === "tools").length;
+		await h.event("session_compact");
+		assert.equal(h.events.filter((e) => e.kind === "tools").length, count);
+		h.setActive(h.active().filter((name) => name !== "edit"));
+		await h.build();
+		assert.deepEqual(h.active(), catalog.filter((name) => name !== "edit"));
+		await h.event("session_shutdown");
+	} finally {
+		if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous;
+		fs.rmSync(dir, { recursive: true, force: true });
+	}
+});
+
 test("live host tool choices survive mode refreshes without restoring built-in editors", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-host-tools-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;
