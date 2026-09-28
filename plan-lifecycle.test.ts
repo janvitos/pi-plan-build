@@ -146,6 +146,32 @@ test("per-mode settings toggle immediately and cancellation preserves the file",
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
 });
 
+test("stable tool catalog toggles from settings and applies immediately", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-catalog-settings-"));
+	const previous = process.env.PI_CODING_AGENT_DIR;
+	try {
+		const h = harness(dir);
+		await h.event("session_start", { reason: "startup" });
+		const file = path.join(dir, "pi-plan-build.json");
+		const lifecycle = ["plan_task", "plan_exit", "plan_step_control", "plan_step_complete", "plan_complete", "plan_finish"];
+		assert.ok(!h.active().includes("plan_exit"), "Build without a plan hides lifecycle tools by default");
+		let answers: any[] = ["Stable tool catalog (active: off)", "On"];
+		h.ctx.ui.select = async () => answers.shift();
+		await h.commands.get("plan-settings").handler("", h.ctx);
+		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).stableToolCatalog, true);
+		for (const name of lifecycle) assert.ok(h.active().includes(name), name);
+		const before = fs.readFileSync(file, "utf8");
+		answers = ["Stable tool catalog (active: on)", undefined];
+		await h.commands.get("plan-settings").handler("", h.ctx);
+		assert.equal(fs.readFileSync(file, "utf8"), before, "cancellation changes nothing");
+		answers = ["Stable tool catalog (active: on)", "Off (default)"];
+		await h.commands.get("plan-settings").handler("", h.ctx);
+		assert.equal(JSON.parse(fs.readFileSync(file, "utf8")).stableToolCatalog, false);
+		assert.ok(!h.active().includes("plan_exit"));
+		await h.event("session_shutdown");
+	} finally { fs.rmSync(dir, { recursive: true, force: true }); if (previous === undefined) delete process.env.PI_CODING_AGENT_DIR; else process.env.PI_CODING_AGENT_DIR = previous; }
+});
+
 test("startup mode follows the session record, then the CLI flag, then defaultMode", async () => {
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "plan-default-mode-startup-"));
 	const previous = process.env.PI_CODING_AGENT_DIR;

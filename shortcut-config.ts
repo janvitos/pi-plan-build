@@ -168,6 +168,10 @@ export function saveQuestionTool(agentDir: string, enabled: boolean): string {
 	return saveSettings(agentDir, (document) => ({ ...document, questionTool: enabled }));
 }
 
+export function saveStableToolCatalog(agentDir: string, enabled: boolean): string {
+	return saveSettings(agentDir, (document) => ({ ...document, stableToolCatalog: enabled }));
+}
+
 export function saveDefaultMode(agentDir: string, mode: Mode): string {
 	if (mode !== "build" && mode !== "plan") throw new Error("The default mode must be build or plan");
 	return saveSettings(agentDir, (document) => ({ ...document, defaultMode: mode }));
