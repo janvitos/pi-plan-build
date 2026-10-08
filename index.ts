@@ -10,7 +10,7 @@ import { pendingOrError, resultText, renderStepResult, statusCall, noticeTracker
 import { buildPlanContext, isObsoletePlanContext, TASK_CONTEXT_TYPE, RECONCILIATION_CONTEXT_TYPE } from "./plan-context.ts";
 import { PlanState, restoreCollection, allocationHighWater, latestPlanState, STATE_VERSION, STATE_TYPE, LEGACY_STATE_TYPE, type StoredState, type LegacyState } from "./plan-state.ts";
 import { registerQuestionNotice, registerQuestionTool } from "./question-ui.ts";
-import { loadShortcutConfig, saveDefaultMode, saveQuestionTool, saveShortcutPreset, saveStableToolCatalog, saveShowPlanTitle, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
+import { loadShortcutConfig, saveDefaultMode, saveQuestionTool, saveShortcutPreset, saveStableToolCatalog, saveShowPlanTitle, saveUiCompatibilityNotice, SHORTCUT_PRESETS, shortcutPresetLabel } from "./shortcut-config.ts";
 import {
 	COMPLETION_ROUTING_GUIDANCE,
 	PLAN_EXIT_DESCRIPTION,
@@ -560,7 +560,8 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 			const titleOption = `Plan title (active: ${composerSettings.showPlanTitle ? "on" : "off"})`;
 			const questionOption = `Question tool (active: ${questionToolEnabled ? "on" : "off"})`;
 			const catalogOption = `Stable tool catalog (active: ${stableToolCatalog ? "on" : "off"})`;
-			const selected = await ctx.ui.select("Plan/Build settings", [defaultModeOption, shortcutOption, titleOption, questionOption, catalogOption, modelOption]);
+			const noticeOption = `UI compatibility notice (active: ${composerSettings.uiCompatibilityNotice ? "on" : "off"})`;
+			const selected = await ctx.ui.select("Plan/Build settings", [defaultModeOption, shortcutOption, titleOption, questionOption, catalogOption, modelOption, noticeOption]);
 			if (!selected) return;
 			if (selected === defaultModeOption) {
 				const choice = await ctx.ui.select("Default mode for new sessions", ["Build (default)", "Plan"]);
@@ -592,6 +593,19 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 					composerSettings.showPlanTitle = enabled;
 					composer.update(ctx);
 					ctx.ui.notify(`Plan title ${enabled ? "on" : "off"}.`, "info");
+				} catch (error) {
+					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
+				}
+				return;
+			}
+			if (selected === noticeOption) {
+				const choice = await ctx.ui.select("UI compatibility notice", ["On (default)", "Off"]);
+				if (!choice) return;
+				try {
+					const enabled = choice === "On (default)";
+					saveUiCompatibilityNotice(shortcutAgentDir, enabled);
+					composerSettings.uiCompatibilityNotice = enabled;
+					ctx.ui.notify(`UI compatibility notice ${enabled ? "on" : "off"}. Applies to future conflicts; reduced UI is unchanged.`, "info");
 				} catch (error) {
 					ctx.ui.notify(`Could not save ${shortcutConfigPath}: ${error instanceof Error ? error.message : String(error)}`, "error");
 				}

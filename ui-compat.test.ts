@@ -510,6 +510,50 @@ test("an editor installed before Pi Plan Build triggers reduced optional UI", as
 	assert.deepEqual(harness.editorCalls, []);
 });
 
+test("compatibility notice settings persist, cancel safely, and apply to future conflicts", async () => {
+	writeConfig({ unrelated: 42, uiCompatibilityNotice: true });
+	const harness = createHarness();
+	await start(harness);
+	harness.selectOptions("UI compatibility notice (active: on)", undefined);
+	await harness.commands.get("plan-settings").handler("", harness.ctx);
+	assert.equal(loadShortcutConfig(agentDir).uiCompatibilityNotice, true);
+	assert.equal(harness.notifications.length, 0);
+
+	harness.selectOptions("UI compatibility notice (active: on)", "Off");
+	await harness.commands.get("plan-settings").handler("", harness.ctx);
+	assert.equal(loadShortcutConfig(agentDir).uiCompatibilityNotice, false);
+	assert.equal(JSON.parse(fs.readFileSync(path.join(agentDir, SHORTCUT_CONFIG_FILE), "utf8")).unrelated, 42);
+	harness.setCurrentEditor(() => undefined);
+	await harness.handlers.get("before_agent_start")?.({}, harness.ctx);
+	assert.equal(harness.notifications.length, 1, "only the settings confirmation is shown");
+	assert.match(harness.notifications[0]![0], /UI compatibility notice off/);
+	assert.equal(harness.tui.requestRender, harness.originalRequestRender);
+	await shutdown(harness);
+
+	const reloaded = createHarness(() => undefined);
+	await start(reloaded);
+	assert.equal(reloaded.notifications.length, 0);
+	reloaded.selectOptions("UI compatibility notice (active: off)", "On (default)");
+	await reloaded.commands.get("plan-settings").handler("", reloaded.ctx);
+	assert.equal(loadShortcutConfig(agentDir).uiCompatibilityNotice, true);
+	await shutdown(reloaded);
+	await start(reloaded);
+	assert.match(reloaded.notifications.at(-1)![0], /disabled its custom composer/);
+});
+
+test("compatibility notice settings do not apply when saving fails", async () => {
+	const harness = createHarness();
+	await start(harness);
+	fs.writeFileSync(path.join(agentDir, SHORTCUT_CONFIG_FILE), "invalid JSON");
+	harness.selectOptions("UI compatibility notice (active: on)", "Off");
+	await harness.commands.get("plan-settings").handler("", harness.ctx);
+	assert.match(harness.notifications.at(-1)![0], /Could not save/);
+	assert.equal(fs.readFileSync(path.join(agentDir, SHORTCUT_CONFIG_FILE), "utf8"), "invalid JSON");
+	harness.setCurrentEditor(() => undefined);
+	await harness.handlers.get("before_agent_start")?.({}, harness.ctx);
+	assert.match(harness.notifications.at(-1)![0], /disabled its custom composer/);
+});
+
 test("compatibility notice preference preserves reduced UI across repeated starts", async () => {
 	for (const enabled of [true, false]) {
 		writeConfig({ uiCompatibilityNotice: enabled });

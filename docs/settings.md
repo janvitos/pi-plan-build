@@ -74,7 +74,7 @@ Other prompt-cache tips:
 
 ## UI compatibility notice
 
-When another extension owns Pi's custom editor or fullscreen layout, Pi Plan Build keeps its optional composer and step panel disabled and shows a compatibility warning. If this reduced UI is intentional, suppress that warning in `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`):
+When another extension owns Pi's custom editor or fullscreen layout, Pi Plan Build keeps its optional composer and step panel disabled and shows a compatibility warning. If this reduced UI is intentional, choose **UI compatibility notice → Off** in `/plan-settings`, or suppress that warning in `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`):
 
 ```json
 {
@@ -82,11 +82,11 @@ When another extension owns Pi's custom editor or fullscreen layout, Pi Plan Bui
 }
 ```
 
-Run `/reload` after editing the file. The setting defaults to `true`; invalid values warn and fall back to `true`. It suppresses only the compatibility notice, not conflict detection, reduced UI, fallback status, or other warnings. Plan and Build workflows remain available through configured global shortcuts, `/plan`, and `/build`.
+Menu changes save and apply immediately to future conflicts without changing reduced UI or replaying an existing warning. Run `/reload` after editing the file directly. The setting defaults to `true`; invalid values warn and fall back to `true`. It suppresses only the compatibility notice, not conflict detection, reduced UI, fallback status, or other warnings. Plan and Build workflows remain available through configured global shortcuts, `/plan`, and `/build`.
 
 ## Shortcut configuration
 
-`/plan-settings` groups **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)** under the **Shortcuts** submenu. The main menu also offers **Default mode**, **Plan title**, **Question tool**, **Stable tool catalog**, and **Per-mode model/thinking**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Shortcut changes require `/reload`; the question tool is read at load time, so `/plan-settings` saves it and asks for `/reload`; default mode, title, stable tool catalog, and per-mode selection changes apply without reloading. Direct file edits require `/reload`.
+`/plan-settings` groups **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)** under the **Shortcuts** submenu. The main menu also offers **Default mode**, **Plan title**, **Question tool**, **Stable tool catalog**, **Per-mode model/thinking**, and **UI compatibility notice**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Shortcut changes require `/reload`; the question tool is read at load time, so `/plan-settings` saves it and asks for `/reload`; default mode, title, stable tool catalog, and per-mode selection changes apply without reloading. Direct file edits require `/reload`.
 
 Pi Plan Build reads `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`):
 

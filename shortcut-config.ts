@@ -167,6 +167,10 @@ export function saveShowPlanTitle(agentDir: string, enabled: boolean): string {
 	return saveSettings(agentDir, (document) => ({ ...document, showPlanTitle: enabled }));
 }
 
+export function saveUiCompatibilityNotice(agentDir: string, enabled: boolean): string {
+	return saveSettings(agentDir, (document) => ({ ...document, uiCompatibilityNotice: enabled }));
+}
+
 export function saveQuestionTool(agentDir: string, enabled: boolean): string {
 	return saveSettings(agentDir, (document) => ({ ...document, questionTool: enabled }));
 }
