@@ -502,6 +502,7 @@ test("an editor installed before Pi Plan Build triggers reduced optional UI", as
 	assert.deepEqual(harness.editorCalls, []);
 	assert.equal(harness.notifications.length, 1);
 	assert.match(harness.notifications[0]![0], /disabled its custom composer and experimental step-by-step panel/);
+	assert.match(harness.notifications[0]![0], /To hide this notice, turn off UI compatibility notice in \/plan-settings\./);
 	assert.equal(harness.notifications[0]![1], "warning");
 	assert.equal(harness.statuses.at(-1)?.[0], "pi-plan-build-mode");
 	assert.match(harness.statuses.at(-1)?.[1] ?? "", /build/);

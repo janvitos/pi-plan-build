@@ -62,7 +62,7 @@ export function createComposer(
 			status();
 			if (!noticeShown && shortcuts.uiCompatibilityNotice !== false) {
 				noticeShown = true;
-				ctx.ui.notify(`Another extension owns Pi's custom editor or fullscreen layout. Pi Plan Build disabled its custom composer and experimental step-by-step panel; Plan and Build workflows remain available through ${shortcuts.toggleMode.length ? `${shortcuts.toggleMode.join(", ")}, ` : ""}/plan, and /build.`, "warning");
+				ctx.ui.notify(`Another extension owns Pi's custom editor or fullscreen layout. Pi Plan Build disabled its custom composer and experimental step-by-step panel; Plan and Build workflows remain available through ${shortcuts.toggleMode.length ? `${shortcuts.toggleMode.join(", ")}, ` : ""}/plan, and /build. To hide this notice, turn off UI compatibility notice in /plan-settings.`, "warning");
 			}
 		}
 		return reduced;
