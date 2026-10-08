@@ -25,6 +25,7 @@ export interface ShortcutConfig {
 export interface LoadedShortcutConfig {
 	stableToolCatalog: boolean;
 	showPlanTitle: boolean;
+	uiCompatibilityNotice: boolean;
 	questionTool: boolean;
 	defaultMode: Mode;
 	config: ShortcutConfig;
@@ -137,6 +138,7 @@ function parseDefaultMode(value: unknown): { defaultMode: Mode; warning?: string
 export function parseShortcutConfig(value: unknown): Omit<LoadedShortcutConfig, "path"> {
 	const parsed = parseShortcuts(value);
 	const preference = isObject(value) ? value.showPlanTitle : undefined;
+	const uiCompatibilityNotice = isObject(value) ? value.uiCompatibilityNotice : undefined;
 	const questionTool = isObject(value) ? value.questionTool : undefined;
 	const stableToolCatalog = isObject(value) ? value.stableToolCatalog : undefined;
 	const mode = isObject(value) ? parseDefaultMode(value.defaultMode) : { defaultMode: DEFAULT_MODE };
@@ -144,10 +146,11 @@ export function parseShortcutConfig(value: unknown): Omit<LoadedShortcutConfig, 
 		parsed.warning,
 		stableToolCatalog !== undefined && typeof stableToolCatalog !== "boolean" ? "stableToolCatalog must be a boolean" : undefined,
 		mode.warning,
+		uiCompatibilityNotice !== undefined && typeof uiCompatibilityNotice !== "boolean" ? "uiCompatibilityNotice must be a boolean" : undefined,
 		preference !== undefined && typeof preference !== "boolean" ? "showPlanTitle must be a boolean" : undefined,
 		questionTool !== undefined && typeof questionTool !== "boolean" ? "questionTool must be a boolean" : undefined,
 	].filter(Boolean).join("; ");
-	return { ...parsed, stableToolCatalog: stableToolCatalog !== false, showPlanTitle: preference !== false, questionTool: questionTool !== false, defaultMode: mode.defaultMode, ...(warning ? { warning } : {}) };
+	return { ...parsed, uiCompatibilityNotice: uiCompatibilityNotice !== false, stableToolCatalog: stableToolCatalog !== false, showPlanTitle: preference !== false, questionTool: questionTool !== false, defaultMode: mode.defaultMode, ...(warning ? { warning } : {}) };
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

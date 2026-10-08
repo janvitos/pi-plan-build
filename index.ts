@@ -114,7 +114,7 @@ function shorten(filePath: string, cwd: string): string {
 
 export default function planBuildModes(pi: ExtensionAPI): void {
 	const shortcutAgentDir = getAgentDir();
-	const { stableToolCatalog: configuredStableToolCatalog, config: shortcutConfig, showPlanTitle, questionTool: configuredQuestionTool, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
+	const { stableToolCatalog: configuredStableToolCatalog, config: shortcutConfig, showPlanTitle, uiCompatibilityNotice, questionTool: configuredQuestionTool, defaultMode: configuredDefaultMode, path: shortcutConfigPath, warning: shortcutConfigWarning } = loadShortcutConfig(shortcutAgentDir);
 	let shortcutConfigWarningShown = false;
 	let selectedMode: Mode = "build";
 	let defaultMode: Mode = configuredDefaultMode;
@@ -144,7 +144,7 @@ export default function planBuildModes(pi: ExtensionAPI): void {
 	const managedTools = managedToolsFor(questionToolEnabled);
 	let currentContext: ExtensionContext | undefined;
 	let freshImplementationRequest: ApprovedHandoff | undefined;
-	const composerSettings = { ...shortcutConfig, showPlanTitle };
+	const composerSettings = { ...shortcutConfig, showPlanTitle, uiCompatibilityNotice };
 	const composer = createComposer(pi, composerSettings, () => ({ mode: pendingMode ?? selectedMode, title: currentPlanTitle(), execution: plans.execution }), (mode, ctx) => { void selectMode(mode, ctx, "manual"); });
 	const displayUserMessageText = (text: string): string | undefined => {
 		const skillBlock = parseSkillBlock(text);

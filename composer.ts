@@ -13,7 +13,7 @@ const PANEL_WIDTH = 64;
 /** Owns optional UI only. Lifecycle and durable progress belong to PlanState. */
 export function createComposer(
 	pi: ExtensionAPI,
-	shortcuts: { toggleMode: string[]; toggleModeInEditor: string[]; showPlanTitle?: boolean },
+	shortcuts: { toggleMode: string[]; toggleModeInEditor: string[]; showPlanTitle?: boolean; uiCompatibilityNotice?: boolean },
 	view: () => { mode: Mode; title?: string; execution?: PlanExecutionState },
 	selectMode: (mode: Mode, ctx: ExtensionContext) => void,
 ) {
@@ -60,7 +60,7 @@ export function createComposer(
 			disposeComposerStatusFilter = undefined;
 			capable = false;
 			status();
-			if (!noticeShown) {
+			if (!noticeShown && shortcuts.uiCompatibilityNotice !== false) {
 				noticeShown = true;
 				ctx.ui.notify(`Another extension owns Pi's custom editor or fullscreen layout. Pi Plan Build disabled its custom composer and experimental step-by-step panel; Plan and Build workflows remain available through ${shortcuts.toggleMode.length ? `${shortcuts.toggleMode.join(", ")}, ` : ""}/plan, and /build.`, "warning");
 			}

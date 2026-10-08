@@ -72,6 +72,18 @@ Other prompt-cache tips:
 - **Same model and thinking level in both modes.** Different models never share a cache, and on some providers (such as Anthropic) a thinking-level change also resets the cached conversation. Keep **Per-mode model/thinking** off, or choose the same pair for both modes, if caching matters more than per-mode models.
 - **Anthropic cache lifetime.** Anthropic's cache expires after about 5 minutes of inactivity by default. Pi can request a 1-hour cache with the `PI_CACHE_RETENTION=long` environment variable; cache writes cost more, so this pays off mainly if you often pause between requests.
 
+## UI compatibility notice
+
+When another extension owns Pi's custom editor or fullscreen layout, Pi Plan Build keeps its optional composer and step panel disabled and shows a compatibility warning. If this reduced UI is intentional, suppress that warning in `~/.pi/agent/pi-plan-build.json` (or `$PI_CODING_AGENT_DIR/pi-plan-build.json`):
+
+```json
+{
+  "uiCompatibilityNotice": false
+}
+```
+
+Run `/reload` after editing the file. The setting defaults to `true`; invalid values warn and fall back to `true`. It suppresses only the compatibility notice, not conflict detection, reduced UI, fallback status, or other warnings. Plan and Build workflows remain available through configured global shortcuts, `/plan`, and `/build`.
+
 ## Shortcut configuration
 
 `/plan-settings` groups **Tab + Alt+M**, **Alt+M only**, **Disabled**, and **Custom (edit config file)** under the **Shortcuts** submenu. The main menu also offers **Default mode**, **Plan title**, **Question tool**, **Stable tool catalog**, and **Per-mode model/thinking**. Saving preserves unrelated settings; cancellation changes nothing. Malformed JSON is never overwritten. Shortcut changes require `/reload`; the question tool is read at load time, so `/plan-settings` saves it and asks for `/reload`; default mode, title, stable tool catalog, and per-mode selection changes apply without reloading. Direct file edits require `/reload`.

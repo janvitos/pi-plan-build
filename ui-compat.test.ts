@@ -510,6 +510,41 @@ test("an editor installed before Pi Plan Build triggers reduced optional UI", as
 	assert.deepEqual(harness.editorCalls, []);
 });
 
+test("compatibility notice preference preserves reduced UI across repeated starts", async () => {
+	for (const enabled of [true, false]) {
+		writeConfig({ uiCompatibilityNotice: enabled });
+		const harness = createHarness(() => undefined);
+		for (let session = 1; session <= 2; session++) {
+			await start(harness);
+			assert.equal(harness.notifications.length, enabled ? session : 0);
+			assert.deepEqual(harness.editorCalls, []);
+			assert.match(harness.statuses.at(-1)?.[1] ?? "", /build/);
+			await shutdown(harness);
+		}
+	}
+});
+
+test("suppressed later conflicts still restore the render path and preserve other notices", async () => {
+	writeConfig({ uiCompatibilityNotice: false });
+	const harness = createHarness();
+	await start(harness);
+	assert.notEqual(harness.tui.requestRender, harness.originalRequestRender);
+	harness.setCurrentEditor(() => undefined);
+	await harness.handlers.get("before_agent_start")?.({}, harness.ctx);
+	assert.equal(harness.notifications.length, 0);
+	assert.match(harness.statuses.at(-1)?.[1] ?? "", /build/);
+	assert.equal(harness.tui.requestRender, harness.originalRequestRender);
+	await shutdown(harness);
+	assert.equal(harness.editorCalls.includes(undefined), false);
+
+	writeConfig({ uiCompatibilityNotice: false, showPlanTitle: "invalid" });
+	const reloaded = createHarness(() => undefined);
+	await start(reloaded);
+	assert.equal(reloaded.notifications.length, 1);
+	assert.match(reloaded.notifications[0]![0], /showPlanTitle must be a boolean/);
+	assert.deepEqual(reloaded.editorCalls, []);
+});
+
 test("a later decorator that invokes Pi Plan Build's editor retains full optional UI", async () => {
 	const harness = createHarness();
 	await start(harness);
