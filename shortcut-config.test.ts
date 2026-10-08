@@ -69,6 +69,7 @@ test("the question tool defaults on, disables explicitly, and saves without clob
 test("obsolete small-caps settings are ignored", () => {
 	for (const smallCapsPlanTitle of [true, false, "false"]) {
 		assert.deepEqual(parseShortcutConfig({ smallCapsPlanTitle, shortcuts: { toggleMode: [] } }), {
+			uiCompatibilityNotice: true,
 			stableToolCatalog: true,
 			showPlanTitle: true,
 			questionTool: true,
@@ -130,8 +131,23 @@ test("stable tool catalog is on by default, can be disabled, and rejects invalid
 	} finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
 
+test("UI compatibility notices default to enabled and accept only booleans", () => {
+	assert.equal(parseShortcutConfig(undefined).uiCompatibilityNotice, true);
+	for (const enabled of [true, false]) {
+		const parsed = parseShortcutConfig({ uiCompatibilityNotice: enabled });
+		assert.equal(parsed.uiCompatibilityNotice, enabled);
+		assert.equal(parsed.warning, undefined);
+	}
+	for (const invalid of [null, "false", 0, [], {}]) {
+		const parsed = parseShortcutConfig({ uiCompatibilityNotice: invalid });
+		assert.equal(parsed.uiCompatibilityNotice, true);
+		assert.match(parsed.warning ?? "", /uiCompatibilityNotice must be a boolean/);
+	}
+});
+
 test("shortcut defaults preserve Tab and Alt+M", () => {
 	assert.deepEqual(parseShortcutConfig(undefined), {
+		uiCompatibilityNotice: true,
 		stableToolCatalog: true,
 		showPlanTitle: true,
 		questionTool: true,
@@ -152,6 +168,7 @@ test("shortcut configuration accepts remapping and explicit disabling", () => {
 	});
 
 	assert.deepEqual(result, {
+		uiCompatibilityNotice: true,
 		stableToolCatalog: true,
 		showPlanTitle: true,
 		questionTool: true,
@@ -239,6 +256,7 @@ test("shortcut configuration reads the Pi agent directory and fails safely", () 
 	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-plan-build-shortcuts-"));
 	try {
 		assert.deepEqual(loadShortcutConfig(dir), {
+			uiCompatibilityNotice: true,
 			stableToolCatalog: true,
 			showPlanTitle: true,
 			questionTool: true,
